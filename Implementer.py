@@ -25,8 +25,8 @@ transform_opt = "transform-interpreter"
 transform_opts = [
     f"--{transform_opt}",
     "--func-bufferize",
-    "--canonicalize",
     "--buffer-deallocation",
+    "--convert-linalg-to-loops",
 ]
 
 lowering_opts = [
@@ -35,7 +35,6 @@ lowering_opts = [
     # "--canonicalize",
     # "--test-transform-dialect-erase-schedule",
     "--test-transform-dialect-erase-schedule",
-    "--convert-linalg-to-loops",
     "--convert-scf-to-cf",
     "--canonicalize",
     "--convert-vector-to-llvm=enable-x86vector",
@@ -206,9 +205,9 @@ class Implementer:
         loop_nest = dict()
         current_state = input_var
         tiling_instrs = []
+        vect_instrs = []
         for dim, dims_vector in dims_vectors.items():
             if dim in self.vectorization:
-                tiling_instrs.append(transform.get_vectorize(current_state))
                 break
             new_state, new_loop, new_instr = transform.produce_tiling_instr(
                 current_state=current_state,
@@ -220,6 +219,21 @@ class Implementer:
             loop_nest[dim] = new_loop
             current_state = new_state
 
+        parent, parent_instr = transform.get_parent(current_state)
+        tiling_instrs.append(parent_instr)
+        tiling_instrs += transform.tiling_apply_patterns(parent)
+
+        if self.vectorization:
+            vect_instrs += [transform.get_vectorize(current_state)]
+            # vectorized,vectorize = transform.get_vectorize_children(parent)
+            # vect_instrs.append(vectorize)
+            vect_instrs += transform.vector_apply_patterns(parent)
+        else:
+            scalarized, scalarization = transform.get_scalarize(current_state)
+            vect_instrs.append(scalarization)
+            current_state = scalarized
+            # tiling_instrs.append(transform.get_vectorize(current_state))
+
         # Produce the unrolling instructions
         unroll_instrs = [
             transform.get_unroll(loop=loop_nest[dim], factor=factor)
@@ -229,6 +243,7 @@ class Implementer:
         lines = (
             [seq_sig, "{"]
             + tiling_instrs
+            + vect_instrs
             + unroll_instrs
             + [transform.get_terminator(), "}"]
         )

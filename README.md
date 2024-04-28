@@ -48,3 +48,9 @@ Use exploration script, for instance random 100 points for a simple matmul tilin
 Use exploration script, for instance on input data generated on some tvm search (3D tiling + permutations):
 
     ./explore.py --debug --dims 256 256 512 --strategy tile4d --search data --data data/tvm_results.mm06.csv --output results.mm06.csv
+
+## Issues
+
+### Scalar FMAs
+
+The option ```--math-uplift-to-fma``` combines arith operations into ```math.fma``` if the flag ```fast``` is set, but how to generate the latter ?
