@@ -41,6 +41,11 @@ make install
 pip install -r requirements.txt
 ```
 
+For using tvm backend, install TVM and do (on pinocchio use for instance TVM installed in `/opt/local/tvm/tvm-v0.16.0.rc0/`):
+```
+pip install -r tvm_requirements.txt
+export PYTHONPATH=/path_to_tvm/python
+```
 
 ## Use it
 
@@ -57,6 +62,24 @@ Use exploration script, for instance on input data generated on some tvm search 
 
     ./explore.py --debug --dims 256 256 512 --strategy tile4d --search data --data data/tvm_results.mm06.csv --output results.mm06.csv
 
+Use exhaustive search on a tiling strategy limited to tile4d + only vectorized tilings:
+
+    # MLIR backend
+    ./explore.py --debug --dims 256 256 512 --strategy tile4dv --search exhaustive --backend mlir --output results.mm06-tile4dv.csv
+    # TVM backend
+    ./explore.py --debug --dims 256 256 512 --strategy tile4dv --search exhaustive --backend mlir --output results.mm06-tile4dv-tvm.csv
+
+Test a single tiling with mlir backend and tvm backend:
+
+    # Dumps and execute MLIR tiling
+    ./explore.py --dump --debug --dims 256 256 512 --strategy tile4d --test 4 64 8 4
+    ...
+    INFO:__main__:Schedule: [4, 64, 8, 4]: time: 1.89 msecs, peak perf: 26.38%
+    # Dumps and execute TVM tiling
+    ./explore.py --backend tvm --dump --debug --dims 256 256 512 --strategy tile4d --test 4 64 8 4
+    ...
+    INFO:__main__:Schedule: [4, 64, 8, 4]: time: 0.61 msecs, peak perf: 82.08%
+
 
 ## Display
 
@@ -68,6 +91,9 @@ Comparative performance distribution in `data/results.mm06.svg` were generated w
 
     ./display-results.py --output data/results.mm06.svg --title "Exhaustive 1-level tiling + reorder (i,j,k, order) of 256x256x512 matmul" data/tvm_results.mm06.csv:tvm data/mlir_results.mm06.csv:mlir:X:peak
 
+Comparative performance distribution on til24dv tilings for mlir and tvm backends:
+
+    ./display-results.py  --output data/results.mm06-tile4dv.svg --title "Exhaustive 1-level tiling + reorder (i,j,k, order) of 256x256x512 vectorized matmul" data/results.mm06-tile4dv-tvm.csv:tvm:X:peak data/results.mm06-tile4dv.csv:mlir:X:peak
 
 ## Issues
 

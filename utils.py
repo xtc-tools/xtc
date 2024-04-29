@@ -98,3 +98,26 @@ def factors_to_sizes(splits: List[int]) -> List[int]:
 def mulall(args: List[int]) -> int:
     """Multiply all args in list"""
     return reduce(operator.mul, args, 1)
+
+
+class LazyImport:
+    """
+    Lazy load module:
+
+        math = LazyLoader("math")
+        math.cell(1.7)
+
+    Ref to: https://stackoverflow.com/questions/4177735/best-practice-for-lazy-loading-python-modules
+    """
+
+    def __init__(self, modname):
+        self._modname = modname
+        self._mod = None
+
+    def __getattr__(self, attr):
+        """Import module on first attribute access"""
+        if self._mod is None:
+            import importlib
+
+            self._mod = importlib.import_module(self._modname)
+        return getattr(self._mod, attr)
