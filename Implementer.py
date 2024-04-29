@@ -234,10 +234,12 @@ class Implementer:
             current_state = scalarized
             # tiling_instrs.append(transform.get_vectorize(current_state))
 
-        # Produce the unrolling instructions
+        # Produce the unrolling instructions (prevent unrolling of
+        # "single tiles" : automatically performed
         unroll_instrs = [
             transform.get_unroll(loop=loop_nest[dim], factor=factor)
             for dim, factor in self.unrolling.items()
+            if factor > 1
         ]
 
         lines = (
