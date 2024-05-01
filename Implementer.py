@@ -213,32 +213,39 @@ class Implementer:
                 dims_vector=dims_vector,
                 parallel=dim in self.parallelization,
             )
-
-            tiling_instrs.append(new_instr)
+            annot = transform.annotate(new_loop, dim)
+            tiling_instrs += [new_instr + annot]
             loop_nest[dim] = new_loop
             current_state = new_state
 
         parent, parent_instr = transform.get_parent(current_state)
+        # parent, parent_instr = transform.get_parent(list(loop_nest.values())[1])
         tiling_instrs.append(parent_instr)
         tiling_instrs += transform.tiling_apply_patterns(parent)
 
         if len(self.vectorization) == 0:
+            # TODO : constraint non-vector fmas ?
             scalarized, scalarization = transform.get_scalarize(current_state)
-            vect_instrs.append(scalarization)
-            current_state = scalarized
 
-        vect_instrs += [transform.get_vectorize(current_state)]
-        # vectorized,vectorize = transform.get_vectorize_children(parent)
-        # vect_instrs.append(vectorize)
-        vect_instrs += transform.vector_apply_patterns(parent)
+        vectorized, vectorize = transform.get_vectorize_children(parent)
+        apply_patterns0 = transform.vector_pre_hoist_apply_patterns(vectorized)
+        hoisted, hoist = transform.vector_hoist(vectorized)
+        lower_contract = transform.vector_lower_outerproduct_patterns(hoisted)
+        vect_instrs += [vectorize] + apply_patterns0 + [hoist] + lower_contract
+
+        unroll_instrs = []
+        for dim, factor in self.unrolling.items():
+            loop, match_loop = transform.match_by_attribute(hoisted, dim)
+            unroll = transform.get_unroll(loop, factor)
+            unroll_instrs += [match_loop, unroll]
 
         # Produce the unrolling instructions (prevent unrolling of
         # "single tiles" : automatically performed
-        unroll_instrs = [
-            transform.get_unroll(loop=loop_nest[dim], factor=factor)
-            for dim, factor in self.unrolling.items()
-            if factor > 1
-        ]
+        # unroll_instrs = [
+        #     transform.get_unroll(loop=loop_nest[dim],factor=factor)
+        #     for dim,factor in self.unrolling.items() if factor > 1
+        # ]
+        # unroll_instrs = []
 
         lines = (
             [seq_sig, "{"]

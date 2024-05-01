@@ -12,9 +12,17 @@ pip install -e .
 
 ### Install the right version of MLIR
 
+Choose the commit for which xdsl is made (patches are in the directory
+xdsl-transform/patches):
 ```
 git clone git@github.com:llvm/llvm-project.git
 cd llvm-project
+git checkout 98e674c9f16d677d95c67bc130e267fae331e43c
+git apply /path/to/each/patch
+```
+
+Compile MLIR:
+```
 mkdir build
 cd build
 cmake -DLLVM_ENABLE_PROJECTS=mlir -DLLVM_BUILD_EXAMPLES=ON \

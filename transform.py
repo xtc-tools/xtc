@@ -160,6 +160,23 @@ def produce_tiling_instr(current_state, dims_vector, parallel=False):
     return new_state, new_loop, str_tile
 
 
+def annotate(op, annotation):
+    return "transform.annotate " + op + '"' + annotation + '"' + ": !transform.any_op"
+
+
+def match_by_attribute(op, attr):
+    nvar = get_new_var()
+    return nvar, (
+        nvar
+        + " = transform.structured.match "
+        + 'attributes{"'
+        + attr
+        + '"} in '
+        + op
+        + ": (!transform.any_op) -> !transform.any_op"
+    )
+
+
 def produce_parallel_tiling_instr(
     current_state,
     dims_vector,
@@ -185,9 +202,41 @@ def apply_patterns(hl_var, patterns):
         ]
         + patterns
         + [
-            "} : !transform.any_op",
+            "} {apply_cse} : !transform.any_op",
         ]
     )
+
+
+def vector_pre_hoist_apply_patterns(hl_var):
+    hl_patterns0 = apply_patterns(
+        hl_var,
+        [
+            "transform.apply_patterns.memref.fold_memref_alias_ops",
+            "transform.apply_patterns.canonicalization",
+        ],
+    )
+    return hl_patterns0
+
+
+def vector_lower_outerproduct_patterns(hl_var):
+    hl_patterns0 = apply_patterns(
+        hl_var,
+        [
+            "transform.apply_patterns.vector.lower_outerproduct",
+            'transform.apply_patterns.vector.lower_contraction lowering_strategy = "outerproduct"',
+            "transform.apply_patterns.canonicalization",
+        ],
+    )
+    return hl_patterns0
+
+
+def vector_hoist(hl_var):
+    nvar = get_new_var()
+    hoist = (
+        f"{nvar} = transform.structured.hoist_redundant_vector_transfers "
+        + f"{hl_var} : (!transform.any_op) -> !transform.any_op"
+    )
+    return nvar, hoist
 
 
 def tiling_apply_patterns(hl_var):
