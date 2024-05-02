@@ -6,17 +6,37 @@
 """
 Explore tilings for a matmult
 
-The tiling strategy used is inspired from TVM Ansor:
-- Tile all parallel axes at 4 levels
-- Tile all reduction axes at 2 levels
-- Order as PPRPRP where P are parallel axes and R reduction axes
-- Always parallelize the outer level
-- Always vectorize the inner level
-- Always unroll the two-inner levels
-
 Matmult is defined as :
 - dimensions in order: i, j, k
-- C[i, j] += A[i,k] * B[k,j], i.e. k is the reduction axis
+- C[i, j] += A[i,k] * B[k,j]
+- k is the reduction axis
+- j is the vectorizable axis
+
+Different tiling strategies are available:
+- tile3d: 3D input vector for 1-level tiling of the three axes
+  - filter only inner 3D tile with number of vector ops <= 1024
+  - axes order i, k, j, i1, k1, j1
+  - paralleliwe outer axe
+  - unroll i1 and k1
+  - vectorize j1
+
+- tile4d: 4D input vector for 1-level tiling + ordering of the three axes
+  - filter only inner 3D tile with number of vector ops <= 1024
+  - axes order i, j, k + order(i1, k1, j1)
+  - paralleliwe outer axes i and j
+  - unroll inner axes i1, j1, k1
+  - vectorize j1 if inner
+
+- tile4dv: 4D input vector for 1-level tiling + ordering of the three axes + vectorization
+  - same as tile4d and filter only orders were j1 is inner and >= 16 elts
+
+- tile7d: 7D input vector with fixed ordering strategy inspired from Ansor sketches
+  - tile all parallel axes at 4 levels
+  - tile all reduction axes at 2 levels
+  - order as PPRPRP where P are parallel axes and R reduction axes
+  - parallelize the outer P level
+  - vectorize the inner axis
+  - Always unroll the inner RP levels
 
 """
 
@@ -116,7 +136,7 @@ def tile_strategy_3d(impl, op_args, in_x):
     impl.unroll(unroll_axes)
 
 
-def tile_generator_3d(op_args):
+def tile_generator_3d(op_args, size=None):
     i, j, k, dtype = op_args
     tiles_i = [t[0] for t in utils.factors_enumeration(i, 1)]
     tiles_j = [t[0] for t in utils.factors_enumeration(j, 1)]
@@ -125,9 +145,9 @@ def tile_generator_3d(op_args):
     all_in_x = list(itertools.product(*all_tiles))
     logger.debug(f"Total space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
     # Filter out last level if > 1024 vector elems
-    all_in_x = [x for x in all_in_x if utils.mulall(x) <= 1024 / min(x[1], 16)]
+    all_in_x = [x for x in all_in_x if utils.mulall(x) / min(x[1], 16) <= 1024]
     logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    return all_in_x
+    return np.array(all_in_x)
 
 
 _tile_strategy_4d_permutations = None
@@ -178,7 +198,7 @@ def tile_strategy_4d(impl, op_args, in_x):
     impl.unroll(unroll_axes)
 
 
-def tile_generator_4d(op_args):
+def tile_generator_4d(op_args, size=None):
     i, j, k, dtype = op_args
     tiles_i = [t[0] for t in utils.factors_enumeration(i, 1)]
     tiles_j = [t[0] for t in utils.factors_enumeration(j, 1)]
@@ -195,20 +215,99 @@ def tile_generator_4d(op_args):
         if utils.mulall(x[:-1]) / min(x[1], max((x[-1] in [1, 4]) * 16, 1)) <= 1024
     ]
     logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    return all_in_x
+    return np.array(all_in_x)
 
 
-def tile_generator_4dv(op_args):
+def tile_generator_4dv(op_args, size=None):
     i, j, k, dtype = op_args
     all_in_x = tile_generator_4d(op_args)
     # Keep only vectorized dims, i.e. x[-1] in [1, 4] and tile j >= 16
     all_in_x = [x for x in all_in_x if (x[-1] in [1, 4] and x[1] >= 16)]
     logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    return all_in_x
+    return np.array(all_in_x)
+
+
+def tile_strategy_7d(impl, op_args, in_x):
+    # TODO: generalize: no need to be matmul specific as soon as
+    # we have axes names
+    i, j, k, dtype = op_args
+    tiles_i = utils.factors_to_sizes(in_x[0:3])
+    tiles_j = utils.factors_to_sizes(in_x[3:6])
+    tiles_k = utils.factors_to_sizes(in_x[6:7])
+    tiles_i_dict = {f"i{i + 1}": v for i, v in enumerate(tiles_i)}
+    tiles_j_dict = {f"j{i + 1}": v for i, v in enumerate(tiles_j)}
+    tiles_k_dict = {f"k{i + 1}": v for i, v in enumerate(tiles_k)}
+    axes_order = ["i", "j", "i1", "j1", "k", "i2", "j2", "k1", "i3", "j3"]
+    vector_axes = axes_order[-1:]
+    parallel_axes = None
+    if THREADS > 1:
+        parallel_axes = axes_order[:2]
+    unroll_axes = {"i3": tiles_i[-1], "k1": tiles_k[-1]}
+    logger.debug(
+        "input: %s: tile i: %s, j: %s, k: %s, order: %s, vector: %s, parallel: %s, unroll: %s",
+        in_x,
+        tiles_i_dict,
+        tiles_j_dict,
+        tiles_k_dict,
+        axes_order,
+        vector_axes,
+        parallel_axes,
+        unroll_axes,
+    )
+    impl.tile("i", tiles_i_dict)
+    impl.tile("j", tiles_j_dict)
+    impl.tile("k", tiles_k_dict)
+    impl.interchange(axes_order)
+    if parallel_axes is not None:
+        impl.parallelize(parallel_axes)
+    impl.vectorize(vector_axes)
+    impl.unroll(unroll_axes)
+
+
+def tile_generator_7d(op_args, size=None):
+    i, j, k, dtype = op_args
+    tiles_i = utils.factors_enumeration(i, 3)
+    tiles_j = utils.factors_enumeration(j, 3)
+    tiles_k = utils.factors_enumeration(k, 1)
+    all_tiles = tiles_i + tiles_j + tiles_k
+    space_size = len(tiles_i) * len(tiles_j) * len(tiles_k)
+    logger.debug(f"Raw space size: {space_size} for problem dims: {i}x{j}x{k}")
+
+    def in_space(x):
+        # Filter out last level if > 1024 vector elems
+        return x[2] * x[5] * x[6] / min(x[5], 16) <= 1024
+
+    if size is None or size >= space_size:
+        logger.debug(f"Generate exhaustive")
+        # Exhaustive
+        for ti in tiles_i:
+            for tj in tiles_j:
+                for tk in tiles_k:
+                    x = ti + tj + tk
+                    if in_space(x):
+                        yield np.array(x)
+    else:
+        logger.debug(f"Generate random {size}")
+        seen = set()
+        noop_num = 0
+        while len(seen) < size and noop_num < 10000:
+            noop_num += 1
+            xi = random.randint(0, len(tiles_i) - 1)
+            xj = random.randint(0, len(tiles_j) - 1)
+            xk = random.randint(0, len(tiles_k) - 1)
+            x = tiles_i[xi] + tiles_j[xj] + tiles_k[xk]
+            if not in_space(x):
+                continue
+            tx = tuple(x)
+            if tx in seen:
+                continue
+            noop_num = 0
+            seen.add(tx)
+            yield np.array(x)
 
 
 def evaluate_one(scheduler, tile_strategy, op_args, in_x, args, callback=None):
-    assert isinstance(in_x, list)
+    assert isinstance(in_x, list), f"X not a list: {in_x} ({type(in_x)})"
     logger.debug(f"Evaluate: {in_x}...")
     impl, op = scheduler(*op_args)
     tile_strategy(impl, op_args, in_x)
@@ -245,16 +344,15 @@ def evaluate_one(scheduler, tile_strategy, op_args, in_x, args, callback=None):
 def evaluate_exhaustive(
     scheduler, tile_strategy, tile_generator, op_args, args, callback=None
 ):
-    all_in_x = tile_generator(op_args)
+    gen_size = args.trials if args.search == "random" else None
+    all_in_x = tile_generator(op_args, size=gen_size)
+    all_in_x = np.array(list(all_in_x))  # convert list or generator to np.array
     if args.search == "random":
-        idxs = np.random.choice(
-            np.arange(len(all_in_x)), size=args.trials, replace=False
-        )
-        all_in_x = np.array(all_in_x)[idxs]
-    elif args.search == "exhaustive":
-        all_in_x = np.array(all_in_x)
-    size = len(all_in_x)
-    logger.debug(f"Search space size: {size}")
+        if len(all_in_x) > args.trials:
+            idxs = np.random.choice(
+                np.arange(len(all_in_x)), size=args.trials, replace=False
+            )
+            all_in_x = all_in_x[idxs]
     results = []
     for in_x in tqdm(all_in_x, smoothing=0):
         result = evaluate_one(
@@ -394,6 +492,10 @@ STRATEGIES = {
     "tile4dv": {
         "strategy": tile_strategy_4d,
         "generator": tile_generator_4dv,
+    },
+    "tile7d": {
+        "strategy": tile_strategy_7d,
+        "generator": tile_generator_7d,
     },
 }
 

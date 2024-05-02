@@ -95,6 +95,13 @@ Test a single tiling with mlir backend and tvm backend:
     ...
     INFO:__main__:Schedule: [4, 64, 8, 4]: time: 0.61 msecs, peak perf: 82.08%
 
+Experiment on tile7d tiling strategy with 5000 points:
+
+    time -p ./explore.py --debug --dims 256 256 512 --strategy tile7d --search random --trials 5000 --output results.mm06-tile7d-5000.csv
+    ...
+    5000/5000 [2:05:48,  1.51s/it]
+    real 7550 secs
+
 
 ## Display
 
