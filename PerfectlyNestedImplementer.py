@@ -21,6 +21,7 @@ class PerfectlyNestedImplementer(AbsImplementer):
         self.parallel_dims = parallel_dims
         self.reduction_dims = reduction_dims
         self.tiles = {k: {k: 1} for k, v in self.dims.items()}
+        self.tile_sizes_cache = {}
         self.permutation = self.get_default_interchange()
         self.vectorization = []
         self.parallelization = []
@@ -33,6 +34,7 @@ class PerfectlyNestedImplementer(AbsImplementer):
         )
 
         # Build the transform vectors corresponding to each tiling instruction
+        positions = {}
         dims_vectors = {}
         for tile_level in range(len(max(self.tiles.values(), key=len))):
             for dim_to_tile, (k, v) in enumerate(self.tiles.items()):
@@ -44,6 +46,7 @@ class PerfectlyNestedImplementer(AbsImplementer):
                     v[dim_name] if i == dim_to_tile else 0
                     for i in range(len(self.tiles))
                 ]
+                positions[dim_name] = dim_to_tile
 
         # Reorder the vectors (according to the permutation)
         dims_vectors = dict([(p, dims_vectors[p]) for p in self.permutation])
@@ -53,16 +56,18 @@ class PerfectlyNestedImplementer(AbsImplementer):
         current_state = input_var
         tiling_instrs = []
         vect_instrs = []
+        loops = []
         for dim, dims_vector in dims_vectors.items():
             # Useless to materialize a loop which will be vectorized
             if dim in self.vectorization:
-                continue
+                break
             # The actual tiling
             current_state, new_loop, new_instr = transform.produce_tiling_instr(
                 current_state=current_state,
                 dims_vector=dims_vector,
                 parallel=dim in self.parallelization,
             )
+            loops.append(new_loop)
             # Name the resulting loop
             annot = transform.annotate(new_loop, dim)
             #
@@ -74,7 +79,7 @@ class PerfectlyNestedImplementer(AbsImplementer):
             current_state = scalarized
 
         # Obtain a handler for patterns application
-        parent, parent_instr = transform.get_parent(current_state)
+        parent, parent_instr = transform.get_parent(loops[0])
         tiling_instrs.append(parent_instr)
 
         # Canonicalize the code produced by the tiling operations
@@ -82,29 +87,27 @@ class PerfectlyNestedImplementer(AbsImplementer):
 
         # Produce the vectorization instructions
         vectorized, vectorize = transform.get_vectorize_children(parent)
-        apply_patterns0 = transform.vector_pre_hoist_apply_patterns(vectorized)
-        # hoisted,hoist = transform.vector_hoist(vectorized)
-        # lower_contract = transform.vector_lower_outerproduct_patterns(hoisted)
-        # vect_instrs += [vectorize] + apply_patterns0 + [hoist] + lower_contract
-        lower_contract = transform.vector_lower_outerproduct_patterns(vectorized)
-        vect_instrs += [vectorize] + apply_patterns0 + lower_contract
+        vect_instrs.append(vectorize)
+        pre_hoist = transform.vector_pre_hoist_apply_patterns(vectorized)
+        vect_instrs += pre_hoist
 
         # Produce the unrolling instructions using the annotations on loops
         unroll_instrs = []
         for dim, factor in self.unrolling.items():
-            # loop,match_loop = transform.match_by_attribute(hoisted,dim)
             loop, match_loop = transform.match_by_attribute(vectorized, dim)
             unroll = transform.get_unroll(loop, factor)
             unroll_instrs += [match_loop, unroll]
 
-        hoisted, get_hoist = transform.vector_meta_hoist(vectorized)
+        hoisted, get_hoist = transform.vector_hoist(vectorized)
+        get_lower = transform.vector_lower_outerproduct_patterns(hoisted)
 
         lines = (
             [seq_sig, "{"]
             + tiling_instrs
             + vect_instrs
             + unroll_instrs
-            + get_hoist
+            + [get_hoist]
+            + get_lower
             + [transform.get_terminator(), "}"]
         )
         return sym_name, "\n".join(lines)
@@ -127,6 +130,10 @@ class PerfectlyNestedImplementer(AbsImplementer):
         dim: str,
         tiles: dict[str, int],
     ):
+        #
+        for k, v in tiles.items():
+            self.tile_sizes_cache[k] = v
+        #
         ndims = list(tiles.keys())
         tiles_sizes = list(tiles.values())
 
@@ -143,10 +150,23 @@ class PerfectlyNestedImplementer(AbsImplementer):
             self.tiles[dim][d] = s
         self.permutation = self.get_default_interchange()
 
+        if dim in self.parallel_dims:
+            self.parallel_dims += ndims
+        if dim in self.reduction_dims:
+            self.reduction_dims += ndims
+
     def interchange(self, permutation: list[str]):
         self.permutation = permutation
 
     def vectorize(self, vectorization: list[str]):
+        for d in vectorization:
+            vector_size = self.tile_sizes_cache[d]
+            vector_index = self.permutation.index(d)
+            assert vector_index > 0
+            containing_dim = self.permutation[vector_index - 1]
+            for ad, cd in self.tiles.items():
+                if containing_dim in cd:
+                    cd[containing_dim] = vector_size
         self.vectorization = vectorization
 
     def parallelize(self, parallelization: list[str]):
