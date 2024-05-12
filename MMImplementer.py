@@ -24,29 +24,86 @@ class MMImplementer(PerfectlyNestedImplementer):
     ):
         super().__init__(mlir_install_dir, dims, parallel_dims, reduction_dims)
 
-    def payload(self, m, elt_type):
+        self.ctx = Context()
+        self.elt_type = F32Type.get(context=self.ctx)
+        self.loc = Location.unknown(self.ctx)
+        self.module = builtin.ModuleOp(loc=self.loc)
+
+    def initialize_tensor(self, shape, value):
+        tensor_type = RankedTensorType.get(
+            shape=shape, element_type=self.elt_type, loc=self.loc
+        )
+        elt = arith.ConstantOp(
+            value=FloatAttr.get(self.elt_type, value, loc=self.loc),
+            result=self.elt_type,
+            loc=self.loc,
+        ).result
+        # TODO strange bug
+        with self.loc as loc:
+            empty = tensor.EmptyOp(shape, self.elt_type)
+            return linalg.fill(elt, outs=[empty])
+
+    # return tensor.SplatOp(tensor_type,elt)
+
+    def build_rtclock(self):
+        f64 = F64Type.get(context=self.ctx)
+        with InsertionPoint.at_block_begin(self.module.body):
+            frtclock = func.FuncOp(
+                name="rtclock",
+                type=FunctionType.get(inputs=[], results=[f64]),
+                visibility="private",
+                loc=self.loc,
+            )
+        return frtclock
+
+    def build_printF64(self):
+        f64 = F64Type.get(context=self.ctx)
+        with InsertionPoint.at_block_begin(self.module.body):
+            fprint = func.FuncOp(
+                name="printF64",
+                type=FunctionType.get(inputs=[f64], results=[]),
+                visibility="private",
+                loc=self.loc,
+            )
+        return fprint
+
+    def payload(self):
         i = self.dims[self.parallel_dims[0]]
         j = self.dims[self.parallel_dims[1]]
         k = self.dims[self.reduction_dims[0]]
-        A_tensor_type = RankedTensorType.get((i, k), elt_type)
-        B_tensor_type = RankedTensorType.get((k, j), elt_type)
-        C_tensor_type = RankedTensorType.get((i, j), elt_type)
-        with InsertionPoint.at_block_begin(m.body):
+        A_tensor_type = RankedTensorType.get(
+            shape=(i, k),
+            element_type=self.elt_type,
+            loc=self.loc,
+        )
+        B_tensor_type = RankedTensorType.get(
+            shape=(k, j),
+            element_type=self.elt_type,
+            loc=self.loc,
+        )
+        C_tensor_type = RankedTensorType.get(
+            shape=(i, j),
+            element_type=self.elt_type,
+            loc=self.loc,
+        )
+        with InsertionPoint.at_block_begin(self.module.body):
             f = func.FuncOp(
                 name=self.payload_name,
                 type=FunctionType.get(
-                    inputs=[A_tensor_type, B_tensor_type], results=[C_tensor_type]
+                    inputs=[A_tensor_type, B_tensor_type, C_tensor_type],
+                    results=[C_tensor_type],
                 ),
+                loc=self.loc,
             )
-        with InsertionPoint(f.add_entry_block()):
+        entry_block = f.add_entry_block(arg_locs=[self.loc, self.loc, self.loc])
+        with InsertionPoint(entry_block):
             A = f.entry_block.arguments[0]
             B = f.entry_block.arguments[1]
-            zero = arith.ConstantOp(
-                value=FloatAttr.get(elt_type, 0.0), result=elt_type
-            ).result
-            C_init = tensor.SplatOp(C_tensor_type, zero)
-            matmul = linalg.matmul(A, B, outs=[C_init])
-            func.ReturnOp([matmul])
+            C_init = f.entry_block.arguments[2]
+            # TODO strange bug
+            with self.loc as loc:
+                matmul = linalg.matmul(A, B, outs=[C_init])
+            func.ReturnOp([matmul], loc=self.loc)
         return f
 
     def uniquely_match(self):
@@ -82,34 +139,56 @@ class MMImplementer(PerfectlyNestedImplementer):
 
         return sym_name, "\n".join(lines)
 
-    def main(self, m, frtclock, fprint, fmatmul, elt_type):
+    def init_payload(self):
+        i = self.dims[self.parallel_dims[0]]
+        j = self.dims[self.parallel_dims[1]]
+        C_tensor_type = RankedTensorType.get(
+            shape=(i, j), element_type=self.elt_type, loc=self.loc
+        )
+        with InsertionPoint.at_block_begin(self.module.body):
+            init_func = func.FuncOp(
+                name=self.init_payload_name,
+                type=FunctionType.get(inputs=[], results=[C_tensor_type]),
+                loc=self.loc,
+            )
+        with InsertionPoint(init_func.add_entry_block()):
+            C = self.initialize_tensor((i, j), 0.0)
+            func.ReturnOp([C], loc=self.loc)
+        return init_func
+
+    def main(self, frtclock, fprint, fmatmul, init_payload):
+        #
         i = self.dims[self.parallel_dims[0]]
         j = self.dims[self.parallel_dims[1]]
         k = self.dims[self.reduction_dims[0]]
-        A_tensor_type = RankedTensorType.get((i, k), elt_type)
-        B_tensor_type = RankedTensorType.get((k, j), elt_type)
-        with InsertionPoint.at_block_begin(m.body):
+        A_tensor_type = RankedTensorType.get(
+            shape=(i, k),
+            element_type=self.elt_type,
+            loc=self.loc,
+        )
+        B_tensor_type = RankedTensorType.get(
+            shape=(k, j),
+            element_type=self.elt_type,
+            loc=self.loc,
+        )
+        with InsertionPoint.at_block_begin(self.module.body):
             fmain = func.FuncOp(
                 name="main",
                 type=FunctionType.get(inputs=[], results=[]),
+                loc=self.loc,
             )
         with InsertionPoint(fmain.add_entry_block()):
             #
-            rand1 = arith.ConstantOp(
-                value=FloatAttr.get(elt_type, numpy.random.random()), result=elt_type
-            ).result
-            A = tensor.SplatOp(A_tensor_type, rand1)
+            A = self.initialize_tensor(shape=(i, k), value=numpy.random.random())
             #
-            rand2 = arith.ConstantOp(
-                value=FloatAttr.get(elt_type, numpy.random.random()), result=elt_type
-            ).result
-            B = tensor.SplatOp(B_tensor_type, rand2)
+            B = self.initialize_tensor(shape=(k, j), value=numpy.random.random())
             #
-            callrtclock1 = func.CallOp(frtclock, [])
-            C = func.CallOp(fmatmul, [A, B])
-            callrtclock2 = func.CallOp(frtclock, [])
-            time = arith.SubFOp(callrtclock2, callrtclock1)
-            func.CallOp(fprint, [time])
-            func.ReturnOp([])
+            callrtclock1 = func.CallOp(frtclock, [], loc=self.loc)
+            C_init = func.CallOp(init_payload, [], loc=self.loc)
+            C = func.CallOp(fmatmul, [A, B, C_init], loc=self.loc)
+            callrtclock2 = func.CallOp(frtclock, [], loc=self.loc)
+            time = arith.SubFOp(callrtclock2, callrtclock1, loc=self.loc)
+            func.CallOp(fprint, [time], loc=self.loc)
+            func.ReturnOp([], loc=self.loc)
 
         return fmain

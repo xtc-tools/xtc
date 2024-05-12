@@ -70,28 +70,6 @@ objdump_color_opts = [
 ]
 
 
-def build_rtclock(m):
-    f64 = F64Type.get()
-    with InsertionPoint.at_block_begin(m.body):
-        frtclock = func.FuncOp(
-            name="rtclock",
-            type=FunctionType.get(inputs=[], results=[f64]),
-            visibility="private",
-        )
-    return frtclock
-
-
-def build_printF64(m):
-    f64 = F64Type.get()
-    with InsertionPoint.at_block_begin(m.body):
-        fprint = func.FuncOp(
-            name="printF64",
-            type=FunctionType.get(inputs=[f64], results=[]),
-            visibility="private",
-        )
-    return fprint
-
-
 class AbsImplementer(ABC):
     count = 0
 
@@ -286,17 +264,11 @@ class AbsImplementer(ABC):
             disassemble_process = self.disassemble(exe_file=exe_dump_file, color=color)
 
     def glue(self):
-        ctx = Context()
-        with Location.unknown(ctx) as loc:
-            elt_type = F32Type.get()
-            m = builtin.ModuleOp()
-            ext_rtclock = build_rtclock(m)
-            ext_printF64 = build_printF64(m)
-            payload_func = self.payload(m, elt_type)
-            init_func = self.init_payload(m, elt_type)
-            main_func = self.main(
-                m, ext_rtclock, ext_printF64, payload_func, init_func, elt_type
-            )
+        ext_rtclock = self.build_rtclock()
+        ext_printF64 = self.build_printF64()
+        payload_func = self.payload()
+        init_func = self.init_payload()
+        main_func = self.main(ext_rtclock, ext_printF64, payload_func, init_func)
         # Glue the module
         # mod = ModuleOp([ext_rtclock,ext_printF64,payload_func,main_func])
         # str_mod = str(mod)
@@ -347,6 +319,14 @@ class AbsImplementer(ABC):
     def materialize_schedule(self):
         pass
 
-    # @abstractmethod
+    @abstractmethod
     def main(self):
+        pass
+
+    @abstractmethod
+    def build_rtclock(self):
+        pass
+
+    @abstractmethod
+    def build_printF64(self):
         pass
