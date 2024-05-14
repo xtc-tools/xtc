@@ -43,6 +43,15 @@ cmake -DLLVM_ENABLE_PROJECTS=mlir -DLLVM_BUILD_EXAMPLES=ON \
   -DCMAKE_EXE_LINKER_FLAGS="-fno-omit-frame-pointer" ../llvm
 make -j4
 make install
+cmake -DLLVM_ENABLE_PROJECTS=clang -DLLVM_BUILD_EXAMPLES=ON \
+  -DCMAKE_INSTALL_PREFIX=$HOME/bin/llvm-xdsl -DCMAKE_BUILD_TYPE=Release \
+  -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
+  -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_C_COMPILER=clang \
+  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_ASM_COMPILER=clang \
+  -DCMAKE_SHARED_LINKER_FLAGS="-fno-omit-frame-pointer" \
+  -DCMAKE_EXE_LINKER_FLAGS="-fno-omit-frame-pointer" ../llvm
+make -j4
+make install
 ```
 
 Add the Python bindings to your PYTHONPATH:
@@ -84,7 +93,16 @@ Comparative performance distribution in `data/results.mm06.svg` were generated w
     ./display-results.py --output data/results.mm06.svg --title "Exhaustive 1-level tiling + reorder (i,j,k, order) of 256x256x512 matmul" data/tvm_results.mm06.csv:tvm data/mlir_results.mm06.csv:mlir:X:peak
 
 
-## Issues
+## Notes
+
+### Compile & link
+
+After compilation using Python:
+```
+~/bin/llvm-xdsl/bin/clang /tmp/dump.bc ~/bin/llvm-xdsl/lib/libmlir_c_runner_utils.so -o /tmp/test
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/hpompougnac/bin/llvm-xdsl/lib/
+/tmp/test
+```
 
 ### Scalar FMAs
 
