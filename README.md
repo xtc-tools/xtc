@@ -65,6 +65,11 @@ export PYTHONPATH=$PYTHONPATH:$HOME/bin/llvm-xdsl/python_packages/mlir_core
 pip install -r requirements.txt
 ```
 
+For using tvm backend, install TVM and do (on pinocchio use for instance TVM installed in `/opt/local/tvm/tvm-v0.16.0.rc0/`):
+```
+pip install -r tvm_requirements.txt
+export PYTHONPATH=/path_to_tvm/python
+```
 
 ## Use it
 
@@ -77,21 +82,64 @@ Use exploration script, for instance random 100 points for a simple matmul tilin
 
     ./explore.py --debug --search random --trials 100 --output results.random.csv
 
-Use exploration script, for instance on input data generated on some tvm search (3D tiling + permutations):
+Use exploration script, for instance on input data generated on some tvm search (3D tiling + permutations), 2054 points here:
 
-    ./explore.py --debug --dims 256 256 512 --strategy tile4d --search data --data data/tvm_results.mm06.csv --output results.mm06.csv
+    time -p ./explore.py --debug --dims 256 256 512 --strategy tile4d --search data --data data/tvm_results.mm06.csv --output data/results.mm06-tile4d.csv
+    ...
+    2054/2054 [55:54,  1.63s/it]
+    real 3356 secs
+
+With TVM:
+
+    tile -p ./explore.py --debug --backend tvm --dims 256 256 512 --strategy tile4d --search data --data data/tvm_results.mm06.csv --output data/results.mm06-tile4d-tvm.csv
+    ...
+    2054/2054 [4:55,  8.65s/it]
+    real 17765 secs
+
+Use exhaustive search on a tiling strategy limited to tile4d + only vectorized tilings (450 points):
+
+    # MLIR backend
+    time -p ./explore.py --debug --dims 256 256 512 --strategy tile4dv --search exhaustive --backend mlir --output data/results.mm06-tile4dv.csv
+    ...
+    450/450 [06:47,  1.10it/s]
+    real 409 secs
+    # TVM backend
+    ./explore.py --debug --dims 256 256 512 --strategy tile4dv --search exhaustive --backend tvm --output data/results.mm06-tile4dv-tvm.csv
+    450/450 [15:59,  2.13s/it]
+    real 964.05
+
+Test a single tiling with mlir backend and tvm backend:
+
+    # Dumps and execute MLIR tiling
+    ./explore.py --dump --debug --dims 256 256 512 --strategy tile4d --test 4 64 8 4
+    ...
+    INFO:__main__:Schedule: [4, 64, 8, 4]: time: 1.89 msecs, peak perf: 26.38%
+    # Dumps and execute TVM tiling
+    ./explore.py --backend tvm --dump --debug --dims 256 256 512 --strategy tile4d --test 4 64 8 4
+    ...
+    INFO:__main__:Schedule: [4, 64, 8, 4]: time: 0.61 msecs, peak perf: 82.08%
+
+Experiment on tile7d tiling strategy with 5000 points:
+
+    time -p ./explore.py --debug --dims 256 256 512 --strategy tile7d --search random --trials 5000 --output results.mm06-tile7d-5000.csv
+    ...
+    5000/5000 [2:05:48,  1.51s/it]
+    real 7550 secs
 
 
 ## Display
 
-Result of exploration in `data/mlir_results.mm06.csv` on revision `2b0688cc` were generated with:
+Result of exploration and display in `data/mlir_results.mm06-tile4d-all.svg` were generated with:
 
-    ./explore.py --debug --dims 256 256 512 --strategy tile4d --search data --data data/tvm_results.mm06.csv --output data/mlir_results.mm06.csv
+    ./explore.py --debug --dims 256 256 512 --strategy tile4d --search exhaustive --backend mlir --output data/results.mm06-tile4d.csv
+    ./explore.py --debug --dims 256 256 512 --strategy tile4d --search exhaustive --backend tvm --output data/results.mm06-tile4d-tvm.csv
+    ./display-results.py --output data/results.mm06-tile4d-all.svg --title "Exhaustive 1-level tiling + reorder (i,j,k, order) of 256x256x512 matmul" data/results.mm06-tile4d-tvm.csv:tvm:X:peak data/results.mm06-tile4d.csv:mlir:X:peak
 
-Comparative performance distribution in `data/results.mm06.svg` were generated with the display script:
+Comparative performance distribution on til24dv tilings for mlir and tvm backends in `data/mlir_results.mm06-tile4dv-all.svg` were generated with:
 
-    ./display-results.py --output data/results.mm06.svg --title "Exhaustive 1-level tiling + reorder (i,j,k, order) of 256x256x512 matmul" data/tvm_results.mm06.csv:tvm data/mlir_results.mm06.csv:mlir:X:peak
-
+    ./explore.py --debug --dims 256 256 512 --strategy tile4dv --search exhaustive --backend mlir --output data/results.mm06-tile4dv.csv
+    ./explore.py --debug --dims 256 256 512 --strategy tile4dv --search exhaustive --backend tvm --output data/results.mm06-tile4dv-tvm.csv
+    ./display-results.py  --output data/results.mm06-tile4dv-all.svg --title "Exhaustive 1-level tiling + reorder (i,j,k, order) of 256x256x512 vectorized matmul" data/results.mm06-tile4dv-tvm.csv:tvm:X:peak data/results.mm06-tile4dv.csv:mlir:X:peak
 
 ## Notes
 
