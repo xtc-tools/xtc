@@ -36,7 +36,7 @@ def mm():
 
     impl.tile("i", {"i1": 8})
     impl.tile("j", {"j1": 8})
-    impl.tile("k", {"k1": 16})
+    impl.tile("k", {"k1": 8})
     impl.interchange(["i", "j", "k", "i1", "k1", "j1"])
     impl.vectorize(["j1"])
     impl.parallelize(["i"])
