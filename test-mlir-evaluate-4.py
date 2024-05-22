@@ -1,6 +1,6 @@
-from setup_mlir_mm import mm
+from setup_mlir_mm import mm4
 
-impl = mm()
+impl = mm4()
 
 e = impl.evaluate(
     print_source_ir=False,

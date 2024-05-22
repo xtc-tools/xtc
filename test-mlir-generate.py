@@ -1,6 +1,6 @@
-from setup_mlir_mm import mm
+from setup_mlir_mm import mm1
 
-impl = mm()
+impl = mm1()
 
 mlircode = impl.generate_without_compilation()
 print(mlircode)

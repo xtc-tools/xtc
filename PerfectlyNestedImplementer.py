@@ -202,6 +202,7 @@ class PerfectlyNestedImplementer(AbsImplementer):
 
     def vectorize(self, vectorization: list[str]):
         self.vectorization = vectorization
+        self.propagate_vectorization()
 
     def parallelize(self, parallelization: list[str]):
         for p in parallelization:
@@ -210,9 +211,21 @@ class PerfectlyNestedImplementer(AbsImplementer):
 
     def unroll(self, unrolling: dict[str, int]):
         self.unrolling = unrolling
+        self.propagate_vectorization()
 
-    def exclusive_interval_contains_reduction_axis(self, dim1, dim2):
-        pass
+    def propagate_vectorization(self):
+        nvect = []
+        for v in self.vectorization:
+            ind = self.permutation.index(v)
+            for i in list((range(0, ind)))[::-1]:
+                dim = self.permutation[i]
+                if dim in self.reduction_dims or dim in self.vectorization:
+                    break
+                elif dim in self.unrolling:
+                    nvect.append(dim)
+        for nv in nvect:
+            self.vectorization.append(nv)
+            self.unrolling.pop(nv)
 
     @abstractmethod
     def payload(self, m, elt_type):

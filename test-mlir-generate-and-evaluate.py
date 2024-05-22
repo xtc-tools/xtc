@@ -1,8 +1,8 @@
-from setup_mlir_mm import mm
+from setup_mlir_mm import mm1
 
 source_path = "/tmp/test.mlir"
 
-impl = mm()
+impl = mm1()
 
 e = impl.evaluate(
     print_source_ir=False,
