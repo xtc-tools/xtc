@@ -221,10 +221,10 @@ class PerfectlyNestedImplementer(AbsImplementer):
             ind = self.permutation.index(v)
             for i in list((range(0, ind)))[::-1]:
                 dim = self.permutation[i]
-                if dim in self.reduction_dims or dim in self.vectorization:
-                    break
-                elif dim in self.unrolling:
+                if dim in self.unrolling and dim in self.parallel_dims:
                     nvect.append(dim)
+                else:
+                    break
         for nv in nvect:
             self.vectorization.append(nv)
             self.unrolling.pop(nv)
