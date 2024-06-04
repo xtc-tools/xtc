@@ -227,17 +227,13 @@ class TransformAdaptor:
 
 
 class Implementer:
-    target_triple = None  # default to host
-    target_arch = "native"
-    save_temps = False
-    save_temps_dir = "./save_temps_dir"
-
     def __init__(
         self,
         source_op: Operation,
         dims: dict[str, int],
         jir_install_dir: str,
         geist_install_dir: str,
+        **kwargs,
     ) -> None:
         self.source_op = source_op
         self.args = self.source_op.args
@@ -257,6 +253,12 @@ class Implementer:
             self.source_op.generate()
         )
         self.transformer = TransformAdaptor(source_op, self.dims)
+        self._target_triple = kwargs.get("target_triple") or get_host_target_triple(
+            self.jir_install_dir
+        )
+        self._target_arch = kwargs.get("target_arch") or "native"
+        self._save_temps = kwargs.get("save_temps", False)
+        self._save_temps_dir = kwargs.get("save_temps_dir") or "./save_temps_dir"
 
     def _get_op_function_mlir(self) -> str:
         if self._op_function_mlir is not None:
@@ -266,28 +268,22 @@ class Implementer:
         return self._op_function_mlir
 
     def _generate_module_for(self, ctx: JIRFunctionContext) -> ModuleOp:
-        target_triple = (
-            self.target_triple
-            if self.target_triple is not None
-            else get_host_target_triple(self.jir_install_dir)
-        )
         computations = JIRComputationFunctionCallProviderForXDSL()
         function_translator = JIR2XDSLFunctionTranslator(
             computations, JIRBackendTargetProperties(vector_size=4)
         )
         fn = function_translator(ctx.function, function_ctx=ctx)
         module_attr = dict()
-        if target_triple:
-            module_attr["llvm.target_triple"] = StringAttr(target_triple)
+        module_attr["llvm.target_triple"] = StringAttr(self._target_triple)
         return ModuleOp(
             [fn, *computations.function_declarations], attributes=module_attr
         )
 
     def _save_temp(self, fname: str, content: str) -> None:
-        if not self.save_temps:
+        if not self._save_temps:
             return
-        os.makedirs(self.save_temps_dir, exist_ok=True)
-        with open(f"{self.save_temps_dir}/{fname}", "w") as outf:
+        os.makedirs(self._save_temps_dir, exist_ok=True)
+        with open(f"{self._save_temps_dir}/{fname}", "w") as outf:
             outf.write(content)
 
     def default_transform(self) -> None:
@@ -359,15 +355,13 @@ class Implementer:
         assert not executable, "TODO: executable output not implemented"
         assert shared_lib, "TODO: shared_lib mandatory"
         module = self.compile_jir_module()
-        target_triple = self.target_triple
-        target_arch = self.target_arch
         mlir_lowering = MLIRLowering(f"{self.jir_install_dir}/bin/mlir-opt")
         mlir2llvm = MLIR2LLVMConversion(f"{self.jir_install_dir}/bin/mlir-translate")
         llvm_compiler = LLVMSharedLibraryCompiler(
             f"{self.jir_install_dir}/bin/clang",
             f"{self.jir_install_dir}/lib",
-            target_triple,
-            target_arch,
+            self._target_triple,
+            self._target_arch,
         )
         computation_primitives = self._get_op_function_mlir()
         computation_module = str(

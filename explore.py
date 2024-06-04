@@ -71,7 +71,7 @@ def xdsl_matmul(i, j, k, ftype):
     return matmul
 
 
-def xdsl_matmul_sched(i, j, k, ftype):
+def xdsl_matmul_sched(i, j, k, ftype, args):
     from XdslImplementer import XdslImplementer as impl
 
     op_matmul = xdsl_matmul(i, j, k, ftype)
@@ -85,7 +85,7 @@ def xdsl_matmul_sched(i, j, k, ftype):
     return sched, op_matmul, "xdsl"
 
 
-def mlir_matmul_sched(i, j, k, ftype):
+def mlir_matmul_sched(i, j, k, ftype, args):
     from MlirImplementer import MlirImplementer as impl
 
     op_matmul = xdsl_matmul(i, j, k, ftype)
@@ -106,7 +106,7 @@ def tvm_matmul(i, j, k, ftype):
     return operation
 
 
-def tvm_matmul_sched(i, j, k, ftype):
+def tvm_matmul_sched(i, j, k, ftype, args):
     import TVMImplementer as impl
 
     op_matmul = tvm_matmul(i, j, k, ftype)
@@ -124,7 +124,7 @@ def jir_matmul(i, j, k, ftype):
     return impl.Operation(impl.Operators.matmul, (i, j, k, DTYPES_MAP[ftype]))
 
 
-def jir_matmul_sched(i, j, k, ftype):
+def jir_matmul_sched(i, j, k, ftype, args):
     import JIRImplementer as impl
 
     op = jir_matmul(i, j, k, ftype)
@@ -137,6 +137,8 @@ def jir_matmul_sched(i, j, k, ftype):
         dims=dims,
         jir_install_dir=jir_install_dir,
         geist_install_dir=geist_install_dir,
+        save_temps=args.save_temps,
+        save_temps_dir=args.save_temps_dir,
     )
     # sched.save_temps = True
     return sched, op, "jir"
@@ -379,7 +381,7 @@ def get_eval_parameters(args):
 
 def evaluate_one(scheduler, tile_strategy, op_args, in_x, args, callback=None):
     assert isinstance(in_x, list), f"X not a list: {in_x} ({type(in_x)})"
-    impl, op, backend = scheduler(*op_args)
+    impl, op, backend = scheduler(*op_args, args)
     logger.debug(f"Evaluate: {backend}: {in_x}...")
     tile_strategy(impl, op_args, in_x)
     eval_args = {}
@@ -666,6 +668,14 @@ def main():
     )
     parser.add_argument(
         "--validate", action=argparse.BooleanOptionalAction, help="validate results"
+    )
+    parser.add_argument(
+        "--save-temps",
+        action=argparse.BooleanOptionalAction,
+        help="save temps to save temps dir",
+    )
+    parser.add_argument(
+        "--save-temps-dir", type=str, help="save temps dir, default to ./save_temps_dir"
     )
     parser.add_argument(
         "--debug", action=argparse.BooleanOptionalAction, help="debug mode"
