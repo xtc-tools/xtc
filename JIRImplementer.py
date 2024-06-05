@@ -5,12 +5,15 @@
 import os
 import numpy as np
 from typing import Any
+from functools import partial
+from typing import Optional
 
 import utils
 from evaluator import Evaluator, Executor
 from ndarray import NDArray
 
 from JIROps import Operation, Operators
+from JIRScheduler import JIRSchedulerAdaptor
 
 from xdsl.printer import Printer
 from xdsl.dialects.builtin import ModuleOp, StringAttr
@@ -70,163 +73,6 @@ COMMANDS = [
 COMMAND_INDEX = {cmd.command: cmd for cmd in COMMANDS}
 
 
-class TransformAdaptor:
-    def __init__(
-        self,
-        source_op: Operation,
-        dims: dict[str, int],
-    ) -> None:
-        self.source_op = source_op
-        self.dims = dims
-        self.axes_map = {
-            k: v for k, v in zip(dims.keys(), source_op.args_names[: len(self.dims)])
-        }
-        self.reset()
-
-    def reset(self) -> None:
-        self.tiled = {}
-        self.vectorized = []
-        self.parallelized = []
-        self.unrolled = {}
-        self.order = []
-
-    def tile(self, axis: str, tiles: dict[str, int]) -> None:
-        self.tiled[axis] = tiles
-
-    def vectorize(self, axes: list[str]) -> None:
-        self.vectorized = axes
-
-    def parallelize(self, axes: list[str]) -> None:
-        self.parallelized = axes
-
-    def unroll(self, axes_unroll: dict[str, int]) -> None:
-        self.unrolled = axes_unroll
-
-    def interchange(self, axes_order: list[str]) -> None:
-        self.order = axes_order
-
-    def _generate_tiles_cmds(self) -> list[str]:
-        if not self.tiled:
-            return []
-        dims = self._get_tiles_dims()
-        cmds = []
-        for axis, tiles in self.tiled.items():
-            dim_names = [f"{axis}{idx}" for idx in range(1 + len(tiles.keys()))]
-            assert len(dim_names) == 2, f"for now only 1 level tiling supported"
-            if dims[dim_names[-1]] == 1:
-                continue
-            names = [self.axes_map[axis]] + list(tiles.keys())
-            subs = " ".join(dim_names)
-            cmds.extend(
-                [
-                    f"subdim parent={self.axes_map[axis]} sub=[{subs}]",
-                    f"compl dim={dim_names[0]} other={dim_names[1]}",
-                ]
-            )
-            for idx in range(len(names) - 1):
-                tile_cmd = f"tile target={names[idx]} tile={dim_names[idx + 1]} inner={names[idx + 1]}"
-                cmds.append(tile_cmd)
-        return cmds
-
-    def _get_tiles_dims(self) -> dict[str, int]:
-        tiles_dims = {f"{ax}": size for ax, size in self.dims.items()}
-        for axis, tiles in self.tiled.items():
-            for tile, size in tiles.items():
-                tiles_dims[tile] = size
-        return tiles_dims
-
-    def _get_transform_dims(self) -> dict[str, int]:
-        tiles_dims = {}
-        for axis, tiles in self.tiled.items():
-            dim = self.dims[axis]
-            last = f"{axis}0"
-            assert len(tiles.items()) == 1, f"for now only 1 level tiling supported"
-            for tile, size in tiles.items():
-                if size == 1:
-                    break
-                assert dim % size == 0
-                dim = dim // size
-                tiles_dims[last] = dim
-                tiles_dims[tile] = size
-                last = tile
-        return tiles_dims
-
-    def _generate_vector_cmds(self) -> list[str]:
-        dims = self._get_tiles_dims()
-        cmds = [
-            f"update_props target={self.axes_map.get(axis, axis)} vector={dims[axis]}"
-            for axis in self.vectorized
-            if dims[axis] != 1
-        ]
-        return cmds
-
-    def _generate_unroll_cmds(self) -> list[str]:
-        dims = self._get_tiles_dims()
-        cmds = [
-            f"update_props target={self.axes_map.get(axis, axis)} unroll={size}"
-            for axis, size in self.unrolled.items()
-            if dims[axis] != 1
-        ]
-        return cmds
-
-    def _generate_parallel_cmds(self) -> list[str]:
-        dims = self._get_tiles_dims()
-        cmds = [
-            f"update_props target={self.axes_map.get(axis, axis)} parallel"
-            for axis in self.parallelized
-            if dims[axis] != 1
-        ]
-        return cmds
-
-    def _generate_interchange_cmds(self) -> list[str]:
-        def generate_inter(current, order):
-            inter = []
-            assert len(current) == len(order), f"len mismatch {current} and {order}"
-            for idx in range(len(order)):
-                tgt_idx = current.index(order[idx])
-                while tgt_idx != idx:
-                    inter.append(current[tgt_idx - 1])
-                    current[tgt_idx] = current[tgt_idx - 1]
-                    current[tgt_idx - 1] = order[idx]
-                    tgt_idx -= 1
-            assert current == order
-            return inter
-
-        if not self.order:
-            return []
-        current_order = list(self.dims.keys())
-        for axis, tiles in self.tiled.items():
-            idx = current_order.index(axis)
-            for tile in tiles.keys():
-                idx += 1
-                current_order.insert(idx, tile)
-        dims = self._get_tiles_dims()
-        current_order = [axis for axis in current_order if dims[axis] != 1]
-        target_order = [axis for axis in self.order if dims[axis] != 1]
-        inter = generate_inter(current_order, target_order)
-        cmds = [f"interchange target={self.axes_map.get(axis, axis)}" for axis in inter]
-        return cmds
-
-    def generate_transform(self) -> tuple[str, dict[str, int]]:
-        cmds = []
-        transform_dims = self._get_transform_dims()
-        tiles_cmds = self._generate_tiles_cmds()
-        interchange_cmds = self._generate_interchange_cmds()
-        vector_cmds = self._generate_vector_cmds()
-        unroll_cmds = self._generate_unroll_cmds()
-        parallel_cmds = self._generate_parallel_cmds()
-        cmds = [
-            *tiles_cmds,
-            *interchange_cmds,
-            *vector_cmds,
-            *unroll_cmds,
-            *parallel_cmds,
-        ]
-        if cmds:
-            cmds.append("canonicalize")
-        return cmds, transform_dims
-
-
 class Implementer:
     def __init__(
         self,
@@ -250,16 +96,15 @@ class Implementer:
         self._op_function_mlir = None
         self._transformed_jir_function = None
         self._transformed_jir_dims = None
+        self._transformed_jir_cmds = None
         self.op_function, self.jir_function, self.payload_name = (
             self.source_op.generate()
         )
-        self.transformer = TransformAdaptor(source_op, self.dims)
+        self.transformer = JIRSchedulerAdaptor(source_op, self.dims)
         self._target_triple = kwargs.get("target_triple") or get_host_target_triple(
             self.jir_install_dir
         )
         self._target_arch = kwargs.get("target_arch") or "native"
-        self._save_temps = kwargs.get("save_temps", False)
-        self._save_temps_dir = kwargs.get("save_temps_dir") or "./save_temps_dir"
 
     def _get_op_function_mlir(self) -> str:
         if self._op_function_mlir is not None:
@@ -280,44 +125,42 @@ class Implementer:
             [fn, *computations.function_declarations], attributes=module_attr
         )
 
-    def _save_temp(self, fname: str, content: str) -> None:
-        if not self._save_temps:
+    @classmethod
+    def _save_temp(
+        cls, save_temps: bool, save_temps_dir: Optional[str], fname: str, content: str
+    ) -> None:
+        if not save_temps:
             return
-        os.makedirs(self._save_temps_dir, exist_ok=True)
-        with open(f"{self._save_temps_dir}/{fname}", "w") as outf:
+        os.makedirs(save_temps_dir, exist_ok=True)
+        with open(f"{save_temps_dir}/{fname}", "w") as outf:
             outf.write(content)
 
     def default_transform(self) -> None:
         transform_cmds, transform_dims = self.transformer.generate_transform()
         transform_sequence = "".join([f"{t};\n" for t in transform_cmds])
-        self.transform(transform_sequence, transform_dims)
+        self._transform(transform_sequence, transform_dims)
 
-    def transform(
+    def _transform(
         self, transform_sequence: str, transform_dims: dict[str, int]
     ) -> None:
-        self._save_temp("implementer.jir", self.jir_function)
-        self._save_temp("implementer.tjir", transform_sequence)
         dims = {**self.jir_dims, **transform_dims}
-        self._save_temp(
-            "implementer.dims",
-            "".join([f"{dim}={size}\n" for dim, size in dims.items()]),
-        )
         parser = JIRParser()
         formatter = JIRFormatter()
         function = parser(self.jir_function)
-        transform_sequence = parser.parse_transform_sequence(transform_sequence)
-        for cmd in transform_sequence:
+        transform_seq = parser.parse_transform_sequence(transform_sequence)
+        for cmd in transform_seq:
             if cmd.command not in COMMAND_INDEX:
                 raise RuntimeError(f"Unknown command {cmd.command}")
             function = COMMAND_INDEX[cmd.command].run(cmd, function)
         function = canonicalize(function)
-        self._save_temp("implementer.transformed.jir", str(function))
         self._transformed_jir_function = function
         self._transformed_jir_dims = dims
+        self._transformed_jir_cmds = transform_sequence
 
     def reset_schedule(self) -> None:
         self._transformed_jir_function = None
         self._transformed_jir_dims = None
+        self._transformed_jir_cmds = None
         self.transformer.reset()
 
     def tile(self, axis: str, tiles: dict[str, int]) -> None:
@@ -353,9 +196,12 @@ class Implementer:
     def compile(
         self, dump_file=None, debug=False, shared_lib=False, executable=False, **kwargs
     ) -> None:
+        assert dump_file is not None, "dump_file must be passes"
         assert not executable, "TODO: executable output not implemented"
         assert shared_lib, "TODO: shared_lib mandatory"
-        module = self.compile_jir_module()
+        save_temps = kwargs.get("save_temps", False)
+        save_temps_dir = kwargs.get("save_temps_dir") or "./save_temps_dir"
+        save_temp = partial(self._save_temp, save_temps, save_temps_dir)
         mlir_lowering = MLIRLowering(f"{self.jir_install_dir}/bin/mlir-opt")
         mlir2llvm = MLIR2LLVMConversion(f"{self.jir_install_dir}/bin/mlir-translate")
         llvm_compiler = LLVMSharedLibraryCompiler(
@@ -364,15 +210,25 @@ class Implementer:
             self._target_triple,
             self._target_arch,
         )
-        computation_primitives = self._get_op_function_mlir()
-        computation_module = str(
-            merge_mlir_modules_by_content(str(module), computation_primitives)
+        save_temp(f"{dump_file}.jir", str(self.jir_function))
+        module = self.compile_jir_module()
+        save_temp(f"{dump_file}.transformed.jir", str(self._transformed_jir_function))
+        save_temp(f"{dump_file}.tjir", str(self._transformed_jir_cmds))
+        save_temp(
+            f"{dump_file}.dims",
+            "\n".join([f"{k}={v}" for k, v in self._transformed_jir_dims.items()]),
         )
-        self._save_temp("implementer.merged.mlir", computation_module)
+        save_temp(f"{dump_file}.module.mlir", str(module))
+        computation_primitives = self._get_op_function_mlir()
+        save_temp(f"{dump_file}.op.mlir", str(computation_primitives))
+        computation_module = str(
+            merge_mlir_modules_by_content(str(module), str(computation_primitives))
+        )
+        save_temp(f"{dump_file}.merged.mlir", computation_module)
         lowered_computation_module = mlir_lowering(computation_module)
-        self._save_temp("implementer.lowered.mlir", computation_module)
+        save_temp(f"{dump_file}.lowered.mlir", computation_module)
         llvm_computation_module = mlir2llvm(lowered_computation_module)
-        self._save_temp("implementer.lowered.ll", computation_module)
+        save_temp(f"{dump_file}.lowered.ll", computation_module)
         compiled_computation_module = llvm_compiler(llvm_computation_module)
         if dump_file is not None:
             library_path = f"{dump_file}.so"
@@ -396,7 +252,6 @@ class Implementer:
             min_repeat_ms=min_repeat_ms,
             number=number,
             validate=validate,
-            init_zero=True,  # TODO: for now init is external
             parameters=parameters,
         )
         if code == 0:

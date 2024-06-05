@@ -29,6 +29,9 @@ class OperatorMatmul(Operator):
 __attribute__((always_inline)) void %OP_ENTRY(%DTYPE *out0, %DTYPE *inp0, %DTYPE *inp1) {
     *out0 += (*inp0) * (*inp1);
 }
+__attribute__((always_inline)) void %OP_ENTRY_0(%DTYPE *out0) {
+    *out0 = 0;
+}
 """
     jir_function = """
 function %ENTRY
@@ -39,6 +42,9 @@ function %ENTRY
     B: <K, J> f32
     O: <I, J> f32
   {
+    I0: for i in I (O)
+      J0: for j in J (O)
+        %OP_ENTRY_0(O)
     I: for i in I (*)
       J: for j in J (*)
         K: for k in K (*)
@@ -50,14 +56,17 @@ function %ENTRY
     def generate_op(cls, i, j, k, dtype) -> tuple:
         entry = f"{cls.name}_{i}x{j}x{k}x{dtype}"
         op_entry = f"op_{entry}"
+        op_entry_0 = f"op0_{entry}"
         op_dtype = {"float32": "float", "float64": "double"}[dtype]
         source_op = cls.op_function
         source_op = source_op.replace("%DTYPE", op_dtype)
         source_op = source_op.replace("%OP_ENTRY", op_entry)
+        source_op = source_op.replace("%OP_ENTRY_0", op_entry_0)
 
         jir_function = cls.jir_function
         jir_function = jir_function.replace("%ENTRY", entry)
         jir_function = jir_function.replace("%OP_ENTRY", op_entry)
+        jir_function = jir_function.replace("%OP_ENTRY_0", op_entry_0)
         return (source_op, jir_function, entry)
 
     @classmethod
