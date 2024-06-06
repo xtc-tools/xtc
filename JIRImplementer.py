@@ -276,6 +276,7 @@ class Implementer:
         libpath = os.path.abspath(dll)
         with utils.LibLoader(libpath) as lib:
             func = getattr(lib, sym)
+            assert func is not None, f"Cannot find {sym} in lib {dll}"
             inputs_spec = self.np_inputs_spec()
             outputs_spec = self.np_outputs_spec()
             out_init = np.zeros if init_zero else np.empty

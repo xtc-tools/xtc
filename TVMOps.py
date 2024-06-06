@@ -14,8 +14,8 @@ __all__ = [
     "OperatorMatmul",
 ]
 
-tvm = utils.LazyImport("tvm")
-te = utils.LazyImport("tvm.te")
+import tvm
+import tvm.te as te
 
 
 class Operation:
@@ -84,6 +84,7 @@ class Operation:
         dll = os.path.abspath(dll)
         with utils.LibLoader(dll) as lib:
             func = getattr(lib, "matmul")
+            assert func is not None, f"Cannot find {sym} in lib {dll}"
             func.packed = True
             inputs_spec = self.np_inputs_spec()
             outputs_spec = self.np_outputs_spec()

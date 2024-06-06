@@ -463,6 +463,7 @@ class AbsImplementer(ABC):
         libpath = os.path.abspath(dll)
         with utils.LibLoader(libpath) as lib:
             func = getattr(lib, sym)
+            assert func is not None, f"Cannot find {sym} in lib {dll}"
             inputs_spec = self.np_inputs_spec()
             outputs_spec = self.np_outputs_spec()
             if parameters is None:
