@@ -333,7 +333,7 @@ def vector_apply_patterns(hl_var):
     return hl_patterns0 + hl_patterns1 + hl_patterns2 + hl_patterns3
 
 
-def build_main(matchers_transformers):
+def build_main(matchers_transformers, vectors_size):
     sym_name = "@__transform_main"
 
     input_var = get_new_var()
@@ -344,17 +344,12 @@ def build_main(matchers_transformers):
         + "!transform.any_op {transform.consumed})"
     )
 
-    bufferization = (
-        f"{bufferized_var} = transform.bufferization.one_shot_bufferize "
-        + f"{input_var} : (!transform.any_op) -> !transform.any_op"
-    )
-
-    fills, match_fills = match_by_op_name(bufferized_var, "linalg.fill")
-    fills_tiled, tile_loop, tile_fills = produce_tiling_instr(fills, [1, 16])
+    fills, match_fills = match_by_op_name(input_var, "linalg.fill")
+    fills_tiled, tile_loop, tile_fills = produce_tiling_instr(fills, [1, vectors_size])
     vectorize_fills = get_vectorize(fills_tiled)
 
     branches = []
-    current_state = bufferized_var
+    current_state = input_var
     for matcher, transformer in matchers_transformers:
         new_state = get_new_var()
         shot = (
@@ -370,7 +365,6 @@ def build_main(matchers_transformers):
         [
             seq_sig,
             "{",
-            bufferization,
             match_fills,
             tile_fills,
             vectorize_fills,

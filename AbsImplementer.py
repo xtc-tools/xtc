@@ -503,7 +503,8 @@ class AbsImplementer(ABC):
         match_sym_name, str_trans_match = self.uniquely_match()
         sched_sym_name, str_trans_sched = self.materialize_schedule()
         main_name, str_trans_main = transform.build_main(
-            [(match_sym_name, sched_sym_name)]
+            matchers_transformers=[(match_sym_name, sched_sym_name)],
+            vectors_size=self.vectors_size,
         )
         # Glue
         str_glued = (
