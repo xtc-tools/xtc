@@ -17,7 +17,7 @@ from JIRScheduler import JIRSchedulerAdaptor
 
 from xdsl.printer import Printer
 from xdsl.dialects.builtin import ModuleOp, StringAttr
-from jir.util import get_host_target_triple
+from jir.environment import get_host_target_triple
 from jir.backend.util.annotate_fastmath import annotate_fastmath
 from jir.parser import JIRParser, JIRFormatter
 from jir.transform.util.index import JIRFunctionDimensionIndex
@@ -101,8 +101,9 @@ class Implementer:
             self.source_op.generate()
         )
         self.transformer = JIRSchedulerAdaptor(source_op, self.dims)
+        self._jir_llvm_config = f"{jir_install_dir}/bin/llvm-config"
         self._target_triple = kwargs.get("target_triple") or get_host_target_triple(
-            self.jir_install_dir
+            self._jir_llvm_config
         )
         self._target_arch = kwargs.get("target_arch") or "native"
 
