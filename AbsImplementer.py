@@ -24,6 +24,7 @@ from mlir.dialects import (
 )
 from mlir.dialects.transform import NamedSequenceOp
 from mlir.passmanager import *
+from mlir.execution_engine import *
 
 import transform
 
@@ -52,8 +53,6 @@ lowering_opts = [
     "convert-index-to-llvm",
     "reconcile-unrealized-casts",
 ]
-
-mliropt_opts = transform_opts + lowering_opts
 
 mlirtranslate_opts = ["--mlir-to-llvmir"]
 
@@ -118,12 +117,10 @@ class AbsImplementer(ABC):
         self.op_id_attribute = f"id{AbsImplementer.count}"
         AbsImplementer.count += 1
         #
-        self.mliropt = [f"{mlir_install_dir}/bin/mlir-opt"]
-        self.cmd_mliropt = self.mliropt + mliropt_opts
-        #
+        self.shared_libs = [f"{mlir_install_dir}/lib/{lib}" for lib in runtime_libs]
         self.cmd_run_mlir = [
             f"{mlir_install_dir}/bin/mlir-cpu-runner",
-            *[f"-shared-libs={mlir_install_dir}/lib/{lib}" for lib in runtime_libs],
+            *[f"-shared-libs={lib}" for lib in self.shared_libs],
         ] + mlirrunner_opts
         #
         self.cmd_mlirtranslate = [
@@ -255,6 +252,13 @@ class AbsImplementer(ABC):
             debug=debug,
             print_lowered_ir=print_lowered_ir,
         )
+
+        # execution_engine = ExecutionEngine(
+        #     self.module,
+        #     opt_level=3,
+        #     shared_libs=self.shared_libs
+        # )
+        # execution_engine.invoke("entry")
 
         run_extra_opts = self.build_run_extra_opts(
             exe_file=exe_dump_file, print_assembly=print_assembly, color=color
