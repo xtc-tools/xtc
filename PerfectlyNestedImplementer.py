@@ -34,43 +34,17 @@ class PerfectlyNestedImplementer(AbsImplementer):
         self.parallelization = []
         self.unrolling = dict([])
 
-    def uniquely_match(self):
-        dims = self.dims.values()
-
+    def materialize_schedule(self, vectors_size):
         sym_name, input_var, seq_sig = transform.get_seq_signature(
-            input_consumed=False,
-            has_output=True,
+            sym_name="@__transform_main"
         )
-
-        res_var, global_match_sig = transform.get_match_sig(input_var)
-        bb_input_var, bb_header = transform.get_bb_header()
-
-        match_dims = transform.get_match_dims(bb_input_var, dims)
-
-        match_opname = transform.get_match_op_name(bb_input_var, self.source_op.name)
-
-        tmyield = transform.get_match_structured_terminator(bb_input_var)
-
-        tyield = transform.get_terminator(result=res_var)
-
-        lines = (
-            [
-                seq_sig,
-                "{",
-                global_match_sig,
-                "{",
-                bb_header,
-            ]
-            + match_dims
-            + [match_opname, tmyield, "}", tyield, "}"]
+        fills, match_fills = transform.match_by_op_name(input_var, "linalg.fill")
+        fills_tiled, tile_loop, tile_fills = transform.produce_tiling_instr(
+            fills, [1, vectors_size]
         )
-
-        return sym_name, "\n".join(lines)
-
-    def materialize_schedule(self):
-        sym_name, input_var, seq_sig = transform.get_seq_signature(
-            input_consumed=True,
-            has_output=False,
+        vectorize_fills = transform.get_vectorize(fills_tiled)
+        matched, match_attr = transform.match_by_attribute(
+            input_var, self.op_id_attribute
         )
 
         # Build the transform vectors corresponding to each tiling instruction
@@ -93,7 +67,7 @@ class PerfectlyNestedImplementer(AbsImplementer):
 
         # Actually produce the tiling instructions and annotate the resulting
         # loops
-        current_state = input_var
+        current_state = matched
         tiling_instrs = []
         loops = []
         for dim, dims_vector in dims_vectors.items():
@@ -150,7 +124,7 @@ class PerfectlyNestedImplementer(AbsImplementer):
             postprocess = [get_hoist] + get_lower
 
         lines = (
-            [seq_sig, "{"]
+            [seq_sig, "{", match_fills, tile_fills, vectorize_fills, match_attr]
             + tiling_instrs
             + vect_instrs
             + unroll_instrs

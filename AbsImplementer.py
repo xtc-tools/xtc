@@ -499,20 +499,13 @@ class AbsImplementer(ABC):
         main_func = self.main(ext_rtclock, ext_printF64, payload_func)
 
         # Generate the schedule
-        match_sym_name, str_trans_match = self.uniquely_match()
-        sched_sym_name, str_trans_sched = self.materialize_schedule()
-        main_name, str_trans_main = transform.build_main(
-            matchers_transformers=[(match_sym_name, sched_sym_name)],
-            vectors_size=self.vectors_size,
+        sched_sym_name, trans_script = self.materialize_schedule(
+            vectors_size=self.vectors_size
         )
         trans_script = (
             "module attributes {transform.with_named_sequence} {"
             + "\n"
-            + str_trans_sched
-            + "\n"
-            + str_trans_match
-            + "\n"
-            + str_trans_main
+            + trans_script
             + "\n"
             + "}"
         )
@@ -539,10 +532,6 @@ class AbsImplementer(ABC):
 
     @abstractmethod
     def payload(self):
-        pass
-
-    @abstractmethod
-    def uniquely_match(self):
         pass
 
     @abstractmethod
