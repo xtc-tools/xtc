@@ -645,6 +645,120 @@ def load_and_evaluate_one(
     return result
 
 
+class SearchProgress:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def search_start(self, ntasks):
+        pass
+
+    def compile_batch_start(self):
+        pass
+
+    def compile_job_start(self):
+        pass
+
+    def compile_job_end(self):
+        pass
+
+    def compile_batch_end(self):
+        pass
+
+    def execute_batch_start(self):
+        pass
+
+    def execute_job_start(self):
+        pass
+
+    def execute_job_end(self):
+        pass
+
+    def execute_batch_end(self):
+        pass
+
+    def search_end(self):
+        pass
+
+
+class SearchProgressTQDM(SearchProgress):
+    def __init__(
+        self, ncomp_per_job=1, nexec_per_job=1, quiet=False, prefix="", position=0
+    ):
+        self.ncomp_per_job = ncomp_per_job
+        self.nexec_per_job = nexec_per_job
+        self.quiet = quiet
+        self.prefix = prefix
+        self.position = position
+
+    def search_start(self, ntasks):
+        self.ntasks = ntasks
+        tqdm_args = dict(
+            total=self.ntasks,
+            miniters=0,
+            mininterval=0,
+            smoothing=0,
+            disable=self.quiet,
+        )
+        self.allbar = tqdm(
+            desc=f"{self.prefix}evaluate".strip(),
+            colour="red",
+            position=self.position + 0,
+            **tqdm_args,
+        )
+        self.compbar = tqdm(
+            desc=f"{self.prefix} compile".strip(),
+            colour="blue",
+            position=self.position + 1,
+            **tqdm_args,
+        )
+        if self.nexec_per_job > 0:
+            self.evalbar = tqdm(
+                desc=f"{self.prefix} execute".strip(),
+                colour="green",
+                position=self.position + 2,
+                **tqdm_args,
+            )
+
+    def compile_batch_start(self):
+        self.compbar.unpause()
+
+    def compile_job_start(self):
+        pass
+
+    def compile_job_end(self):
+        self.compbar.update(self.ncomp_per_job)
+        if self.nexec_per_job == 0:
+            self.allbar.update(self.ncomp_per_job)
+
+    def compile_batch_end(self):
+        self.compbar.update(0)
+        self.allbar.update(0)
+
+    def execute_batch_start(self):
+        if self.nexec_per_job > 0:
+            self.evalbar.unpause()
+
+    def execute_job_start(self):
+        pass
+
+    def execute_job_end(self):
+        if self.nexec_per_job > 0:
+            self.evalbar.update(self.nexec_per_job)
+            self.allbar.update(self.nexec_per_job)
+
+    def execute_batch_end(self):
+        pass
+
+    def search_end(self):
+        self.compbar.unpause()
+        if self.nexec_per_job > 0:
+            self.evalbar.unpause()
+        self.allbar.close()
+        self.compbar.close()
+        if self.nexec_per_job > 0:
+            self.evalbar.close()
+
+
 def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbacks):
     jobs = args.jobs
 
@@ -659,60 +773,50 @@ def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbac
             callbacks=None,
         )
 
-    nback = len(args.backends)
-    ntasks = len(all_in_x) * nback
-    tqdm_args = dict(
-        total=ntasks, miniters=0, mininterval=0, smoothing=0, disable=args.quiet
-    )
-    allbar = tqdm(desc="Overall", colour="red", position=0, **tqdm_args)
-    compbar = tqdm(desc="Compile", colour="blue", position=1, **tqdm_args)
-    if args.execute:
-        evalbar = tqdm(desc="Execute", colour="green", position=2, **tqdm_args)
+    ntasks = len(all_in_x) * len(args.backends)
+    search_callback = callbacks["search"] if "search" in callbacks else SearchProgress()
+    search_callback.search_start(ntasks)
     try:
         for job_idx, job_in_x in enumerate(
             np.array_split(all_in_x, np.ceil(len(all_in_x) / jobs), axis=0)
         ):
-            compbar.unpause()
+            search_callback.compile_batch_start()
             job_compiled = []
             if jobs == 1:
+                search_callback.compile_job_start()
                 job_compiled.append(
                     do_compile(
                         idx=job_idx,
                         in_x=job_in_x[0].tolist(),
                     )
                 )
-                compbar.update(nback)
-                if not args.execute:
-                    allbar.update(nback)
+                search_callback.compile_job_end()
             else:
 
                 def future_callback(future):
                     job_compiled.append(future.result())
-                    compbar.update(nback)
-                    if not args.execute:
-                        allbar.update(nback)
+                    search_callback.compile_job_end()
 
                 with ThreadPoolExecutor(max_workers=jobs) as executor:
-                    futures = [
-                        executor.submit(
+                    futures = []
+                    for idx, in_x in enumerate(job_in_x):
+                        search_callback.compile_job_start()
+                        future = executor.submit(
                             do_compile,
                             idx=job_idx * jobs + idx,
                             in_x=in_x.tolist(),
                         )
-                        for idx, in_x in enumerate(job_in_x)
-                    ]
-                    for future in futures:
                         future.add_done_callback(future_callback)
-            compbar.update(0)
-            allbar.update(0)
-
+                        futures.append(future)
+            search_callback.compile_batch_end()
             if args.execute:
                 compiled_results = [
                     x[1] for x in sorted(job_compiled, key=lambda x: x[0])
                 ]
-                evalbar.unpause()
+                search_callback.execute_batch_start()
                 for compiled_list in compiled_results:
                     for compiled in compiled_list:
+                        search_callback.execute_job_start()
                         ident, backend, impl, dump_file, in_x = compiled
                         load_and_evaluate_one(
                             ident,
@@ -723,16 +827,10 @@ def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbac
                             args,
                             callbacks=callbacks,
                         )
-                        evalbar.update(1)
-                        allbar.update(1)
+                        search_callback.execute_job_end()
+                search_callback.execute_batch_end()
     finally:
-        compbar.unpause()
-        if args.execute:
-            evalbar.unpause()
-        allbar.close()
-        compbar.close()
-        if args.execute:
-            evalbar.close()
+        search_callback.search_end()
 
 
 def evaluate_generate(tile_strategy, tile_generator, impls, op_args, args, callbacks):
@@ -785,6 +883,14 @@ def peak_time(args):
 
 def search_some(tile_strategy, tile_generator, impls, op_args, args):
     # Search depends on search strategy
+    ncomp_per_job = len(args.backends)
+    nexec_per_job = 1 if args.execute else 0
+    search_callback = SearchProgressTQDM(
+        ncomp_per_job,
+        nexec_per_job,
+        args.quiet,
+        args.operator,
+    )
     ptime = peak_time(args)
     with open(args.output, "w", newline="") as outf:
         writer = csv.writer(outf, delimiter=";")
@@ -809,7 +915,10 @@ def search_some(tile_strategy, tile_generator, impls, op_args, args):
                 impls,
                 op_args,
                 args,
-                callbacks={"result": result_callback},
+                callbacks={
+                    "result": result_callback,
+                    "search": search_callback,
+                },
             )
         elif args.search == "data":
             assert args.data is not None
@@ -820,7 +929,10 @@ def search_some(tile_strategy, tile_generator, impls, op_args, args):
                 impls,
                 op_args,
                 args,
-                callbacks={"result": result_callback},
+                callbacks={
+                    "result": result_callback,
+                    "search": search_callback,
+                },
             )
 
 
@@ -831,12 +943,23 @@ def optimize(args):
     tile_strategy = STRATEGIES[args.strategy]["strategy"]
     impls = get_all_impls(op_args, args)
     if args.test:
+        ncomp_per_job = len(args.backends)
+        nexec_per_job = 1 if args.execute else 0
+        search_callback = SearchProgressTQDM(
+            ncomp_per_job,
+            nexec_per_job,
+            args.quiet,
+            args.operator,
+        )
         all_results = []
 
         def output_one(results):
             all_results.append(results)
 
-        callbacks = {"result": output_one}
+        callbacks = {
+            "result": output_one,
+            "search": search_callback,
+        }
         evaluate_one(
             tile_strategy, args.test, impls, op_args, args, callbacks=callbacks
         )
