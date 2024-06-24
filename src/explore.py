@@ -28,7 +28,7 @@ Different tiling strategies are available:
   - vectorize j1 if inner
 
 - tile4dv: 4D input vector for 1-level tiling + ordering of the three axes + vectorization
-  - same as tile4d and filter only orders were j1 is inner and >= 16 elts
+  - same as tile4d and filter only orders were j1 is inner and >= VEC_SIZE elts
 
 - tile7d: 7D input vector with fixed ordering strategy inspired from Ansor sketches
   - tile all parallel axes at 4 levels
@@ -37,6 +37,9 @@ Different tiling strategies are available:
   - parallelize the outer P level
   - vectorize the inner axis
   - Always unroll the inner RP levels
+
+- tile4dv: 7D input vector with fixed ordering strategy inspired from Ansor sketches + vectorization
+  - same as tile7d where j inner >= VEC_SIZE elts
 
 """
 
@@ -274,6 +277,21 @@ def tile_strategy_3d(impl, op_args, in_x):
     impl.unroll(unroll_axes)
 
 
+def tile_schedule_default_3d(opt_level, op_args):
+    i, j, k, dtype = op_args
+    default_schedule = [1, 1, 1]
+    if opt_level >= 3:
+        jtile = VEC_SIZE
+        itile = 2  # todo IPC
+        ktile = 1
+        idiv = i >= itile and i % itile == 0
+        jdiv = j >= jtile and j % jtile == 0
+        kdiv = k >= ktile and k % ktile == 0
+        if idiv and jdiv and kdiv:
+            default_schedule = [itile, jtile, ktile]
+    return default_schedule
+
+
 def tile_generator_3d(op_args, size=None):
     i, j, k, dtype = op_args
     tiles_i = [t[0] for t in utils.factors_enumeration(i, 1)]
@@ -283,7 +301,9 @@ def tile_generator_3d(op_args, size=None):
     all_in_x = list(itertools.product(*all_tiles))
     logger.debug(f"Total space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
     # Filter out last level if > 1024 vector elems
-    all_in_x = [x for x in all_in_x if utils.mulall(x) / min(x[1], 16) <= MAX_UNROLL]
+    all_in_x = [
+        x for x in all_in_x if utils.mulall(x) / min(x[1], VEC_SIZE) <= MAX_UNROLL
+    ]
     logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
     return np.array(all_in_x)
 
@@ -333,6 +353,23 @@ def tile_strategy_4d(impl, op_args, in_x):
     impl.unroll(unroll_axes)
 
 
+def tile_schedule_default_4d(opt_level, op_args):
+    i, j, k, dtype = op_args
+    default_schedule = [1, 1, 1, 0]
+    if opt_level >= 2:
+        default_schedule = [1, 1, 1, 1]
+    if opt_level >= 3:
+        jtile = VEC_SIZE
+        itile = 2  # todo IPC
+        ktile = 1
+        idiv = i >= itile and i % itile == 0
+        jdiv = j >= jtile and j % jtile == 0
+        kdiv = k >= ktile and k % ktile == 0
+        if idiv and jdiv and kdiv:
+            default_schedule = [itile, jtile, ktile, 1]
+    return default_schedule
+
+
 def tile_generator_4d(op_args, size=None):
     i, j, k, dtype = op_args
     tiles_i = [t[0] for t in utils.factors_enumeration(i, 1)]
@@ -347,7 +384,7 @@ def tile_generator_4d(op_args, size=None):
     all_in_x = [
         x
         for x in all_in_x
-        if utils.mulall(x[:-1]) / min(x[1], max((x[-1] in [1, 4]) * 16, 1))
+        if utils.mulall(x[:-1]) / min(x[1], max((x[-1] in [1, 4]) * VEC_SIZE, 1))
         <= MAX_UNROLL
     ]
     logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
@@ -357,8 +394,8 @@ def tile_generator_4d(op_args, size=None):
 def tile_generator_4dv(op_args, size=None):
     i, j, k, dtype = op_args
     all_in_x = tile_generator_4d(op_args)
-    # Keep only vectorized dims, i.e. x[-1] in [1, 4] and tile j >= 16
-    all_in_x = [x for x in all_in_x if (x[-1] in [1, 4] and x[1] >= 16)]
+    # Keep only vectorized dims, i.e. x[-1] in [1, 4] and tile j >= VEC_SIZE
+    all_in_x = [x for x in all_in_x if (x[-1] in [1, 4] and x[1] >= VEC_SIZE)]
     logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
     return np.array(all_in_x)
 
@@ -400,6 +437,21 @@ def tile_strategy_7d(impl, op_args, in_x):
     impl.unroll(unroll_axes)
 
 
+def tile_schedule_default_7d(opt_level, op_args):
+    i, j, k, dtype = op_args
+    default_schedule = [1, 1, 1, 1, 1, 1, 1]
+    if opt_level >= 3:
+        jtile = VEC_SIZE
+        itile = 2  # todo IPC
+        ktile = 1
+        idiv = i >= itile and i % itile == 0
+        jdiv = j >= jtile and j % jtile == 0
+        kdiv = k >= ktile and k % ktile == 0
+        if idiv and jdiv and kdiv:
+            default_schedule = [1, 1, itile, 1, 1, jtile, ktile]
+    return default_schedule
+
+
 def tile_generator_7d(op_args, size=None):
     i, j, k, dtype = op_args
     tiles_i = utils.factors_enumeration(i, 3)
@@ -411,7 +463,7 @@ def tile_generator_7d(op_args, size=None):
 
     def in_space(x):
         # Filter out last level if > 1024 vector elems
-        return x[2] * x[5] * x[6] / min(x[5], 16) <= MAX_UNROLL
+        return x[2] * x[5] * x[6] / min(x[5], VEC_SIZE) <= MAX_UNROLL
 
     if size is None or size >= space_size:
         logger.debug(f"Generate exhaustive")
@@ -440,6 +492,15 @@ def tile_generator_7d(op_args, size=None):
             noop_num = 0
             seen.add(tx)
             yield np.array(x)
+
+
+def tile_generator_7dv(op_args, size=None):
+    i, j, k, dtype = op_args
+    all_in_x = tile_generator_7d(op_args)
+    # Keep only vectorized dims, i.e. x[5] (inner j) >= VEC_SIZE
+    all_in_x = [x for x in all_in_x if x[5] >= VEC_SIZE]
+    logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
+    return np.array(all_in_x)
 
 
 def get_eval_parameters(args):
@@ -477,7 +538,7 @@ def get_all_impls(op_args, args):
     ]
 
 
-def compile_one_impls(ident, impls, tile_strategy, op_args, in_x, args, callback):
+def compile_one_impls(ident, impls, tile_strategy, op_args, in_x, args, callbacks):
     compiled = []
     for name, impl in impls:
         task_ident = f"{args.operator}_{name}_{ident}"
@@ -490,7 +551,7 @@ def compile_one_impls(ident, impls, tile_strategy, op_args, in_x, args, callback
                 op_args,
                 in_x,
                 args,
-                callback=callback,
+                callbacks=callbacks,
             )
         )
     return compiled
@@ -504,7 +565,7 @@ def compile_one(
     op_args,
     in_x,
     args,
-    callback=None,
+    callbacks=None,
     dump_file=None,
 ):
     assert isinstance(in_x, list), f"X not a list: {in_x} ({type(in_x)})"
@@ -517,7 +578,7 @@ def compile_one(
     tile_strategy(node_scheduler, op_args, in_x)
     schedule = scheduler.implement()
     if dump_file is None:
-        dump_file = f"payload_{ident}"
+        dump_file = f"{args.explore_dir}/payload_{ident}"
     compile_args = dict(
         schedule=schedule,
         shared_lib=True,
@@ -548,7 +609,7 @@ def compile_one(
 
 
 def load_and_evaluate_one(
-    ident, backend, compiler, dump_file, in_x, args, callback=None
+    ident, backend, compiler, dump_file, in_x, args, callbacks=None
 ):
     logger.debug("Evaluate: %s: %s...", ident, in_x)
     payload_lib = f"{dump_file}.so"
@@ -579,12 +640,12 @@ def load_and_evaluate_one(
         logger.error("Error evaluating: %s: %s", ident, in_x)
 
     result = (in_x, error, time, backend)
-    if callback:
-        callback(result)
+    if callbacks and "result" in callbacks:
+        callbacks["result"](result)
     return result
 
 
-def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callback):
+def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbacks):
     jobs = args.jobs
 
     def do_compile(idx, in_x):
@@ -595,7 +656,7 @@ def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbac
             tile_strategy=tile_strategy,
             op_args=op_args,
             args=args,
-            callback=None,
+            callbacks=None,
         )
 
     nback = len(args.backends)
@@ -660,7 +721,7 @@ def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbac
                             dump_file,
                             in_x,
                             args,
-                            callback=callback,
+                            callbacks=callbacks,
                         )
                         evalbar.update(1)
                         allbar.update(1)
@@ -674,7 +735,7 @@ def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbac
             evalbar.close()
 
 
-def evaluate_generate(tile_strategy, tile_generator, impls, op_args, args, callback):
+def evaluate_generate(tile_strategy, tile_generator, impls, op_args, args, callbacks):
     gen_size = args.trials if args.search == "random" else None
     all_in_x = tile_generator(op_args, size=gen_size)
     all_in_x = np.array(list(all_in_x))  # convert list or generator to np.array
@@ -684,18 +745,18 @@ def evaluate_generate(tile_strategy, tile_generator, impls, op_args, args, callb
                 np.arange(len(all_in_x)), size=args.trials, replace=False
             )
             all_in_x = all_in_x[idxs]
-    evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callback)
+    evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbacks)
 
 
-def evaluate_data(tile_strategy, X, impls, op_args, args, callback):
+def evaluate_data(tile_strategy, X, impls, op_args, args, callbacks):
     size = len(X)
     logger.debug(f"Search space size: {size}")
-    evaluate_all_parallel(tile_strategy, X, impls, op_args, args, callback)
+    evaluate_all_parallel(tile_strategy, X, impls, op_args, args, callbacks)
 
 
-def evaluate_one(tile_strategy, in_x, impls, op_args, args, callback):
+def evaluate_one(tile_strategy, in_x, impls, op_args, args, callbacks):
     evaluate_all_parallel(
-        tile_strategy, np.array([in_x]), impls, op_args, args, callback
+        tile_strategy, np.array([in_x]), impls, op_args, args, callbacks
     )
 
 
@@ -748,13 +809,18 @@ def search_some(tile_strategy, tile_generator, impls, op_args, args):
                 impls,
                 op_args,
                 args,
-                callback=result_callback,
+                callbacks={"result": result_callback},
             )
         elif args.search == "data":
             assert args.data is not None
             X = read_input(args.data, args)
             evaluate_data(
-                tile_strategy, X, impls, op_args, args, callback=result_callback
+                tile_strategy,
+                X,
+                impls,
+                op_args,
+                args,
+                callbacks={"result": result_callback},
             )
 
 
@@ -770,8 +836,9 @@ def optimize(args):
         def output_one(results):
             all_results.append(results)
 
+        callbacks = {"result": output_one}
         evaluate_one(
-            tile_strategy, args.test, impls, op_args, args, callback=output_one
+            tile_strategy, args.test, impls, op_args, args, callbacks=callbacks
         )
         ptime = peak_time(args)
         for results in all_results:
@@ -822,18 +889,27 @@ STRATEGIES = {
     "tile3d": {
         "strategy": tile_strategy_3d,
         "generator": tile_generator_3d,
+        "schedule": tile_schedule_default_3d,
     },
     "tile4d": {
         "strategy": tile_strategy_4d,
         "generator": tile_generator_4d,
+        "schedule": tile_schedule_default_4d,
     },
     "tile4dv": {
         "strategy": tile_strategy_4d,
         "generator": tile_generator_4dv,
+        "schedule": tile_schedule_default_4d,
     },
     "tile7d": {
         "strategy": tile_strategy_7d,
         "generator": tile_generator_7d,
+        "schedule": tile_schedule_default_7d,
+    },
+    "tile7dv": {
+        "strategy": tile_strategy_7d,
+        "generator": tile_generator_7dv,
+        "schedule": tile_schedule_default_7d,
     },
 }
 
@@ -841,8 +917,10 @@ STRATEGIES = {
 def setup_args(args):
     global THREADS
     global MAX_UNROLL
+    global VEC_SIZE
     THREADS = args.threads
     MAX_UNROLL = args.max_unroll
+    VEC_SIZE = 16
 
     if args.eval == "eval" and args.execute:
         args.eval_parameters = get_eval_parameters(args)
@@ -965,6 +1043,9 @@ def main():
     )
     parser.add_argument(
         "--save-temps-dir", type=str, default="./save_temps_dir", help="save temps dir"
+    )
+    parser.add_argument(
+        "--explore-dir", type=str, default=".", help="exploration results .so dir"
     )
     parser.add_argument(
         "--child",

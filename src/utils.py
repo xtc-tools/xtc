@@ -14,7 +14,7 @@ import shutil
 from pathlib import Path
 from functools import reduce
 from typing import Dict, List, Union, Tuple, Any
-
+import re
 
 _divisors_list_memo: Dict[int, List[int]] = {}
 
@@ -286,3 +286,16 @@ def get_mlir_prefix(prefix: Path | str | None = None):
     if not mlir_opt.exists():
         raise RuntimeError(f"could not find mlir-opt at: {mlir_opt}")
     return prefix
+
+
+class Replace:
+    """
+    Replace a serie of {{key}} value in a text.
+    """
+
+    def __init__(self, keys):
+        self.pattern = re.compile("|".join([re.escape("{{" + k + "}}") for k in keys]))
+
+    def replace(self, text, **replaces):
+        rep = dict((re.escape("{{" + k + "}}"), v) for k, v in replaces.items())
+        return self.pattern.sub(lambda m: rep[re.escape(m.group(0))], text)

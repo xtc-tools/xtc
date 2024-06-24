@@ -7,6 +7,7 @@ import sys
 import os
 import tempfile
 from pathlib import Path
+from functools import partial
 import numpy as np
 
 from xdsl.dialects import func as xdslfunc
@@ -222,6 +223,16 @@ class MlirCompiler:
     ):
         return str(self.mlir_module)
 
+    @classmethod
+    def _save_temp(
+        cls, save_temps: bool, save_temps_dir: str, fname: str, content: str
+    ) -> None:
+        if not save_temps:
+            return
+        os.makedirs(save_temps_dir, exist_ok=True)
+        with open(f"{save_temps_dir}/{fname}", "w") as outf:
+            outf.write(content)
+
     def compile(
         self,
         print_source_ir: bool = False,
@@ -236,12 +247,22 @@ class MlirCompiler:
         **kwargs,
     ):
         save_temps = kwargs.get("save_temps", False)
-        ir_dump_file = f"{dump_file}.ir"
-        bc_dump_file = f"{dump_file}.bc"
-        obj_dump_file = f"{dump_file}.o"
+        save_temps_dir = kwargs.get("save_temps_dir", "./save_temps_dir")
+        save_temp = partial(self._save_temp, save_temps, save_temps_dir)
+
+        dump_base = os.path.basename(dump_file)
+        dump_tmp_base = f"{save_temps_dir}/{dump_base}"
+        ir_dump_file = f"{dump_tmp_base}.ir"
+        bc_dump_file = f"{dump_tmp_base}.bc"
+        obj_dump_file = f"{dump_tmp_base}.o"
+        exe_c_file = f"{dump_tmp_base}.main.c"
         so_dump_file = f"{dump_file}.so"
-        exe_c_file = f"{dump_file}.main.c"
         exe_dump_file = f"{dump_file}.out"
+        src_ir_dump_file = f"{dump_base}.mlir"
+        mlir_llvm_dump_file = f"{dump_base}.llvm.mlir"
+
+        source_ir_str = str(self.mlir_module.mlir_module)
+        save_temp(src_ir_dump_file, source_ir_str)
 
         self.mlir_compile(
             print_source_ir=print_source_ir,
@@ -250,6 +271,9 @@ class MlirCompiler:
             debug=debug,
             print_lowered_ir=print_lowered_ir,
         )
+
+        mlir_llvm_ir_str = str(self.mlir_module.mlir_module)
+        save_temp(mlir_llvm_dump_file, mlir_llvm_ir_str)
 
         translate_cmd = self.cmd_mlirtranslate + ["-o", ir_dump_file]
         llvmir_process = self.execute_command(

@@ -3,6 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 import numpy as np
+import utils
 
 
 class Operation:
@@ -28,50 +29,47 @@ class Operator:
 
 class OperatorMatmul(Operator):
     name = "matmul"
-    op_function = """
-__attribute__((always_inline)) void %OP_ENTRY(%DTYPE *out0, %DTYPE *inp0, %DTYPE *inp1) {
+    source_op = """
+__attribute__((always_inline)) void {{op_name}}({{ctype}} *out0, {{ctype}} *inp0, {{ctype}} *inp1) {
     *out0 += (*inp0) * (*inp1);
 }
-__attribute__((always_inline)) void %OP_ENTRY_0(%DTYPE *out0) {
+__attribute__((always_inline)) void {{op_name_0}}({{ctype}} *out0) {
     *out0 = 0;
 }
 """
     jir_function = """
-function %ENTRY
+function {{name}}
   dimensions
     I, J, K
   buffers
-    A: <I, K> f32
-    B: <K, J> f32
-    O: <I, J> f32
+    A: <I, K> {{ftype}}
+    B: <K, J> {{ftype}}
+    O: <I, J> {{ftype}}
   {
     I0: for i in I (O)
       J0: for j in J (O)
-        %OP_ENTRY_0(O)
+        {{op_name_0}}(O)
     II: for i in I (*)
       JJ: for j in J (*)
         KK: for k in K (*)
-            %OP_ENTRY(O, A, B)
+            {{op_name}}(O, A, B)
   }
 """
+    _re_replace = utils.Replace(["name", "ctype", "ftype", "op_name_0", "op_name"])
 
     @classmethod
     def generate_op(cls, i, j, k, dtype, name=None) -> tuple:
         name = name if name is not None else cls.name
-        entry = f"{cls.name}_{i}x{j}x{k}x{dtype}"
-        op_entry = f"op_{entry}"
-        op_entry_0 = f"op0_{entry}"
-        op_dtype = {"float32": "float", "float64": "double"}[dtype]
-        source_op = cls.op_function
-        source_op = source_op.replace("%DTYPE", op_dtype)
-        source_op = source_op.replace("%OP_ENTRY", op_entry)
-        source_op = source_op.replace("%OP_ENTRY_0", op_entry_0)
-
-        jir_function = cls.jir_function
-        jir_function = jir_function.replace("%ENTRY", entry)
-        jir_function = jir_function.replace("%OP_ENTRY", op_entry)
-        jir_function = jir_function.replace("%OP_ENTRY_0", op_entry_0)
-        return (source_op, jir_function, entry)
+        replaces = {
+            "name": name,
+            "ctype": {"float32": "float", "float64": "double"}[dtype],
+            "ftype": {"float32": "f32", "float64": "f64"}[dtype],
+            "op_name": f"op_{name}",
+            "op_name_0": f"op0_{name}",
+        }
+        source_op = cls._re_replace.replace(cls.source_op, **replaces)
+        jir_function = cls._re_replace.replace(cls.jir_function, **replaces)
+        return (source_op, jir_function)
 
     @classmethod
     def args_names(cls) -> tuple:

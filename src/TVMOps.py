@@ -118,7 +118,8 @@ class OperatorMatmul(Operator):
     name = "matmul"
 
     @staticmethod
-    def generate_op(i, j, k, dtype):
+    def generate_op(i, j, k, dtype, name=None):
+        name = name if name is not None else OperatorMatmul.name
         A = te.placeholder((i, k), name="A")
         B = te.placeholder((k, j), name="B")
 
@@ -127,7 +128,7 @@ class OperatorMatmul(Operator):
             (i, j),
             lambda i, j: te.sum(A[i, k] * B[k, j], axis=k),
             attrs={"layout_free_placeholders": [B]},
-            name="O",
+            name=name,
         )
         return A, B, O
 
