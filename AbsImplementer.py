@@ -451,6 +451,27 @@ class AbsImplementer(ABC):
             results = eval_func(*parameters[0], *parameters[1])
         return np.array(results), 0, ""
 
+    def integrate_schedule(vectors_size, impl):
+        sym_name, input_var, seq_sig = transform.get_seq_signature(
+            sym_name="@__transform_main"
+        )
+
+        fills_opt = []
+        # fills,match_fills = transform.match_by_op_name(input_var,"linalg.fill")
+        # fills_tiled,tile_loop,tile_fills = transform.produce_tiling_instr(
+        #     fills,
+        #     [1,vectors_size]
+        # )
+        # fills_opt = [match_fills, tile_fills]
+        # vectorize_fills = transform.get_vectorize(fills_tiled)
+        # fills_opt += [vectorize_fills]
+
+        schedule = impl.materialize_schedule(input_var, vectors_size)
+        integrated_schedule = (
+            [seq_sig, "{"] + fills_opt + schedule + [transform.get_terminator(), "}"]
+        )
+        return sym_name, "\n".join(integrated_schedule)
+
     def glue(self):
         # Generate the payload
         ext_rtclock = self.build_rtclock()
@@ -459,8 +480,9 @@ class AbsImplementer(ABC):
         main_func = self.main(ext_rtclock, ext_printF64, payload_func)
 
         # Generate the schedule
-        sched_sym_name, trans_script = self.integrate_schedule(
-            vectors_size=self.vectors_size
+        sched_sym_name, trans_script = AbsImplementer.integrate_schedule(
+            vectors_size=self.vectors_size,
+            impl=self,
         )
         trans_script = (
             "module attributes {transform.with_named_sequence} {"
@@ -495,7 +517,7 @@ class AbsImplementer(ABC):
         pass
 
     @abstractmethod
-    def integrate_schedule(self):
+    def materialize_schedule(self):
         pass
 
     @abstractmethod
