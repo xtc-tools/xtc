@@ -459,7 +459,7 @@ class AbsImplementer(ABC):
         main_func = self.main(ext_rtclock, ext_printF64, payload_func)
 
         # Generate the schedule
-        sched_sym_name, trans_script = self.materialize_schedule(
+        sched_sym_name, trans_script = self.integrate_schedule(
             vectors_size=self.vectors_size
         )
         trans_script = (
@@ -495,7 +495,7 @@ class AbsImplementer(ABC):
         pass
 
     @abstractmethod
-    def materialize_schedule(self):
+    def integrate_schedule(self):
         pass
 
     @abstractmethod
