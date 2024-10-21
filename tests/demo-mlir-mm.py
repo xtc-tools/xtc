@@ -71,7 +71,7 @@ linalg_generic = linalg.Generic(
     ),
 )
 
-linalg_matmul = linalg.MemRefMatmulOp(
+linalg_matmul = linalg.MatmulOp(
     inputs = (
         TestSSAValue(MemRefType(elt_type,(i,k))),
         TestSSAValue(MemRefType(elt_type,(k,j))),
@@ -100,7 +100,7 @@ e = impl.evaluate(
     print_source_ir=False,
     print_transformed_ir=False,
     print_lowered_ir = False,
-    print_assembly=False,
+    print_assembly=True,
     color = True,
     debug = False,
 )

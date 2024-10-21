@@ -1,3 +1,5 @@
+from setup_mlir_conv import generic_conv0
+
 import os,sys
 
 sys.path.append('../')
@@ -98,6 +100,14 @@ def conv_generic_op():
 
     return conv
 
-def generic_conv0():
-    impl = get_impl(conv_generic_op())
-    return impl
+impl = get_impl(conv_generic_op())
+
+e = impl.evaluate(
+    print_source_ir=False,
+    print_transformed_ir=False,
+    print_assembly=True,
+    color = True,
+    debug = False,
+)
+
+print(e)

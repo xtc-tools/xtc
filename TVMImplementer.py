@@ -36,8 +36,12 @@ class Implementer:
         self.vectorization = []
         self.parallelization = []
         self.unrolling = {}
-        self.payload_name = self.op.operator.name
+        self._payload_name = self.op.operator.name
         self._update_loops()
+
+    @property
+    def payload_name(self):
+        return self._payload_name
 
     def _update_loops(self):
         loops = dict()

@@ -97,16 +97,7 @@ class AbsImplementer(ABC):
     def __init__(
         self,
         mlir_install_dir: str,
-        vectors_size: int,
     ):
-        self.vectors_size = vectors_size
-        #
-        self.ctx = Context()
-        self.loc = Location.unknown(self.ctx)
-        self.module = builtin.ModuleOp(loc=self.loc)
-
-        self.payload_name = None
-        self.integrated = False
         #
         self.shared_libs = [f"{mlir_install_dir}/lib/{lib}" for lib in runtime_libs]
         self.shared_path = list(
@@ -127,9 +118,10 @@ class AbsImplementer(ABC):
         #
         self.cmds_history = []
 
-    def integrate_with_guard(self):
-        if not self.integrated:
-            self.integrate()
+    @property
+    @abstractmethod
+    def payload_name(self) -> str:
+        assert False
 
     def build_disassemble_extra_opts(self, obj_file, color):
         disassemble_extra_opts = [obj_file]
@@ -229,7 +221,7 @@ class AbsImplementer(ABC):
     ):
         exe_dump_file = f"{dump_file}.o"
 
-        self.integrate_with_guard()
+        self.inject_schedule()
 
         self.mlir_compile(
             print_source_ir=print_source_ir,
@@ -290,7 +282,7 @@ class AbsImplementer(ABC):
         exe_c_file = f"{dump_file}.main.c"
         exe_dump_file = f"{dump_file}.out"
 
-        self.integrate_with_guard()
+        self.inject_schedule()
 
         self.mlir_compile(
             print_source_ir=print_source_ir,
@@ -456,11 +448,11 @@ class AbsImplementer(ABC):
         return np.array(results), 0, ""
 
     @abstractmethod
-    def np_inputs_spec(self):
+    def np_inputs_spec(self) -> list[dict[str, list[int]]]:
         pass
 
     @abstractmethod
-    def np_outputs_spec(self):
+    def np_outputs_spec(self) -> list[dict[str, list[int]]]:
         pass
 
     @abstractmethod
@@ -468,5 +460,5 @@ class AbsImplementer(ABC):
         pass
 
     @abstractmethod
-    def integrate(self):
+    def inject_schedule(self):
         pass
