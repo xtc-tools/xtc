@@ -2,7 +2,7 @@ import os,sys
 
 sys.path.append('../')
 
-from MlirImplementer import MlirImplementer
+from MlirNodeImplementer import MlirNodeImplementer as MlirImplementer
 
 from xdsl.dialects import func,linalg
 from xdsl.dialects.builtin import (

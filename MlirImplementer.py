@@ -2,77 +2,71 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import Tuple
+from abc import ABC, abstractmethod
+import subprocess
+import sys
+import os
+import tempfile
+from pathlib import Path
 import numpy as np
 
-from mlir.ir import (
-    Type,
-)
-from mlir.dialects import (
-    func,
-)
-from xdsl.dialects.builtin import UnitAttr as xdslUnitAttr
+from xdsl.dialects import func as xdslfunc
 
-from xdsl.ir import Operation as xdslOperation
-from xdsl.ir import Attribute as xdslAttribute
+from mlir.dialects.transform import NamedSequenceOp
+from mlir.passmanager import PassManager
 
-from AbsImplementer import AbsImplementer
-import transform
+import utils
+from evaluator import Evaluator, Executor
 from MlirModule import MlirModule
-from xdsl_aux import xdsl_operator_to_function
+from ext_tools import (
+    transform_opts,
+    lowering_opts,
+    mlirtranslate_opts,
+    llc_opts,
+    opt_opts,
+    shared_lib_opts,
+    exe_opts,
+    runtime_libs,
+    dump_file,
+    mlirrunner_opts,
+    objdump_bin,
+    cc_bin,
+    objdump_opts,
+    objdump_color_opts,
+)
+import transform
 
-ty_tiles = dict[str, int]
 
-
-class MlirImplementer(AbsImplementer):
-    count = 0
-
-    tiles: dict[str, ty_tiles]
-    ext_rtclock: func.FuncOp
-
+# class MlirImplementer:
+class MlirImplementer(ABC):
     def __init__(
         self,
         mlir_install_dir: str,
-        source_op: xdslOperation,
-        dims: dict[str, int],
-        parallel_dims: list[str],
-        reduction_dims: list[str],
-        vectors_size: int = 16,
-        payload_name: str | None = None,
+        xdsl_func: xdslfunc.FuncOp,
+        vectors_size: int,
     ):
-        super().__init__(mlir_install_dir)
-        #
+        # Compilation information
         self.vectors_size = vectors_size
-        # Build the payload
-        self._payload_name = (
-            payload_name if payload_name else f"payload{MlirImplementer.count}"
-        )
-        self.op_id_attribute = f"id{MlirImplementer.count}"
-        MlirImplementer.count += 1
-        self.source_op = source_op
-        self.source_op.attributes[self.op_id_attribute] = xdslUnitAttr()
-        xdsl_func = xdsl_operator_to_function(source_op, self._payload_name)
-        # Build MLIR primitives
+        self.shared_libs = [f"{mlir_install_dir}/lib/{lib}" for lib in runtime_libs]
+        self.shared_path = [f"-Wl,--rpath={mlir_install_dir}/lib/"]
+        self.cmd_run_mlir = [
+            f"{mlir_install_dir}/bin/mlir-cpu-runner",
+            *[f"-shared-libs={lib}" for lib in self.shared_libs],
+        ] + mlirrunner_opts
+        self.cmd_mlirtranslate = [
+            f"{mlir_install_dir}/bin/mlir-translate"
+        ] + mlirtranslate_opts
+        self.cmd_llc = [f"{mlir_install_dir}/bin/llc"] + llc_opts
+        self.cmd_opt = [f"{mlir_install_dir}/bin/opt"] + opt_opts
+        self.cmd_cc = [cc_bin]
+        # Module definition
         self._mlir_module = MlirModule()
         payload_func = self._mlir_module.parse_and_add_function(str(xdsl_func))
+        self.payload_name = str(payload_func.name).replace('"', "")
         self._mlir_module.measure_execution_time(
             new_function_name="entry",
-            measured_function_name=str(payload_func.name),
+            measured_function_name=self.payload_name,
         )
-        #
-        self.dims = dims
-        self.parallel_dims = parallel_dims
-        self.reduction_dims = reduction_dims
-        self.tiles = {k: {k: 1} for k, _ in self.dims.items()}
-        self.tile_sizes_cache: dict[str, int] = {}
-        self.permutation = self.get_default_interchange()
-        self.vectorization = []
-        self.parallelization = []
-        self.unrolling: dict[str, int] = dict([])
-
-    @property
-    def payload_name(self) -> str:
-        return self._payload_name
 
     @property
     def ctx(self):
@@ -81,90 +75,6 @@ class MlirImplementer(AbsImplementer):
     @property
     def module(self):
         return self._mlir_module.module
-
-    def loops(self) -> dict[str, int]:
-        loops: dict[str, int] = dict()
-        for tile_level in range(len(max(self.tiles.values(), key=len))):
-            for _, v in self.tiles.items():
-                if tile_level >= len(v):
-                    continue
-                dim_name = list(v.keys())[tile_level]
-                loops[dim_name] = v[dim_name]
-        return loops
-
-    def get_default_interchange(self) -> list[str]:
-        return list(self.loops().keys())
-
-    def tile(
-        self,
-        dim: str,
-        tiles: ty_tiles,
-    ):
-        #
-        for k, v in tiles.items():
-            self.tile_sizes_cache[k] = v
-        #
-        ndims = list(tiles.keys())
-        tiles_sizes = list(tiles.values())
-
-        assert len(ndims) == len(tiles_sizes)
-
-        previous_tile_size = self.dims[dim]
-        for ts in tiles_sizes:
-            assert previous_tile_size % ts == 0
-            previous_tile_size = ts
-
-        dims = [dim] + ndims
-        sizes = tiles_sizes + [1]
-        for d, s in zip(dims, sizes):
-            self.tiles[dim][d] = s
-        self.permutation = self.get_default_interchange()
-
-        if dim in self.parallel_dims:
-            self.parallel_dims += ndims
-        if dim in self.reduction_dims:
-            self.reduction_dims += ndims
-
-    def interchange(self, permutation: list[str]):
-        self.permutation = permutation
-
-    def vectorize(self, vectorization: list[str]):
-        self.vectorization = vectorization
-        self.propagate_vectorization()
-
-    def parallelize(self, parallelization: list[str]):
-        for p in parallelization:
-            assert p in self.parallel_dims
-        self.parallelization = parallelization
-
-    def unroll(self, unrolling: dict[str, int]):
-        self.unrolling = unrolling
-        self.propagate_vectorization()
-
-    def propagate_vectorization(self):
-        nvect: list[str] = []
-        for v in self.vectorization:
-            ind = self.permutation.index(v)
-            for i in list((range(0, ind)))[::-1]:
-                dim = self.permutation[i]
-                if dim in self.unrolling and dim in self.parallel_dims:
-                    nvect.append(dim)
-                else:
-                    break
-        for nv in nvect:
-            self.vectorization.append(nv)
-            self.unrolling.pop(nv)
-
-    # This one will be overriden when multiple schedules
-    def schedule_kernel(
-        self,
-        signature: str,
-        input_var: str,
-    ) -> list[str]:
-        body = self.materialize_schedule(input_var=input_var)
-        # kernel = [signature,"{"] + body + [transform.get_terminator(),"}"]
-        kernel = [signature, "{"] + body + [transform.get_empty_terminator(), "}"]
-        return kernel
 
     def inject_schedule(self):
         sym_name = "@__transform_main"
@@ -175,135 +85,347 @@ class MlirImplementer(AbsImplementer):
         kernel = self.schedule_kernel(signature=seq_sig, input_var=input_var)
         self._mlir_module.inject_schedule(kernel)
 
-    def materialize_tiling(self, global_handle: str) -> Tuple[list[str], str]:
-        loop_to_tile, match_attr = transform.match_by_attribute(
-            op=global_handle, attr=self.op_id_attribute
+    @abstractmethod
+    def schedule_kernel(
+        self,
+        signature: str,
+        input_var: str,
+    ) -> list[str]:
+        pass
+
+    def build_disassemble_extra_opts(
+        self,
+        obj_file: str,
+        color: bool,
+    ) -> list[str]:
+        disassemble_extra_opts = [obj_file]
+        if color:
+            disassemble_extra_opts += objdump_color_opts
+        return disassemble_extra_opts
+
+    def build_run_extra_opts(
+        self, exe_file: str, print_assembly: bool, color: bool
+    ) -> list[str]:
+        run_extra_opts: list[str] = []
+        if print_assembly:
+            run_extra_opts += [
+                "--dump-object-file",
+                f"--object-filename={exe_file}",
+            ]
+        return run_extra_opts
+
+    def dump_ir(self, title: str):
+        print(f"// -----// {title} //----- //", file=sys.stderr)
+        print(str(self.module), file=sys.stderr)
+
+    def mlir_compile(
+        self,
+        print_source_ir: bool,
+        print_transformed_ir: bool,
+        color: bool,
+        debug: bool,
+        print_lowered_ir: bool,
+    ):
+        if print_source_ir:
+            self.dump_ir("IR Dump Before transform")
+        pm = PassManager("builtin.module", context=self.ctx)
+        for opt in transform_opts:
+            pm.add(opt)
+        pm.run(self.module)
+        lop = [o for o in self.module.body.operations][-1]
+        assert isinstance(lop, NamedSequenceOp)
+        lop.erase()
+        if print_transformed_ir:
+            self.dump_ir("IR Dump After transform")
+        #
+        pm = PassManager("builtin.module", context=self.ctx)
+        for opt in lowering_opts:
+            pm.add(opt)
+        pm.run(self.module)
+
+        if print_lowered_ir:
+            self.dump_ir("IR Dump After MLIR Opt")
+
+    def disassemble(
+        self,
+        obj_file: str,
+        color: bool,
+        debug: bool,
+    ):
+        disassemble_extra_opts = self.build_disassemble_extra_opts(
+            obj_file=obj_file, color=color
+        )
+        symbol = f"--disassemble={self.payload_name}" if self.payload_name else None
+        disassemble_cmd = (
+            [objdump_bin] + objdump_opts + [symbol] + disassemble_extra_opts
+        )
+        print(" ".join(disassemble_cmd))
+        bc_process = self.execute_command(
+            cmd=disassemble_cmd, pipe_stdoutput=False, debug=debug
         )
 
-        # Build the transform vectors corresponding to each tiling instruction
-        positions = {}
-        dims_vectors = {}
-        for tile_level in range(len(max(self.tiles.values(), key=len))):
-            for dim_to_tile, (_, v) in enumerate(self.tiles.items()):
-                if tile_level >= len(v):
-                    continue
-                #
-                dim_name = list(v.keys())[tile_level]
-                dims_vectors[dim_name] = [
-                    v[dim_name] if i == dim_to_tile else 0
-                    for i in range(len(self.tiles))
-                ]
-                positions[dim_name] = dim_to_tile
+    def execute_command(
+        self,
+        cmd: str,
+        debug: bool,
+        input_pipe: str | None = None,
+        pipe_stdoutput: bool = True,
+    ) -> subprocess.CompletedProcess:
+        pretty_cmd = "| " if input_pipe else ""
+        pretty_cmd += " ".join(cmd)
+        if debug:
+            print(f"> exec: {pretty_cmd}", file=sys.stderr)
 
-        # Reorder the vectors (according to the permutation)
-        dims_vectors: dict[str, list[int]] = dict(
-            [(p, dims_vectors[p]) for p in self.permutation]
+        if input_pipe and pipe_stdoutput:
+            result = subprocess.run(
+                cmd, input=input_pipe, stdout=subprocess.PIPE, text=True
+            )
+        elif input_pipe and not pipe_stdoutput:
+            result = subprocess.run(cmd, input=input_pipe, text=True)
+        elif not input_pipe and pipe_stdoutput:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, text=True)
+        else:
+            result = subprocess.run(cmd, text=True)
+        return result
+
+    def evaluate(
+        self,
+        print_source_ir=False,
+        print_transformed_ir=False,
+        print_assembly=False,
+        color=True,
+        dump_file=dump_file,
+        debug=False,
+        print_lowered_ir=False,
+    ):
+        exe_dump_file = f"{dump_file}.o"
+
+        self.inject_schedule()
+        self.mlir_compile(
+            print_source_ir=print_source_ir,
+            print_transformed_ir=print_transformed_ir,
+            color=color,
+            debug=debug,
+            print_lowered_ir=print_lowered_ir,
         )
 
-        # Actually produce the tiling instructions and annotate the resulting
-        # loops
-        current_state = loop_to_tile
-        tiling_instrs: list[str] = [match_attr]
-        loops: list[str] = []
-        for dim, dims_vector in dims_vectors.items():
-            # Useless to materialize a loop which will be vectorized
-            if dim in self.vectorization:
-                # if self.vectorization_backpropagation_possible(dim):
-                break
-            # The actual tiling
-            current_state, new_loop, new_instr = transform.produce_tiling_instr(
-                current_state=current_state,
-                dims_vector=dims_vector,
-                parallel=dim in self.parallelization,
+        run_extra_opts = self.build_run_extra_opts(
+            exe_file=exe_dump_file, print_assembly=print_assembly, color=color
+        )
+        cmd_run = self.cmd_run_mlir + run_extra_opts
+        result = self.execute_command(
+            cmd=cmd_run, input_pipe=str(self.module), debug=debug
+        )
+
+        if print_assembly:
+            disassemble_process = self.disassemble(
+                obj_file=exe_dump_file,
+                color=color,
+                debug=debug,
             )
-            loops.append(new_loop)
-            # Name the resulting loop
-            annot = transform.annotate(new_loop, f"{self.op_id_attribute}_{dim}")
-            #
-            tiling_instrs += [new_instr + annot]
 
-        return tiling_instrs, loops[0]
+        return result.stdout
 
-    def normalize_and_vectorize(self, tiled_loop: str) -> Tuple[list[str], str]:
-        parent, parent_instr = transform.get_parent(tiled_loop)
+    def generate_without_compilation(
+        self,
+        color=True,
+    ):
+        return str(self.module)
 
-        # Canonicalize the code produced by the tiling operations
-        norm_instrs = transform.tiling_apply_patterns(parent)
-        parent_and_norm_instrs = [parent_instr] + norm_instrs
+    def compile(
+        self,
+        print_source_ir=False,
+        print_transformed_ir=False,
+        print_assembly=False,
+        color=True,
+        dump_file=dump_file,
+        debug=False,
+        print_lowered_ir=False,
+        shared_lib=False,
+        executable=False,
+        **kwargs,
+    ):
+        save_temps = kwargs.get("save_temps", False)
+        ir_dump_file = f"{dump_file}.ir"
+        bc_dump_file = f"{dump_file}.bc"
+        obj_dump_file = f"{dump_file}.o"
+        so_dump_file = f"{dump_file}.so"
+        exe_c_file = f"{dump_file}.main.c"
+        exe_dump_file = f"{dump_file}.out"
 
-        # Produce the vectorization instructions
-        vect_instrs = []
-        vectorized = parent
-        if len(self.vectorization) > 0:
-            handler, vectorize = transform.get_vectorize_children(parent)
-            pre_hoist = transform.vector_pre_hoist_apply_patterns(handler)
-            hoisted0, get_hoist0 = transform.vector_hoist(handler)
-            vect_instrs = [vectorize] + pre_hoist + [get_hoist0]
-            vectorized = hoisted0
-        else:
-            vectorized, scalarization = transform.get_scalarize(vectorized)
-            vect_instrs = [scalarization]
+        self.inject_schedule()
 
-        return parent_and_norm_instrs + vect_instrs, vectorized
+        self.mlir_compile(
+            print_source_ir=print_source_ir,
+            print_transformed_ir=print_transformed_ir,
+            color=color,
+            debug=debug,
+            print_lowered_ir=print_lowered_ir,
+        )
 
-    def materialize_unrolling(self, vectorized: str) -> Tuple[list[str], str]:
-        last_handler = vectorized
-        # Produce the unrolling instructions using the annotations on loops
-        unroll_instrs: list[str] = []
-        for dim, factor in self.unrolling.items():
-            # loop,match_loop = transform.match_by_attribute(vectorized,dim)
-            loop, match_loop = transform.match_by_attribute(
-                vectorized, f"{self.op_id_attribute}_{dim}"
+        translate_cmd = self.cmd_mlirtranslate + ["-o", ir_dump_file]
+        llvmir_process = self.execute_command(
+            cmd=translate_cmd, input_pipe=str(self.module), debug=debug
+        )
+
+        opt_pic = ["--relocation-model=pic"] if shared_lib else []
+        opt_cmd = self.cmd_opt + opt_pic + [ir_dump_file, "-o", bc_dump_file]
+        bc_process = self.execute_command(cmd=opt_cmd, debug=debug)
+
+        llc_cmd = self.cmd_llc + opt_pic + [bc_dump_file, "-o", obj_dump_file]
+        bc_process = self.execute_command(cmd=llc_cmd, debug=debug)
+
+        # clang_cmd = self.cmd_clang + ['-c', ir_dump_file, '-o', exe_dump_file]
+        # bc_process = self.execute_command(cmd=clang_cmd, debug = debug)
+
+        if print_assembly:
+            disassemble_process = self.disassemble(
+                obj_file=obj_dump_file, color=color, debug=debug
             )
-            unroll = transform.get_unroll(loop, factor)
-            unroll_instrs += [match_loop, unroll]
-            last_handler = loop
 
-        postprocess = []
-        if len(self.vectorization) > 0:
-            hoisted, get_hoist = transform.vector_hoist(vectorized)
-            get_lower = transform.vector_lower_outerproduct_patterns(hoisted)
-            postprocess = [get_hoist] + get_lower
-            last_handler = hoisted
+        payload_objs = [obj_dump_file, *self.shared_libs]
+        payload_path = [*self.shared_path]
+        if shared_lib:
+            shared_cmd = [
+                *self.cmd_cc,
+                *shared_lib_opts,
+                obj_dump_file,
+                "-o",
+                so_dump_file,
+                *self.shared_libs,
+                *self.shared_path,
+            ]
+            self.execute_command(cmd=shared_cmd, debug=debug)
+            payload_objs = [so_dump_file]
+            payload_path = ["-Wl,--rpath=${ORIGIN}"]
 
-        # if len(unroll_instrs) > 0:
-        if False:
-            continuation, parent_instr = transform.get_parent(last_handler)
-            postprocess.append(parent_instr)
+        if executable:
+            exe_cmd = [
+                *self.cmd_cc,
+                *exe_opts,
+                exe_c_file,
+                "-o",
+                exe_dump_file,
+                *payload_objs,
+                *payload_path,
+            ]
+            with open(exe_c_file, "w") as outf:
+                outf.write("extern void entry(void); int main() { entry(); return 0; }")
+            self.execute_command(cmd=exe_cmd, debug=debug)
+
+        if not save_temps:
+            Path(ir_dump_file).unlink(missing_ok=True)
+            Path(bc_dump_file).unlink(missing_ok=True)
+            Path(obj_dump_file).unlink(missing_ok=True)
+            Path(exe_c_file).unlink(missing_ok=True)
+
+    def compile_and_evaluate(
+        self,
+        print_source_ir=False,
+        print_transformed_ir=False,
+        print_ir_after=[],
+        print_ir_before=[],
+        print_assembly=False,
+        color=True,
+        debug=False,
+        print_lowered_ir=False,
+        dump_file=None,
+    ):
+        with tempfile.TemporaryDirectory() as tdir:
+            if dump_file is None:
+                dump_file = f"{tdir}/payload"
+            self.compile(
+                print_source_ir=print_source_ir,
+                print_transformed_ir=print_transformed_ir,
+                print_ir_after=print_ir_after,
+                print_ir_before=print_ir_before,
+                print_assembly=print_assembly,
+                color=color,
+                debug=debug,
+                print_lowered_ir=print_lowered_ir,
+                dump_file=dump_file,
+                shared_lib=True,
+                executable=True,
+            )
+            exe_file = os.path.abspath(f"{dump_file}.out")
+            result = self.execute_command(
+                cmd=[f"{exe_file}"],
+                debug=debug,
+            )
+            return result.stdout
+
+    def load_and_evaluate(
+        self,
+        dll,
+        sym,
+        repeat=1,
+        min_repeat_ms=0,
+        number=1,
+        validate=False,
+        parameters=None,
+    ):
+        results, code, error = self.load_and_eval(
+            dll,
+            sym,
+            repeat=repeat,
+            min_repeat_ms=min_repeat_ms,
+            number=number,
+            validate=validate,
+            parameters=parameters,
+        )
+        if code == 0:
+            return min(results)
         else:
-            continuation = last_handler
+            return error
 
-        return unroll_instrs + postprocess, continuation
+    def load_and_eval(
+        self,
+        dll,
+        sym,
+        repeat=1,
+        min_repeat_ms=0,
+        number=1,
+        validate=False,
+        parameters=None,
+    ):
+        libpath = os.path.abspath(dll)
+        with utils.LibLoader(libpath) as lib:
+            func = getattr(lib, sym)
+            assert func is not None, f"Cannot find {sym} in lib {dll}"
+            inputs_spec = self.np_inputs_spec()
+            outputs_spec = self.np_outputs_spec()
+            if parameters is None:
+                inputs = [utils.np_init(**spec) for spec in inputs_spec]
+                outputs = [np.empty(**spec) for spec in outputs_spec]
+                parameters = (
+                    [NDArray(inp) for inp in inputs],
+                    [NDArray(out) for out in outputs],
+                )
+            if validate:
+                ref_inputs = [inp.numpy() for inp in parameters[0]]
+                ref_outputs = [np.empty(**spec) for spec in outputs_spec]
+                self.reference_impl(*ref_inputs, *ref_outputs)
+                exec_func = Executor(func)
+                exec_func(*parameters[0], *parameters[1])
+                for out_ref, out in zip(
+                    ref_outputs, [out.numpy() for out in parameters[1]]
+                ):
+                    if not np.allclose(out_ref, out):
+                        return [], 1, "Error in validation: outputs differ"
+            eval_func = Evaluator(
+                func, repeat=repeat, min_repeat_ms=min_repeat_ms, number=number
+            )
+            results = eval_func(*parameters[0], *parameters[1])
+        return np.array(results), 0, ""
 
-    def materialize_schedule(self, input_var: str) -> list[str]:
-        tiling_instrs, tiled_loop = self.materialize_tiling(global_handle=input_var)
-        vect_instrs, vectorized = self.normalize_and_vectorize(tiled_loop)
-        unroll_instrs, _ = self.materialize_unrolling(vectorized)
-        tiling_and_vect_instrs = tiling_instrs + vect_instrs
-        full_schedule = tiling_and_vect_instrs + unroll_instrs
+    @abstractmethod
+    def np_inputs_spec(self) -> list[dict[str, tuple[int, ...] | str]]:
+        pass
 
-        return full_schedule
+    @abstractmethod
+    def np_outputs_spec(self) -> list[dict[str, tuple[int, ...] | str]]:
+        pass
 
-    @classmethod
-    def _np_types_spec(cls, types):
-        types_map = {"f32": "float32", "f64": "float64"}
-        types_spec = [
-            {
-                "shape": t.get_shape(),
-                "dtype": types_map[str(t.get_element_type())],
-            }
-            for t in types
-        ]
-        return types_spec
-
-    def np_inputs_spec(self):
-        return self._np_types_spec([i.type for i in self.source_op.operands])
-
-    def np_outputs_spec(self):
-        return self._np_types_spec([i.type for i in self.source_op.results])
-
+    @abstractmethod
     def reference_impl(self, *operands):
-        if self.source_op.name == "linalg.matmul":
-            np.matmul(operands[0], operands[1], out=operands[2])
-        else:
-            assert 0, f"unknown implementation for operation: {self.source_op.name}"
+        pass

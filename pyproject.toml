@@ -1,5 +1,5 @@
 [tool.pyright]
 reportImportCycles = false
 reportUnnecessaryIsInstance = false
+reportMissingTypeStubs = false
 typeCheckingMode = "strict"
-include = ["xdsl_smt"]

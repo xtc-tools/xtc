@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 
 def mlir_init():
-    from MlirImplementer import MlirImplementer as impl
+    from MlirNodeImplementer import MlirNodeImplementer as impl
 
 
 def xdsl_matmul(i, j, k, ftype):
@@ -73,7 +73,7 @@ def xdsl_matmul(i, j, k, ftype):
     elt_type = {"f32": f32, "f64": f64}[ftype]
     operands_types = [MemRefType(elt_type, shape) for shape in [[i, k], [k, j], [i, j]]]
     block0 = Block(arg_types=operands_types)
-    matmul = linalg.MemRefMatmulOp(
+    matmul = linalg.MatmulOp(
         inputs=(block0.args[0], block0.args[1]),
         outputs=(block0.args[2],),
     )
@@ -81,7 +81,7 @@ def xdsl_matmul(i, j, k, ftype):
 
 
 def mlir_matmul_sched(i, j, k, ftype, args):
-    from MlirImplementer import MlirImplementer as impl
+    from MlirNodeImplementer import MlirNodeImplementer as impl
 
     op_matmul = xdsl_matmul(i, j, k, ftype)
     sched = impl(

@@ -36,7 +36,7 @@ class MlirModule:
         #
         f64 = F64Type.get(context=self.ctx)
         self.ext_rtclock = self.add_external_function(
-            name="rtClock",
+            name="rtclock",
             input_types=[],
             output_types=[f64],
         )
@@ -74,7 +74,8 @@ class MlirModule:
         payload_func = func.FuncOp.parse(function, context=self.ctx)
         ip = InsertionPoint.at_block_begin(self.module.body)
         ip.insert(payload_func)
-        self.local_functions[str(payload_func.name)] = payload_func
+        name = str(payload_func.name).replace('"', "")
+        self.local_functions[str(name)] = payload_func
         return payload_func
 
     def measure_execution_time(
@@ -125,6 +126,7 @@ class MlirModule:
                 memref.DeallocOp(i)
 
             func.ReturnOp([], loc=self.loc)
+        return fmain
 
     def inject_schedule(self, schedule_kernel: list[str]):
         if self.schedule_injected:

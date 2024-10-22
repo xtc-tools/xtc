@@ -9,13 +9,30 @@ from xdsl.ir import (
     Region,
     Operation,
 )
+from xdsl.dialects.arith import Constant
 from xdsl.dialects.builtin import (
     AnyMemRefType,
     AnyIntegerAttr,
     ArrayAttr,
+    FloatAttr,
     DictionaryAttr,
     UnitAttr,
+    IntegerType,
 )
+
+from xdsl.context import MLContext
+from xdsl.parser import Parser
+from xdsl.dialects import func, linalg, arith
+
+
+def parse_xdsl_module(source: str):
+    context = MLContext()
+    context.load_dialect(func.Func)
+    context.load_dialect(linalg.Linalg)
+    context.load_dialect(arith.Arith)
+    parser = Parser(context, source)
+    module = parser.parse_module()
+    return module
 
 
 def xdsl_operator_to_function(source_op: Operation, name: str) -> func.FuncOp:
@@ -37,11 +54,11 @@ def xdsl_operator_to_function(source_op: Operation, name: str) -> func.FuncOp:
             concrete_operands.append(payload.args[shaped_count])
             shaped_count += 1
         else:
-            if isa(o.type, xdslIntegerType):
+            if isa(o.type, IntegerType):
                 attr = AnyIntegerAttr(0, scalar_types[scalar_count])
             else:
-                attr = xdslFloatAttr(0.0, scalar_types[scalar_count])
-            constant = xdslConstant(attr)
+                attr = FloatAttr(0.0, scalar_types[scalar_count])
+            constant = Constant(attr)
             payload.add_ops([constant])
             concrete_operands.append(constant.results[0])
             scalar_count += 1
