@@ -27,6 +27,7 @@ class MlirNodeImplementer(MlirImplementer):
         parallel_dims: list[str],
         reduction_dims: list[str],
         concluding_passes: list[str] = [],
+        loop_stamps: list[str] = [],
         vectors_size: int = 16,
         payload_name: str | None = None,
     ):
@@ -44,6 +45,8 @@ class MlirNodeImplementer(MlirImplementer):
         xdsl_func = xdsl_operator_to_function(source_op, payload_name)
         #
         super().__init__(mlir_install_dir, xdsl_func, vectors_size, concluding_passes)
+        #
+        self.loop_stamps = loop_stamps
         #
         self.dims = dims
         self.parallel_dims = parallel_dims
@@ -187,7 +190,13 @@ class MlirNodeImplementer(MlirImplementer):
             #
             tiling_instrs += [new_instr + annot]
 
-        return tiling_instrs, loops[0]
+        outer_loop = loops[0]
+
+        for s in self.loop_stamps:
+            annot = transform.annotate(outer_loop, s)
+            tiling_instrs.append(annot)
+
+        return tiling_instrs, outer_loop
 
     def normalize_and_vectorize(self, tiled_loop: str) -> tuple[list[str], str]:
         parent, parent_instr = transform.get_parent(tiled_loop)
@@ -231,20 +240,17 @@ class MlirNodeImplementer(MlirImplementer):
             postprocess = [get_hoist] + get_lower
             last_handler = hoisted
 
-        # if len(unroll_instrs) > 0:
-        if False:
-            continuation, parent_instr = transform.get_parent(last_handler)
-            postprocess.append(parent_instr)
-        else:
-            continuation = last_handler
-
-        return unroll_instrs + postprocess, continuation
+        return unroll_instrs + postprocess, last_handler
 
     def materialize_schedule(self, input_var: str) -> tuple[str, list[str]]:
+        #
         tiling_instrs, tiled_loop = self.materialize_tiling(global_handle=input_var)
+        #
         vect_instrs, vectorized = self.normalize_and_vectorize(tiled_loop)
+        #
         unroll_instrs, unrolled = self.materialize_unrolling(vectorized)
-        tiling_and_vect_instrs = tiling_instrs + vect_instrs
+        #
+        tiling_and_vect_instrs = tiling_instrs + stamp_instrs + vect_instrs
         full_schedule = tiling_and_vect_instrs + unroll_instrs
 
         return unrolled, full_schedule

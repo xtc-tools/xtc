@@ -41,6 +41,7 @@ impl = MlirImplementer(
     dims = {'i':i,'j':j,'k':k},
     parallel_dims = ['i','j'],
     reduction_dims = ['k'],
+    loop_stamps = ["JoeDassin"],
     vectors_size = vectors_size
 )
 
@@ -54,9 +55,9 @@ impl.unroll({'i1':4,'k1':8})
 
 e = impl.evaluate(
     print_source_ir=False,
-    print_transformed_ir=False,
+    print_transformed_ir=True,
     print_lowered_ir = False,
-    print_assembly=True,
+    print_assembly=False,
     color = True,
     debug = False,
 )

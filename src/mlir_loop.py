@@ -117,6 +117,10 @@ def main():
             for d in o.attributes["loop.reduction_dims"].data:
                 reduction_dims.append(d.data)
             #
+        loop_stamps = []
+        if "loop.add_attributes" in o.attributes:
+            for stamp in o.attributes["loop.add_attributes"].data:
+                loop_stamps.append(stamp.data)
         implementer_name = f"v{count}"
         count += 1
         impl = MlirNodeImplementer(
@@ -128,6 +132,7 @@ def main():
             vectors_size=args.vectors_size,
             payload_name=implementer_name,
             concluding_passes=args.concluding_passes,
+            loop_stamps=loop_stamps,
         )
         #
         if "loop.tiles_names" in o.attributes:

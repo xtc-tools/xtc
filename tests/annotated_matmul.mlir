@@ -28,7 +28,8 @@ func.func @myfun(
       loop.interchange = ["i","j","k","k1","i1","j1"],
       loop.vectorize = ["j1"],
       loop.parallelize = ["i"],
-      loop.unroll = {i1 = 4, k1 = 8}
+      loop.unroll = {i1 = 4, k1 = 8},
+      loop.add_attributes = ["JoeDassin"]
     }
     ins(%A, %B : memref<512x1024xf32>, memref<1024x128xf32>)
     outs(%C : memref<512x128xf32>)
