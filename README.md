@@ -43,6 +43,7 @@ command sequence. Thus, ```mlir-loop``` transformations fully reuse
 those implemented in ```mlir-opt```.
 
 Roadmap:
++ Allow tensor-level specifications
 + Implement graph-level transformations (fusion, etc.).
 + Implement more node-level transformations (padding, packing, etc.).
 + Allow the insertion of arbitrary MLIR passes after tiling, or
@@ -58,7 +59,7 @@ one relies on upstream MLIR bindings.
 
 Install dependencies (Debian):
 ```
-sudo apt install pybind11-dev python3-numpy
+sudo apt install pybind11-dev python3-numpy libxml2-dev
 ```
 
 Choose the commit ```76edf72501cd6f66788c631fada95972a797a4a6```: 
@@ -74,7 +75,7 @@ pip install -r mlir/python/requirements.txt
 mkdir build
 cd build
 cmake -DLLVM_ENABLE_PROJECTS="clang;mlir" -DLLVM_BUILD_EXAMPLES=ON \
-  -DCMAKE_INSTALL_PREFIX=$HOME/bin/llvm-xdsl -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=$HOME/bin/llvm -DCMAKE_BUILD_TYPE=Release \
   -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
   -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_C_COMPILER=clang \
   -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_ASM_COMPILER=clang \
