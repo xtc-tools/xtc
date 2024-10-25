@@ -18,6 +18,7 @@ from mlir.passmanager import PassManager
 import utils
 from evaluator import Evaluator, Executor
 from MlirModule import MlirModule
+from xdsl_aux import brand_inputs_with_noalias
 from ext_tools import (
     transform_opts,
     lowering_opts,
@@ -62,6 +63,7 @@ class MlirImplementer(ABC):
         self.cmd_opt = [f"{mlir_install_dir}/bin/opt"] + opt_opts
         self.cmd_cc = [cc_bin]
         # Module definition
+        brand_inputs_with_noalias(xdsl_func)
         self._mlir_module = MlirModule()
         payload_func = self._mlir_module.parse_and_add_function(str(xdsl_func))
         self.payload_name = str(payload_func.name).replace('"', "")

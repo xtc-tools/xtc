@@ -201,24 +201,18 @@ class MlirNodeImplementer(MlirImplementer):
     def normalize_and_vectorize(self, tiled_loop: str) -> tuple[list[str], str]:
         parent, parent_instr = transform.get_parent(tiled_loop)
 
-        # Canonicalize the code produced by the tiling operations
-        norm_instrs = transform.tiling_apply_patterns(parent)
-        parent_and_norm_instrs = [parent_instr] + norm_instrs
-
         # Produce the vectorization instructions
         vect_instrs = []
         vectorized = parent
-        if len(self.vectorization) > 0:
-            handler, vectorize = transform.get_vectorize_children(parent)
-            pre_hoist = transform.vector_pre_hoist_apply_patterns(handler)
-            hoisted0, get_hoist0 = transform.vector_hoist(handler)
-            vect_instrs = [vectorize] + pre_hoist + [get_hoist0]
-            vectorized = hoisted0
+        if self.vectors_size > 0:
+            vectorized, vectorize = transform.get_vectorize_children(parent)
+            vect_instrs = [vectorize]
+            vect_instrs += transform.vector_lower_outerproduct_patterns(vectorized)
         else:
             vectorized, scalarization = transform.get_scalarize(vectorized)
             vect_instrs = [scalarization]
 
-        return parent_and_norm_instrs + vect_instrs, vectorized
+        return [parent_instr] + vect_instrs, vectorized
 
     def materialize_unrolling(self, vectorized: str) -> tuple[list[str], str]:
         last_handler = vectorized
@@ -233,14 +227,7 @@ class MlirNodeImplementer(MlirImplementer):
             unroll_instrs += [match_loop, unroll]
             last_handler = loop
 
-        postprocess = []
-        if len(self.vectorization) > 0:
-            hoisted, get_hoist = transform.vector_hoist(vectorized)
-            get_lower = transform.vector_lower_outerproduct_patterns(hoisted)
-            postprocess = [get_hoist] + get_lower
-            last_handler = hoisted
-
-        return unroll_instrs + postprocess, last_handler
+        return unroll_instrs, last_handler
 
     def materialize_schedule(self, input_var: str) -> tuple[str, list[str]]:
         #
@@ -249,7 +236,6 @@ class MlirNodeImplementer(MlirImplementer):
         vect_instrs, vectorized = self.normalize_and_vectorize(tiled_loop)
         #
         unroll_instrs, unrolled = self.materialize_unrolling(vectorized)
-        #
         tiling_and_vect_instrs = tiling_instrs + vect_instrs
         full_schedule = tiling_and_vect_instrs + unroll_instrs
 

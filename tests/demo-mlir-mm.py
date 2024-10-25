@@ -55,9 +55,9 @@ impl.unroll({'i1':4,'k1':8})
 
 e = impl.evaluate(
     print_source_ir=False,
-    print_transformed_ir=True,
+    print_transformed_ir=False,
     print_lowered_ir = False,
-    print_assembly=False,
+    print_assembly=True,
     color = True,
     debug = False,
 )
