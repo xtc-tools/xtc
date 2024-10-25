@@ -3,15 +3,22 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing import cast
+from typing_extensions import override
 import numpy as np
 
 from xdsl.dialects.builtin import UnitAttr as xdslUnitAttr
 from xdsl.ir import Operation as xdslOperation
 from xdsl.dialects.builtin import AnyMemRefType as xdslAnyMemRefType
 
-from MlirImplementer import MlirImplementer
-import transform
+from mlir.dialects.transform.structured import structured_match
+from mlir.dialects import transform
+from mlir.dialects.transform import (
+    structured,
+)
+from mlir.dialects.transform.loop import loop_unroll
+from mlir.ir import UnitAttr
 from xdsl_aux import xdsl_operator_to_function
+from MlirImplementer import MlirImplementer
 
 ty_tiles = dict[str, int]
 
@@ -26,17 +33,14 @@ class MlirNodeImplementer(MlirImplementer):
         dims: dict[str, int],
         parallel_dims: list[str],
         reduction_dims: list[str],
+        payload_name: str = "f",
         concluding_passes: list[str] = [],
         loop_stamps: list[str] = [],
         vectors_size: int = 16,
-        payload_name: str | None = None,
     ):
         #
         # Build the payload
         self.op_id_attribute = f"id{MlirNodeImplementer.count}"
-        payload_name = (
-            payload_name if payload_name else f"payload{MlirNodeImplementer.count}"
-        )
         source_op.attributes[self.op_id_attribute] = xdslUnitAttr()
         MlirNodeImplementer.count += 1
         # To discard
@@ -118,128 +122,97 @@ class MlirNodeImplementer(MlirImplementer):
         self.propagate_vectorization()
 
     def propagate_vectorization(self):
-        nvect: list[str] = []
-        for v in self.vectorization:
-            ind = self.permutation.index(v)
-            for i in list((range(0, ind)))[::-1]:
-                dim = self.permutation[i]
-                if dim in self.unrolling and dim in self.parallel_dims:
-                    nvect.append(dim)
-                else:
-                    break
-        for nv in nvect:
-            self.vectorization.append(nv)
-            self.unrolling.pop(nv)
+        # TODO: is it useful ? Evaluation needed
+        # nvect: list[str] = []
+        # for v in self.vectorization:
+        #     ind = self.permutation.index(v)
+        #     for i in list((range(0, ind)))[::-1]:
+        #         dim = self.permutation[i]
+        #         if dim in self.unrolling and dim in self.parallel_dims:
+        #             nvect.append(dim)
+        #         else:
+        #             break
+        # for nv in nvect:
+        #     self.vectorization.append(nv)
+        #     self.unrolling.pop(nv)
+        return
 
-    def schedule_kernel(
-        self,
-        signature: str,
-        input_var: str,
-    ) -> list[str]:
-        handle, body = self.materialize_schedule(input_var=input_var)
-        for p in self.concluding_passes:
-            handle, instr = transform.get_registered_pass(handle, p)
-            body.append(instr)
-        kernel = [signature, "{"] + body + [transform.get_empty_terminator(), "}"]
-        return handle, kernel
-
-    def materialize_tiling(self, global_handle: str) -> tuple[list[str], str]:
-        loop_to_tile, match_attr = transform.match_by_attribute(
-            op=global_handle, attr=self.op_id_attribute
-        )
-
-        # Build the transform vectors corresponding to each tiling instruction
-        positions = {}
-        dims_vectors = {}
-        for tile_level in range(len(max(self.tiles.values(), key=len))):
-            for dim_to_tile, (_, v) in enumerate(self.tiles.items()):
-                if tile_level >= len(v):
+    def generate_node_tiling(self, handle):
+        # Produce the sequence of commands needed for the tiling
+        tiling_arrays: dict[str, list[int]] = {}
+        deepest_tiling = max(self.tiles.values(), key=len)
+        depth_deepest_tiling = len(deepest_tiling)
+        for tile_level in range(depth_deepest_tiling):
+            for index_of_dim, (_, tiles) in enumerate(self.tiles.items()):
+                # This dimension is not tiled at this level.
+                if tile_level >= len(tiles):
                     continue
-                #
-                dim_name = list(v.keys())[tile_level]
-                dims_vectors[dim_name] = [
-                    v[dim_name] if i == dim_to_tile else 0
+
+                # Create the array describing the tiling of this
+                # dimension. If I have a (x,y,z) nest and I want
+                # to tile the y dimension with a tile size of 16,
+                # the resulting array is [0,16,0].
+                tile_dim_name = list(tiles.keys())[tile_level]
+                tiling_array = [
+                    tiles[tile_dim_name] if i == index_of_dim else 0
                     for i in range(len(self.tiles))
                 ]
-                positions[dim_name] = dim_to_tile
-
-        # Reorder the vectors (according to the permutation)
-        dims_vectors: dict[str, list[int]] = dict(
-            [(p, dims_vectors[p]) for p in self.permutation]
+                tiling_arrays[tile_dim_name] = tiling_array
+        # Reorder the tiling according to permutation.
+        tiling_arrays: dict[str, list[int]] = dict(
+            [(p, tiling_arrays[p]) for p in self.permutation]
         )
-
-        # Actually produce the tiling instructions and annotate the resulting
-        # loops
-        current_state = loop_to_tile
-        tiling_instrs: list[str] = [match_attr]
-        loops: list[str] = []
-        for dim, dims_vector in dims_vectors.items():
+        # Materialize loops
+        op_to_tile = handle
+        all_loops = []
+        for tile_name, tiling_array in tiling_arrays.items():
             # Useless to materialize a loop which will be vectorized
-            if dim in self.vectorization:
-                # if self.vectorization_backpropagation_possible(dim):
+            if tile_name in self.vectorization:
                 break
-            # The actual tiling
-            current_state, new_loop, new_instr = transform.produce_tiling_instr(
-                current_state=current_state,
-                dims_vector=dims_vector,
-                parallel=dim in self.parallelization,
-            )
-            loops.append(new_loop)
-            # Name the resulting loop
-            annot = transform.annotate(new_loop, f"{self.op_id_attribute}_{dim}")
+            # Generate the tiling itself
+            if tile_name in self.parallelization:
+                tiling_command = structured.TileUsingForallOp(
+                    op_to_tile, tile_sizes=tiling_array
+                )
+            else:
+                tiling_command = structured.TileUsingForOp(
+                    op_to_tile, sizes=tiling_array
+                )
+            # Annotate the resulting loop
+            generated_loop = tiling_command.results[1]
+            transform.AnnotateOp(generated_loop, f"{self.op_id_attribute}_{tile_name}")
+            all_loops.append(generated_loop)
             #
-            tiling_instrs += [new_instr + annot]
+            op_to_tile = tiling_command.results[0]
 
-        outer_loop = loops[0]
-
+        # Stamp the outermost loop
+        outer_loop = all_loops[0]
         for s in self.loop_stamps:
-            annot = transform.annotate(outer_loop, s)
-            tiling_instrs.append(annot)
+            transform.AnnotateOp(outer_loop, s)
 
-        return tiling_instrs, outer_loop
+        return outer_loop
 
-    def normalize_and_vectorize(self, tiled_loop: str) -> tuple[list[str], str]:
-        parent, parent_instr = transform.get_parent(tiled_loop)
-
-        # Produce the vectorization instructions
-        vect_instrs = []
-        vectorized = parent
-        if self.vectors_size > 0:
-            vectorized, vectorize = transform.get_vectorize_children(parent)
-            vect_instrs = [vectorize]
-            vect_instrs += transform.vector_lower_outerproduct_patterns(vectorized)
-        else:
-            vectorized, scalarization = transform.get_scalarize(vectorized)
-            vect_instrs = [scalarization]
-
-        return [parent_instr] + vect_instrs, vectorized
-
-    def materialize_unrolling(self, vectorized: str) -> tuple[list[str], str]:
-        last_handler = vectorized
-        # Produce the unrolling instructions using the annotations on loops
-        unroll_instrs: list[str] = []
+    def generate_node_unroll(self, handle):
         for dim, factor in self.unrolling.items():
-            # loop,match_loop = transform.match_by_attribute(vectorized,dim)
-            loop, match_loop = transform.match_by_attribute(
-                vectorized, f"{self.op_id_attribute}_{dim}"
+            match0 = structured_match(
+                results_=transform.AnyOpType.get(),
+                target=handle,
+                op_attrs={f"{self.op_id_attribute}_{dim}": UnitAttr.get()},
             )
-            unroll = transform.get_unroll(loop, factor)
-            unroll_instrs += [match_loop, unroll]
-            last_handler = loop
+            loop_unroll(match0, factor)
 
-        return unroll_instrs, last_handler
+    @override
+    def generate_unroll(self, handle):
+        self.generate_node_unroll(handle)
 
-    def materialize_schedule(self, input_var: str) -> tuple[str, list[str]]:
-        #
-        tiling_instrs, tiled_loop = self.materialize_tiling(global_handle=input_var)
-        #
-        vect_instrs, vectorized = self.normalize_and_vectorize(tiled_loop)
-        #
-        unroll_instrs, unrolled = self.materialize_unrolling(vectorized)
-        tiling_and_vect_instrs = tiling_instrs + vect_instrs
-        full_schedule = tiling_and_vect_instrs + unroll_instrs
-
-        return unrolled, full_schedule
+    @override
+    def generate_tiling(self):
+        match0 = structured_match(
+            results_=transform.AnyOpType.get(),
+            target=self.named_sequence.bodyTarget,
+            op_attrs={self.op_id_attribute: UnitAttr.get()},
+        )
+        return self.generate_node_tiling(match0)
 
     @classmethod
     def _np_types_spec(
@@ -255,16 +228,19 @@ class MlirNodeImplementer(MlirImplementer):
         ]
         return types_spec
 
+    @override
     def np_inputs_spec(self):
         list_attr_tys = [i.type for i in self.source_op.operands]
         list_memref_tys = cast(list[xdslAnyMemRefType], list_attr_tys)
         return self._np_types_spec(list_memref_tys)
 
+    @override
     def np_outputs_spec(self) -> list[dict[str, tuple[int, ...] | str]]:
         list_attr_tys = [i.type for i in self.source_op.results]
         list_memref_tys = cast(list[xdslAnyMemRefType], list_attr_tys)
         return self._np_types_spec(list_memref_tys)
 
+    @override
     def reference_impl(self, *operands):
         if self.source_op.name == "linalg.matmul":
             np.matmul(operands[0], operands[1], out=operands[2])

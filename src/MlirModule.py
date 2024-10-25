@@ -13,7 +13,6 @@ from mlir.ir import (
     Location,
     InsertionPoint,
     UnitAttr,
-    Module,
 )
 from mlir.dialects import (
     arith,
@@ -23,16 +22,21 @@ from mlir.dialects import (
     func,
 )
 from xdsl.dialects import func as xdslfunc
+from mlir.dialects import transform
+from mlir.dialects.transform import structured, vector, get_parent_op
 
 from xdsl_aux import brand_inputs_with_noalias
-import transform
 
 
 class MlirModule(ABC):
     def __init__(
         self,
         xdsl_func: xdslfunc.FuncOp,
+        vectors_size: int,
+        concluding_passes: list[str],
     ):
+        self.vectors_size = vectors_size
+        self.concluding_passes = concluding_passes
         #
         self.ctx = Context()
         self.loc = Location.unknown(self.ctx)
@@ -60,6 +64,19 @@ class MlirModule(ABC):
             new_function_name="entry",
             measured_function_name=self.payload_name,
         )
+        #
+        with InsertionPoint(self.module.body), self.ctx, self.loc:
+            self.module.operation.attributes["transform.with_named_sequence"] = (
+                UnitAttr.get()
+            )
+            self.named_sequence = transform.NamedSequenceOp(
+                "__transform_main",
+                [transform.AnyOpType.get()],
+                [],
+                arg_attrs=[{"transform.readonly": UnitAttr.get()}],
+            )
+        with InsertionPoint(self.named_sequence.body), self.ctx, self.loc:
+            transform.YieldOp([])
 
     def add_external_function(
         self,
@@ -83,7 +100,7 @@ class MlirModule(ABC):
         self,
         function: str,
     ) -> func.FuncOp:
-        payload_func = func.FuncOp.parse(function, context=self.ctx)
+        payload_func: func.FuncOp = func.FuncOp.parse(function, context=self.ctx)
         ip = InsertionPoint.at_block_begin(self.module.body)
         ip.insert(payload_func)
         name = str(payload_func.name).replace('"', "")
@@ -140,37 +157,38 @@ class MlirModule(ABC):
             func.ReturnOp([], loc=self.loc)
         return fmain
 
-    def inject_str_schedule(self, schedule_kernel: list[str]):
-        if self.schedule_injected:
-            return
-        attr_name = "transform.with_named_sequence"
-        self.module.operation.attributes[attr_name] = UnitAttr.get(context=self.ctx)
-        trans_script = (
-            "module attributes {transform.with_named_sequence} {"
-            + "\n"
-            + "\n".join(schedule_kernel)
-            + "\n"
-            + "}"
+    def generate_vectorization(self, handle):
+        handle = get_parent_op(
+            transform.AnyOpType.get(),
+            handle,
+            isolated_from_above=True,
         )
-        trans_match = Module.parse(trans_script, context=self.ctx)
-        with InsertionPoint(self.module.body):
-            for o in trans_match.body.operations:
-                o.operation.clone()
-        self.schedule = True
-
-    def inject_schedule(self):
-        sym_name = "@__transform_main"
-        myvar = transform.get_new_var()
-        sym_name, input_var, seq_sig = transform.get_seq_signature(
-            input_var=myvar, sym_name=sym_name
-        )
-        handle, kernel = self.schedule_kernel(signature=seq_sig, input_var=input_var)
-        self.inject_str_schedule(kernel)
+        if self.vectors_size > 0:
+            handle = structured.VectorizeChildrenAndApplyPatternsOp(handle)
+            with InsertionPoint(transform.ApplyPatternsOp(handle).patterns):
+                vector.ApplyLowerOuterProductPatternsOp()
+                vector.ApplyLowerContractionPatternsOp()
+        return handle
 
     @abstractmethod
-    def schedule_kernel(
-        self,
-        signature: str,
-        input_var: str,
-    ) -> tuple[str, list[str]]:
+    def generate_tiling(self):
         pass
+
+    @abstractmethod
+    def generate_unroll(self, handle):
+        pass
+
+    def inject_schedule(self):
+        with (
+            InsertionPoint.at_block_begin(self.named_sequence.body),
+            self.ctx,
+            self.loc,
+        ):
+            handle = self.generate_tiling()
+            handle = self.generate_vectorization(handle)
+            self.generate_unroll(handle)
+            for p in self.concluding_passes:
+                handle = transform.ApplyRegisteredPassOp(
+                    transform.AnyOpType.get(), handle, pass_name=p
+                )
+            self.schedule = True

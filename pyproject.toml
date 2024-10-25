@@ -20,7 +20,15 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.pyright]
-reportImportCycles = false
-reportUnnecessaryIsInstance = false
-reportMissingTypeStubs = false
-typeCheckingMode = "strict"
+include = ["src"]
+reportMissingParameterType = "error"
+reportMissingTypeArgument = "error"
+reportImplicitOverride = "error"
+reportUninitializedInstanceVariable = "error"
+reportPossiblyUnboundVariable = "error"
+reportIncompatibleVariableOverride = "error"
+reportIncompatibleMethodOverride = "error"
+reportArgumentType = "error"
+reportReturnType = "error"
+reportAbstractUsage = "error"
+reportUnusedImport = "error"

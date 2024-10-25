@@ -2,13 +2,16 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from xdsl.ir import Operation as xdslOperation
+from typing import cast
+from typing_extensions import override
 from xdsl.dialects import func as xdslfunc
+from xdsl.ir import Block as xdslBlock
+from mlir.dialects.transform.structured import structured_match
+from mlir.dialects import transform
+from mlir.ir import UnitAttr
 
-from xdsl_aux import xdsl_operator_to_function
 from MlirNodeImplementer import MlirNodeImplementer
 from MlirImplementer import MlirImplementer
-import transform
 
 
 class MlirGraphImplementer(MlirImplementer):
@@ -22,7 +25,8 @@ class MlirGraphImplementer(MlirImplementer):
     ):
         self.nodes: dict[str, MlirNodeImplementer] = {}
         for impl in nodes:
-            assert impl.source_op in xdsl_func.body.first_block.ops
+            first_block = cast(xdslBlock, xdsl_func.body.first_block)
+            assert impl.source_op in first_block.ops
             self.nodes[impl.payload_name] = impl
         #
         super().__init__(
@@ -32,40 +36,33 @@ class MlirGraphImplementer(MlirImplementer):
             concluding_passes,
         )
 
-    def schedule_kernel(
-        self,
-        signature: str,
-        input_var: str,
-    ) -> tuple[str, list[str]]:
-        # Tiling
-        tiling_block = []
-        last_tiled_loop = None
+    @override
+    def generate_unroll(self, handle):
         for _, impl in self.nodes.items():
-            tiling_instrs, last_tiled_loop = impl.materialize_tiling(input_var)
-            tiling_block += tiling_instrs
-        # Vectorization. Very ad-hoc.
-        first_impl = list(self.nodes.values())[0]
-        vect_instrs, vectorized = first_impl.normalize_and_vectorize(last_tiled_loop)
-        # Unrolling
-        unroll_block = []
-        handle = vectorized
-        for _, impl in self.nodes.items():
-            unroll_instrs, handle = impl.materialize_unrolling(handle)
-            unroll_block += unroll_instrs
-        #
-        body = tiling_block + vect_instrs + unroll_block
-        for p in self.concluding_passes:
-            handle, instr = transform.get_registered_pass(handle, p)
-            body.append(instr)
-        kernel = [signature, "{"] + body + [transform.get_empty_terminator(), "}"]
-        return handle, kernel
+            impl.generate_node_unroll(handle)
 
-    def np_inputs_spec(self) -> list[dict[str, list[int]]]:
+    @override
+    def generate_tiling(self):
+        handle = None
+        for _, impl in self.nodes.items():
+            match0 = structured_match(
+                results_=transform.AnyOpType.get(),
+                target=self.named_sequence.bodyTarget,
+                op_attrs={impl.op_id_attribute: UnitAttr.get()},
+            )
+            handle = impl.generate_node_tiling(match0)
+        assert handle, "At least 1 operation should have been processed"
+        return handle
+
+    @override
+    def np_inputs_spec(self) -> list[dict[str, tuple[int, ...] | str]]:
         assert False, "Implementation missing"
 
-    def np_outputs_spec(self) -> list[dict[str, list[int]]]:
+    @override
+    def np_outputs_spec(self) -> list[dict[str, tuple[int, ...] | str]]:
         assert False, "Implementation missing"
         pass
 
+    @override
     def reference_impl(self, *operands):
         assert False, "Implementation missing"
