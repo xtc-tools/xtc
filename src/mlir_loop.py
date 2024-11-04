@@ -11,7 +11,7 @@ from xdsl_aux import parse_xdsl_module
 from MlirNodeImplementer import MlirNodeImplementer
 from MlirGraphImplementer import MlirGraphImplementer
 
-home = os.environ.get("HOME", "")
+DEFAULT_LLVM_DIR = "/home/hpompougnac/bin/llvm"
 
 
 def main():
@@ -25,7 +25,7 @@ def main():
     parser.add_argument(
         "--llvm-dir",
         type=str,
-        default=f"{home}/bin/llvm",
+        default=f"{DEFAULT_LLVM_DIR}",
         help="The directory where LLVM binaries are installed.",
     )
     parser.add_argument(
@@ -143,11 +143,6 @@ def main():
         #
         if "loop.tiles_names" in o.attributes:
             for dim, ts in o.attributes["loop.tiles_names"].data.items():
-                # Other syntax
-                # for dim,tiles in o.attributes["loop.tiles_names"].data.items():
-                # name = tiles.data[0].data
-                # size = tiles.data[1].value.data
-                # impl.tile(dim,{name: size})
                 tiles_on_dim = {}
                 for t in ts:
                     t = t.data
