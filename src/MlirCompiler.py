@@ -233,9 +233,6 @@ class MlirCompiler:
         opt_cmd = self.cmd_opt + opt_pic + [ir_dump_file, "-o", bc_dump_file]
         bc_process = self.execute_command(cmd=opt_cmd, debug=debug)
 
-        llc_cmd = self.cmd_llc + opt_pic + [bc_dump_file, "-o", obj_dump_file]
-        bc_process = self.execute_command(cmd=llc_cmd, debug=debug)
-
         if print_assembly:
             disassemble_process = self.disassemble(
                 obj_file=obj_dump_file, color=color, debug=debug
