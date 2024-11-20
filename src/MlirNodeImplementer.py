@@ -29,7 +29,6 @@ class MlirNodeImplementer(MlirImplementer):
 
     def __init__(
         self,
-        mlir_install_dir: str,
         source_op: xdslOperation,
         dims: dict[str, int],
         parallel_dims: list[str],
@@ -47,7 +46,6 @@ class MlirNodeImplementer(MlirImplementer):
         xdsl_func = xdsl_operator_to_function(source_op, payload_name)
         # Call the parent constructor
         super().__init__(
-            mlir_install_dir=mlir_install_dir,
             xdsl_func=xdsl_func,
             concluding_passes=concluding_passes,
             always_vectorize=always_vectorize,

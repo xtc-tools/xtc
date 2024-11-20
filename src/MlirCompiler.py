@@ -37,26 +37,48 @@ from MlirModule import MlirModule
 
 
 class MlirCompiler:
-    def __init__(
-        self,
-        mlir_module: MlirModule,
-        mlir_install_dir: str,
-        functions_of_interest: list[str] = [],
-    ):
+    def __init__(self, mlir_module: MlirModule, mlir_install_dir: str):
         self.mlir_module = mlir_module
-        self.disassemble_option = "--disassemble=" + ",".join(functions_of_interest)
-        self.shared_libs = [f"{mlir_install_dir}/lib/{lib}" for lib in runtime_libs]
-        self.shared_path = [f"-Wl,--rpath={mlir_install_dir}/lib/"]
-        self.cmd_run_mlir = [
-            f"{mlir_install_dir}/bin/mlir-cpu-runner",
+        self.mlir_install_dir = mlir_install_dir
+
+    @property
+    def cmd_cc(self):
+        return [cc_bin]
+
+    @property
+    def cmd_opt(self):
+        return [f"{self.mlir_install_dir}/bin/opt"] + opt_opts
+
+    @property
+    def cmd_llc(self):
+        return [f"{self.mlir_install_dir}/bin/llc"] + llc_opts
+
+    @property
+    def cmd_mlirtranslate(self):
+        return [f"{self.mlir_install_dir}/bin/mlir-translate"] + mlirtranslate_opts
+
+    @property
+    def cmd_run_mlir(self):
+        return [
+            f"{self.mlir_install_dir}/bin/mlir-cpu-runner",
             *[f"-shared-libs={lib}" for lib in self.shared_libs],
         ] + mlirrunner_opts
-        self.cmd_mlirtranslate = [
-            f"{mlir_install_dir}/bin/mlir-translate"
-        ] + mlirtranslate_opts
-        self.cmd_llc = [f"{mlir_install_dir}/bin/llc"] + llc_opts
-        self.cmd_opt = [f"{mlir_install_dir}/bin/opt"] + opt_opts
-        self.cmd_cc = [cc_bin]
+
+    @property
+    def shared_libs(self):
+        return [f"{self.mlir_install_dir}/lib/{lib}" for lib in runtime_libs]
+
+    @property
+    def shared_path(self):
+        return [f"-Wl,--rpath={self.mlir_install_dir}/lib/"]
+
+    @property
+    def payload_name(self):
+        return self.mlir_module.payload_name
+
+    @property
+    def disassemble_option(self):
+        return f"--disassemble={self.payload_name}"
 
     def build_disassemble_extra_opts(
         self,
@@ -122,7 +144,7 @@ class MlirCompiler:
         symbol = [f"{self.disassemble_option}"]
         disassemble_cmd = [objdump_bin] + objdump_opts + symbol + disassemble_extra_opts
         print(" ".join(disassemble_cmd))
-        bc_process = self.execute_command(
+        dis_process = self.execute_command(
             cmd=disassemble_cmd, pipe_stdoutput=False, debug=debug
         )
 
@@ -231,7 +253,10 @@ class MlirCompiler:
         )
         opt_pic = ["--relocation-model=pic"] if shared_lib else []
         opt_cmd = self.cmd_opt + opt_pic + [ir_dump_file, "-o", bc_dump_file]
-        bc_process = self.execute_command(cmd=opt_cmd, debug=debug)
+        opt_process = self.execute_command(cmd=opt_cmd, debug=debug)
+
+        llc_cmd = self.cmd_llc + opt_pic + [bc_dump_file, "-o", obj_dump_file]
+        bc_process = self.execute_command(cmd=llc_cmd, debug=debug)
 
         if print_assembly:
             disassemble_process = self.disassemble(

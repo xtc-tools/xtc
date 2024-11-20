@@ -27,7 +27,6 @@ class MlirImplementer(MlirModule, ABC):
         always_vectorize: bool,
         no_alias: bool,
         concluding_passes: list[str],
-        mlir_install_dir: str,
     ):
         if no_alias:
             brand_inputs_with_noalias(xdsl_func)

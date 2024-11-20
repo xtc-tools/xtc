@@ -135,7 +135,6 @@ def main():
         implementer_name = f"v{count}"
         count += 1
         impl = MlirNodeImplementer(
-            mlir_install_dir=args.llvm_dir,
             source_op=o,
             dims=dims,
             parallel_dims=parallel_dims,
@@ -179,7 +178,6 @@ def main():
         impls.append(impl)
 
     impl_graph = MlirGraphImplementer(
-        mlir_install_dir=args.llvm_dir,
         always_vectorize=args.always_vectorize,
         xdsl_func=myfunc,
         nodes=impls,
@@ -191,7 +189,6 @@ def main():
     compiler = MlirCompiler(
         mlir_module=impl_graph,
         mlir_install_dir=args.llvm_dir,
-        functions_of_interest=[str(myfunc.sym_name).replace('"', "")],
     )
     if args.evaluate:
         e = compiler.evaluate(

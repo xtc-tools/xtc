@@ -82,16 +82,22 @@ def xdsl_matmul(i, j, k, ftype):
 
 def mlir_matmul_sched(i, j, k, ftype, args):
     from MlirNodeImplementer import MlirNodeImplementer as impl
+    from MlirCompiler import MlirCompiler as comp
 
     op_matmul = xdsl_matmul(i, j, k, ftype)
     sched = impl(
-        mlir_install_dir=f"{HOME}/bin/llvm-xdsl",
         source_op=op_matmul,
         dims={"i": i, "j": j, "k": k},
         parallel_dims=["i", "j"],
         reduction_dims=["k"],
+        no_alias=True,
+        always_vectorize=True,
     )
-    return sched, op_matmul, "mlir"
+    compiler = comp(
+        mlir_module=sched,
+        mlir_install_dir=f"{HOME}/bin/llvm",
+    )
+    return compiler, sched, op_matmul, "mlir"
 
 
 def tvm_init():
@@ -116,7 +122,8 @@ def tvm_matmul_sched(i, j, k, ftype, args):
         dims=dict(i=i, j=j, k=k),
         parallel_dims=["i", "j"],
     )
-    return sched, op_matmul, "tvm"
+    compiler = sched
+    return compiler, sched, op_matmul, "tvm"
 
 
 def jir_init():
@@ -143,7 +150,8 @@ def jir_matmul_sched(i, j, k, ftype, args):
         jir_install_dir=jir_install_dir,
         geist_install_dir=geist_install_dir,
     )
-    return sched, op, "jir"
+    compiler = sched
+    return compiler, sched, op, "jir"
 
 
 def tile_strategy_3d(impl, op_args, in_x):
@@ -404,7 +412,7 @@ def compile_one_backends(ident, tile_strategy, op_args, in_x, args, callback):
 def compile_one(ident, scheduler, tile_strategy, op_args, in_x, args, callback=None):
     assert isinstance(in_x, list), f"X not a list: {in_x} ({type(in_x)})"
     logger.debug("Compile: %s: %s...", ident, in_x)
-    impl, op, backend = scheduler(*op_args, args)
+    compiler, impl, op, backend = scheduler(*op_args, args)
     tile_strategy(impl, op_args, in_x)
     compile_args = {}
     if args.dump:
@@ -426,9 +434,9 @@ def compile_one(ident, scheduler, tile_strategy, op_args, in_x, args, callback=N
         )
     assert args.eval == "eval"
     dump_file = f"payload_{ident}"
-    impl.compile(**compile_args, shared_lib=True, dump_file=dump_file)
+    compiler.compile(**compile_args, shared_lib=True, dump_file=dump_file)
     logger.debug("  Compile done: %s: %s.", ident, in_x)
-    return (ident, backend, impl, dump_file, in_x)
+    return (ident, backend, compiler, dump_file, in_x)
 
 
 def load_and_evaluate_one(ident, backend, impl, dump_file, in_x, args, callback=None):
