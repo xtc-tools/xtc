@@ -123,10 +123,12 @@ def main():
         for attr_name in o.attributes:
             for name, size in o.attributes["loop.dims"].data.items():
                 dims[name] = size.value.data
-            for d in o.attributes["loop.parallel_dims"].data:
-                parallel_dims.append(d.data)
-            for d in o.attributes["loop.reduction_dims"].data:
-                reduction_dims.append(d.data)
+            if "loop.parallel_dims" in o.attributes:
+                for d in o.attributes["loop.parallel_dims"].data:
+                    parallel_dims.append(d.data)
+            if "loop.reduction_dims" in o.attributes:
+                for d in o.attributes["loop.reduction_dims"].data:
+                    reduction_dims.append(d.data)
             #
         loop_stamps = []
         if "loop.add_attributes" in o.attributes:
