@@ -16,7 +16,6 @@ from mlir.dialects.transform import (
     structured,
 )
 from mlir.dialects.transform.loop import loop_unroll
-from mlir.dialects.transform.loop import loop_hoist_loop_invariant_subsets
 from mlir.ir import UnitAttr
 from xdsl_aux import xdsl_operator_to_function
 from MlirImplementer import MlirImplementer
@@ -38,11 +37,15 @@ class MlirNodeImplementer(MlirImplementer):
         loop_stamps: list[str] = [],
         always_vectorize: bool = True,
         no_alias: bool = False,
+        id: str | None = None,
     ):
-        # Build the payload
-        self.op_id_attribute = f"id{MlirNodeImplementer.count}"
-        source_op.attributes[self.op_id_attribute] = xdslUnitAttr()
-        MlirNodeImplementer.count += 1
+        if id is None:
+            self.op_id_attribute = f"__id{MlirNodeImplementer.count}__"
+            MlirNodeImplementer.count += 1
+            source_op.attributes[self.op_id_attribute] = xdslUnitAttr()
+        else:
+            self.op_id_attribute = id
+        assert self.op_id_attribute in source_op.attributes
         xdsl_func = xdsl_operator_to_function(source_op, payload_name)
         # Call the parent constructor
         super().__init__(
@@ -64,7 +67,7 @@ class MlirNodeImplementer(MlirImplementer):
         self.parallelization = []
         self.unrolling: dict[str, int] = dict([])
 
-    def string_of_schedule(self):
+    def string_of_schedule(self) -> str:
         return (
             f"dims: {self.dims},"
             + f"tiles: {self.tiles},"
@@ -207,7 +210,7 @@ class MlirNodeImplementer(MlirImplementer):
             if len(tiling_command.results) > 1:
                 generated_loop = tiling_command.results[1]
                 transform.AnnotateOp(
-                    generated_loop, f"{self.op_id_attribute}_{tile_name}"
+                    generated_loop, f"{self.op_id_attribute}{tile_name}"
                 )
                 all_loops.append(generated_loop)
             #
@@ -225,7 +228,7 @@ class MlirNodeImplementer(MlirImplementer):
             match0 = structured_match(
                 results_=transform.AnyOpType.get(),
                 target=handle,
-                op_attrs={f"{self.op_id_attribute}_{dim}": UnitAttr.get()},
+                op_attrs={f"{self.op_id_attribute}{dim}": UnitAttr.get()},
             )
             # TODO: LLVM metadata instead of transform unroll may put less pressure
             # on MLIR front-end
