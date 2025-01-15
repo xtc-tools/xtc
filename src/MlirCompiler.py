@@ -372,6 +372,7 @@ class MlirCompiler:
         validate=False,
         parameters=None,
         reference=None,
+        **kwargs,
     ):
         results, code, error = self.load_and_eval(
             dll,
@@ -382,6 +383,7 @@ class MlirCompiler:
             validate=validate,
             parameters=parameters,
             reference=reference,
+            **kwargs,
         )
         if code == 0:
             return min(results)
@@ -398,6 +400,7 @@ class MlirCompiler:
         validate=False,
         parameters=None,
         reference=None,
+        **kwargs,
     ):
         libpath = os.path.abspath(dll)
         with utils.LibLoader(libpath) as lib:

@@ -641,9 +641,12 @@ def tile_generator_8dvr(op_args, size=None):
 
 
 def get_eval_parameters(args):
-    NDArray.set_alloc_alignment(
-        2 * 1024 * 1024
-    )  # 2MB to catch Huge Pages if THB is one
+    if args.huge_pages:
+        NDArray.set_alloc_alignment(
+            2 * 1024 * 1024
+        )  # 2MB to catch Huge Pages if THB is one
+    else:
+        NDArray.set_alloc_alignment(256)  # default align to 256 bytes as DLPack
     dims_names = OPERATORS[args.operator]["dims"]
     dims_map = {k: v for k, v in zip(dims_names, args.dims)}
     dtype = DTYPES_MAP[args.dtype]
@@ -670,7 +673,12 @@ def get_eval_parameters(args):
 
 def get_all_impls(op_args, args):
     return [
-        (backend, OPERATORS[args.operator]["backends"][backend]["operation"](*op_args))
+        (
+            backend,
+            OPERATORS[args.operator]["backends"][backend]["operation"](
+                *op_args, name=args.func_name
+            ),
+        )
         for backend in args.backends
     ]
 
@@ -721,6 +729,7 @@ def compile_one(
         shared_lib=True,
         dump_file=dump_file,
         no_entry=True,
+        bare_ptr=args.bare_ptr,
     )
     if args.dump:
         compile_args.update(
@@ -760,6 +769,7 @@ def load_and_evaluate_one(
         validate=args.validate,
         parameters=args.eval_parameters,
         reference=reference_matmul,
+        bare_ptr=args.bare_ptr,
     )
     if not args.save_temps:
         Path(payload_lib).unlink()
@@ -1253,6 +1263,9 @@ def main():
         help="operator to optimize",
     )
     parser.add_argument(
+        "--func-name", type=str, default="matmul", help="function name to generate"
+    )
+    parser.add_argument(
         "--strategy",
         type=str,
         choices=list(STRATEGIES.keys()),
@@ -1283,6 +1296,12 @@ def main():
         type=int,
         default=OPERATORS["matmul"]["default_dims"],
         help="dimensions",
+    )
+    parser.add_argument(
+        "--huge-pages",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="alloc at huge page boundaries",
     )
     parser.add_argument(
         "--test", nargs="+", type=int, default=[], help="test this input only"
@@ -1333,6 +1352,12 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=False,
         help="internal flag for marking child execution",
+    )
+    parser.add_argument(
+        "--bare-ptr",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="use bare pointer interface (for TVM backend)",
     )
     parser.add_argument(
         "--jobs", type=int, default=default_jobs, help="parallel compile jobs"

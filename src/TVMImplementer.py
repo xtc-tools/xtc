@@ -11,6 +11,8 @@ from typing import Any
 from pathlib import Path
 from copy import deepcopy
 import numpy as np
+from functools import partial
+import shlex
 
 import utils
 from ndarray import NDArray
@@ -262,6 +264,16 @@ class Implementer:
     def get_scheduler(self) -> Scheduler:
         return Scheduler(self)
 
+    @classmethod
+    def _save_temp(
+        cls, save_temps: bool, save_temps_dir: str, fname: str, content: str
+    ) -> None:
+        if not save_temps:
+            return
+        os.makedirs(save_temps_dir, exist_ok=True)
+        with open(f"{save_temps_dir}/{fname}", "w") as outf:
+            outf.write(content)
+
     def compile(
         self,
         schedule: Schedule,
@@ -270,28 +282,43 @@ class Implementer:
         executable: bool = False,
         **kwargs,
     ) -> None:
+        save_temps = kwargs.get("save_temps", False)
+        save_temps_dir = kwargs.get("save_temps_dir", "./save_temps_dir")
+        save_temp = partial(self._save_temp, save_temps, save_temps_dir)
+        bare_ptr = kwargs.get("bare_ptr", False)
+        func_name = self.op.name
+        packed_func_name = f"packed_{func_name}" if bare_ptr else func_name
+
+        dump_base = "out" if dump_file is None else os.path.basename(dump_file)
         print_source_ir = kwargs.get("print_source_ir", False)
         print_transformed_ir = kwargs.get("print_transformed_ir", False)
         print_assembly = kwargs.get("print_assembly", False)
         color = kwargs.get("color", False)
         operation = self.op.generate()
-        if print_source_ir:
+        if print_source_ir or save_temps:
             sch = self.op.schedule(operation)
-            print(self.op.lower(operation, sch))
-            sys.stdout.flush()
+            lowered = str(self.op.lower(operation, sch))
+            if print_source_ir:
+                print(lowered, flush=True)
+            save_temp(f"{dump_base}.initial.txt", lowered)
         schedule_impl = schedule.get_schedule_impl()
+        save_temp(f"{dump_base}.sched.txt", str(schedule_impl))
         if print_transformed_ir:
-            print(schedule_impl)
-            sys.stdout.flush()
+            print(schedule_impl, flush=True)
         sch = self.op.schedule(operation, schedule_impl)
-        if print_transformed_ir:
-            print(self.op.lower(operation, sch))
-            sys.stdout.flush()
-        built = self.op.build(operation, sch)
+        if print_transformed_ir or save_temps:
+            lowered = str(self.op.lower(operation, sch))
+            if print_source_ir:
+                print(lowered, flush=True)
+            save_temp(f"{dump_base}.scheduled.txt", lowered)
+        built = self.op.build(operation, sch, func_name=packed_func_name)
+        if save_temps:
+            llvm_ir = str(built.get_source("ll"))
+            save_temp(f"{dump_base}.scheduled.ll", llvm_ir)
         if print_assembly:
             with tempfile.TemporaryDirectory() as tdir:
                 soname = f"{tdir}/built.so"
-                fname = f"{self.op.operator.name}_compute_"
+                fname = f"{packed_func_name}_compute_"
                 built.export_library(soname)
                 cmd_disassembler = (
                     [objdump_bin] + [soname] + objdump_opts + [f"--disassemble={fname}"]
@@ -303,7 +330,14 @@ class Implementer:
         if dump_file is not None:
             assert not executable, f"executable generation not supported yet for TVM"
             if shared_lib:
-                built.export_library(f"{dump_file}.so")
+                lib_path = dump_file
+                packed_lib_path = f"{lib_path}_packed" if bare_ptr else lib_path
+                built.export_library(f"{packed_lib_path}.so")
+                if bare_ptr:
+                    wrapper = PackedOperatorWrapper(
+                        self.op, func_name, packed_func_name, f"{packed_lib_path}.so"
+                    )
+                    wrapper.build(lib_path)
 
     def load_and_evaluate(
         self,
@@ -316,6 +350,7 @@ class Implementer:
         init_zero=False,
         parameters=None,
         reference=None,
+        **kwargs,
     ):
         results, code, error = self.load_and_eval(
             dll,
@@ -327,6 +362,7 @@ class Implementer:
             init_zero=init_zero,
             parameters=parameters,
             reference=reference,
+            **kwargs,
         )
         if code == 0:
             return min(results)
@@ -344,6 +380,7 @@ class Implementer:
         init_zero=False,
         parameters=None,
         reference=None,
+        **kwargs,
     ):
         results, code, error = self.run_eval_dll(
             dll,
@@ -355,6 +392,7 @@ class Implementer:
             init_zero=init_zero,
             parameters=parameters,
             reference=reference,
+            **kwargs,
         )
         return results, code, error
 
@@ -369,12 +407,14 @@ class Implementer:
         init_zero=False,
         parameters=None,
         reference=None,
+        **kwargs,
     ):
+        bare_ptr = kwargs.get("bare_ptr", False)
         dll = os.path.abspath(dll)
         with utils.LibLoader(dll) as lib:
             func = getattr(lib, sym)
             assert func is not None, f"Cannot find {sym} in lib {dll}"
-            func.packed = True
+            func.packed = not bare_ptr
             if parameters is None:
                 inputs_spec = self.np_inputs_spec()
                 outputs_spec = self.np_outputs_spec()
@@ -435,6 +475,61 @@ class Implementer:
         self.op.reference_impl(*args)
 
 
+def jinja_generate_file(file_path, template_path, **kwargs) -> None:
+    from jinja2 import Environment, FileSystemLoader
+
+    file_path = Path(file_path)
+    template_path = Path(template_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    template = Environment(loader=FileSystemLoader(template_path.parent)).get_template(
+        template_path.name
+    )
+    with open(file_path, mode="w", encoding="utf-8") as file:
+        file.write(template.render(kwargs))
+
+
+class PackedOperatorWrapper:
+    TEMPLATES_DIR = Path(__file__).parent / "templates" / "tvm"
+
+    def __init__(self, operation, func_name, packed_func_name, packed_lib_path):
+        self.operation = operation
+        self.func_name = func_name
+        self.packed_func_name = packed_func_name
+        self.packed_lib_path = Path(packed_lib_path)
+
+    def generate_c(self, lib_path):
+        config = {
+            "inputs": self.operation.np_inputs_spec(),
+            "outputs": self.operation.np_outputs_spec(),
+            "func_name": self.func_name,
+            "packed_func_name": self.packed_func_name,
+        }
+        output_dir = Path(lib_path).parent
+        output_c = f"{Path(lib_path).stem}.c"
+        jinja_generate_file(
+            output_dir / output_c,
+            self.TEMPLATES_DIR / "packed_op_wrapper.c.jinja",
+            **config,
+        )
+
+    def build(self, lib_path):
+        output_dir = Path(lib_path).parent
+        output_so = f"{Path(lib_path).stem}.so"
+        output_c = f"{Path(lib_path).stem}.c"
+        packed_lib_dir = self.packed_lib_path.parent
+        packed_lib_name = self.packed_lib_path.name
+        assert packed_lib_dir == output_dir, (
+            f"must generate wrapper at the same location as packed lib"
+        )
+        self.generate_c(lib_path)
+        cmd = f"gcc --shared -fPIC -O2 {output_c} -o {output_so} {packed_lib_name} -Wl,--rpath,$ORIGIN"
+        p = subprocess.run(
+            shlex.split(cmd), text=True, capture_output=True, cwd=output_dir
+        )
+        if p.returncode != 0:
+            raise RuntimeError(f"Failed command {cmd}:\n{p.stdout}\n{p.stderr}\n")
+
+
 def _test_generate_tiling_1():
     dims = {"i": 256, "j": 256, "k": 512}
     parallel_dims = ["i", "j"]
@@ -481,6 +576,20 @@ def _test_self_schedule(imp, sch):
     sch2.dump_schedule()
     schedule_str2 = sch2.get_schedule_str(obj="sch")
     assert schedule_str == schedule_str2, f"self dump schedule not equal"
+
+
+def test_self_schedule():
+    imp, imp_args = _test_generate_tiling_1()
+    _test_self_schedule(imp, imp_args)
+    imp, imp_args = _test_generate_tiling_2()
+    _test_self_schedule(imp, imp_args)
+
+
+def test_self_schedule():
+    imp, imp_args = _test_generate_tiling_1()
+    _test_self_schedule(imp, imp_args)
+    imp, imp_args = _test_generate_tiling_2()
+    _test_self_schedule(imp, imp_args)
 
 
 def test_self_schedule():

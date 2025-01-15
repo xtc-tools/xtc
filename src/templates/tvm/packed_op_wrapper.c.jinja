@@ -1,0 +1,52 @@
+#include <stdlib.h>
+#include <stdint.h>
+
+/* Refer to tvm c_runtime_api.h */
+#define kTVMArgInt 0
+#define kTVMDLTensorHandle 7
+
+/* Refer to dlpack.h */
+#define kDLCPU 1
+#define kDLFloat 2
+
+typedef struct {
+  int32_t device_type;
+  int32_t device_id;
+} DLDevice;
+
+typedef struct {
+  uint8_t code;
+  uint8_t bits;
+  uint16_t lanes;
+} DLDataType;
+
+typedef struct {
+  void* data;
+  DLDevice device;
+  int32_t ndim;
+  DLDataType dtype;
+  int64_t* shape;
+  int64_t* strides;
+  uint64_t byte_offset;
+} DLTensor;
+
+/* Bridge bare pointers to TVM packed function with DLTensor objects */
+extern void {{packed_func_name}}(void *args, int32_t *args_types, int32_t num_args, void *res, int32_t *res_types, void *resource_manager);
+
+void {{func_name}}({% for idx in range(inputs|length) %}{% if idx > 0 %}, {% endif %}const float *input{{idx}}{% endfor %}{% for idx in range(outputs|length) %}, float *output{{idx}}{% endfor %}) {
+    DLDataType dtype = { kDLFloat, 32, 1 };
+    DLDevice dev = { kDLCPU, 0 };
+{% for idx in range(inputs|length) %}
+    int64_t DL_input{{idx}}_shape[] = { {% for dim in inputs[idx].shape %}{{dim}}, {% endfor %} };
+    DLTensor DL_input{{idx}} = { (void *)input{{idx}}, dev, {{inputs[idx].shape|length}}, dtype, DL_input{{idx}}_shape, NULL, 0 };
+{% endfor %}
+{% for idx in range(outputs|length) %}
+    int64_t DL_output{{idx}}_shape[] = { {% for dim in outputs[idx].shape %}{{dim}}, {% endfor %} };
+    DLTensor DL_output{{idx}} = { (void *)output{{idx}}, dev, {{outputs[idx].shape|length}}, dtype, DL_output{{idx}}_shape, NULL, 0 };
+{% endfor %}
+    void *args[] = { {% for idx in range(inputs|length) %}&DL_input{{idx}}, {% endfor %}{% for idx in range(outputs|length) %}&DL_output{{idx}}, {% endfor %} };
+    int32_t types[] = { {% for idx in range(inputs|length) %}kTVMDLTensorHandle, {% endfor %}{% for idx in range(outputs|length) %}kTVMDLTensorHandle, {% endfor %} };
+    int64_t res;
+    int32_t res_type = kTVMArgInt;
+    {{packed_func_name}}(args, types, {{inputs|length}} + {{outputs|length}}, &res, &res_type, NULL);
+}

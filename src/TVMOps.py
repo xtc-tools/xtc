@@ -90,11 +90,13 @@ class Operation:
             exec(schedule, {"sch": sch, "obj": operation}, {})
         return sch
 
-    def build(self, operation: tuple, sch: Any) -> Any:
+    def build(self, operation: tuple, sch: Any, func_name: str | None = None) -> Any:
+        if func_name is None:
+            func_name = self.name
         return tvm_build_crt(
             sch,
             operation,
-            name=self.name,
+            name=func_name,
             target=self.tgt,
         )
 
