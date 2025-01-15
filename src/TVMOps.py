@@ -14,6 +14,7 @@ __all__ = [
 
 import tvm
 import tvm.te as te
+import tvm.relay as relay
 
 
 def get_tvm_native_target_options() -> str:
@@ -47,6 +48,25 @@ def get_tvm_native_target_options() -> str:
     return " ".join(target_options)
 
 
+def tvm_build_crt(sch, operation, target, name=None):
+    # We use system-lib with crt runtime such that DSO loading works
+    # The generated .so can then be used:
+    # - for static compilation as soon as the tvm runtime is provided
+    # - for dynamic loading from python
+    # Recent version of tvm (i.e. 0.19) have a Runtime object
+    # Older version (i.e. 0.16) support passing runtime options in target
+    try:
+        from tvm.relay.backend import Runtime
+
+        runtime_kwargs = {
+            "runtime": Runtime("crt", {"system-lib": True}),
+        }
+    except:
+        runtime_kwargs = {}
+        target = f"{target} --system-lib --runtime=c"
+    return tvm.build(sch, operation, target=target, name=name, **runtime_kwargs)
+
+
 class Operation:
     def __init__(self, operator, args, name=None, target=None):
         self.operator = operator
@@ -71,7 +91,12 @@ class Operation:
         return sch
 
     def build(self, operation: tuple, sch: Any) -> Any:
-        return tvm.build(sch, operation, self.tgt, name=self.name)
+        return tvm_build_crt(
+            sch,
+            operation,
+            name=self.name,
+            target=self.tgt,
+        )
 
     def lower(self, operation: tuple, sch: Any) -> str:
         return tvm.lower(sch, operation, simple_mode=True)

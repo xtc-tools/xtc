@@ -56,6 +56,7 @@ class Scheduler:
         self.vectorization = []
         self.parallelization = []
         self.unrolling = {}
+        self.write_caches = []
         self._update_loops()
 
     def implement(self) -> Schedule:
@@ -72,9 +73,13 @@ class Scheduler:
                 loops[dim_name] = v[dim_name]
                 if k in self.parallel_dims:
                     parallels.append(dim_name)
-        self.working_dims = loops
-        self.working_parallel_dims = parallels
-        self.permutation = list(self.working_dims.keys())
+        self._working_dims = loops
+        self._working_parallel_dims = parallels
+        self._working_permutation = list(self._working_dims.keys())
+        self._parallel_axes = [k for k in self.dims.keys() if k in self.parallel_dims]
+        self._reduction_axes = [
+            k for k in self.dims.keys() if k not in self.parallel_dims
+        ]
 
     def tile(
         self,
@@ -100,46 +105,127 @@ class Scheduler:
     def interchange(self, permutation: list[str]):
         self.permutation = permutation
 
+    def buffer_at(self, axis: str, typ: str):
+        assert typ == "write"
+        self.write_caches.append(axis)
+
     def vectorize(self, vectorization: list[str]):
         for p in vectorization:
-            assert p in self.working_parallel_dims
+            assert p in self._working_parallel_dims
         self.vectorization = vectorization
 
     def parallelize(self, parallelization: list[str]):
         for p in parallelization:
-            assert p in self.working_parallel_dims
+            assert p in self._working_parallel_dims
         self.parallelization = parallelization
 
     def unroll(self, unrolling: dict[str, int]):
         self.unrolling = unrolling
 
-    def _dump_tvm_schedule(self, obj="obj", sch="sch", outf=sys.stdout):
-        print(f"O = {obj}[-1]", file=outf)
-        parallel_axes = [k for k in self.dims.keys() if k in self.parallel_dims]
-        reduction_axes = [k for k in self.dims.keys() if k not in self.parallel_dims]
-        print(f"{', '.join(parallel_axes)}, = O.op.axis", file=outf)
-        if reduction_axes:
-            print(f"{', '.join(reduction_axes)}, = O.op.reduce_axis", file=outf)
+    def _full_order(self) -> list[str]:
+        permutation = self.permutation + self._working_permutation
+        permutation = list(dict.fromkeys(permutation))
+        return permutation
+
+    def _full_tilings(self) -> dict[str, tuple[str, int]]:
+        order = self._full_order()
+        tilings = {}
         for dim, tiles in self.tiles.items():
-            t_sizes = list(tiles.values())
             t_axes = [dim] + list(tiles.keys())
+            t_sizes = list(tiles.values())
+            tilings[dim] = (dim, "", self.dims[dim])
             for idx in range(1, len(tiles)):
-                print(
-                    f"{t_axes[idx]}, {t_axes[idx + 1]} = {sch}[O].split({t_axes[idx]}, factor={t_sizes[idx]})",
-                    file=outf,
-                )
-        print(f"{sch}[O].reorder({', '.join(self.permutation)})", file=outf)
-        for axis, unroll in self.unrolling.items():
-            print(f"{sch}[O].unroll({axis})", file=outf)
-        for axis in self.vectorization:
-            print(f"{sch}[O].vectorize({axis})", file=outf)
-        if self.parallelization:
-            if len(self.parallelization) > 1:
-                print(
-                    f"{self.parallelization[0]} = {sch}[O].fuse({', '.join(self.parallelization)})",
-                    file=outf,
-                )
-            print(f"{sch}[O].parallel({self.parallelization[0]})", file=outf)
+                tilings[t_axes[idx + 1]] = (dim, t_axes[idx], t_sizes[idx])
+        tilings = {axis: tilings[axis] for axis in order}
+        return tilings
+
+    def _write_buffer_tiling(self, axis: str, tilings):
+        child = {
+            parent: (dim, axis, factor)
+            for axis, (dim, parent, factor) in tilings.items()
+        }
+        tiles_axis = list(tilings)
+        tiles = list(tilings.items())
+        tile_idx = tiles_axis.index(axis)
+        outer_tiles = dict(list(tilings.items())[: tile_idx + 1])
+        inner_tiles = dict(list(tilings.items())[tile_idx + 1 :])
+        for axis, (dim, parent, factor) in list(outer_tiles.items()):
+            factor = child.get(axis, ("", "", 1))[2]
+            outer_tiles[f"{dim}_"] = (dim, axis, factor)
+        dims = set()
+        for axis, (dim, parent, factor) in list(inner_tiles.items()):
+            if dim not in dims:
+                dims.add(dim)
+                parent = ""
+            inner_tiles[axis] = (dim, parent, factor)
+        return outer_tiles, inner_tiles
+
+    def _full_write_buffers(self) -> list[str]:
+        tilings = self._full_tilings()
+        reorder_idx = {axis: idx for idx, axis in enumerate(tilings)}
+        write_axis = sorted(self.write_caches, key=lambda axis: reorder_idx[axis])
+        buffer_tilings = {}
+        last_idx = 0
+        out = ("O", "", "")
+        tiling = tilings
+        for idx, axis in enumerate(write_axis):
+            outer_tiling, inner_tiling = self._write_buffer_tiling(axis, tiling)
+            buffer_tilings[out] = outer_tiling
+            out = (f"O_W{idx}", out[0], axis)
+            tiling = inner_tiling
+        buffer_tilings[out] = tiling
+        return buffer_tilings
+
+    def _emit_assign_axis(self, sch: str, tens: str, outf) -> list[str]:
+        if self._parallel_axes:
+            print(f"{', '.join(self._parallel_axes)}, = {tens}.op.axis", file=outf)
+        if self._reduction_axes:
+            print(
+                f"{', '.join(self._reduction_axes)}, = {tens}.op.reduce_axis", file=outf
+            )
+
+    def _emit_assign_tilings(
+        self, sch: str, tens: str, tilings: dict[str, tuple[str, int]], outf
+    ) -> list[str]:
+        for axis, (dim, parent, factor) in tilings.items():
+            if not parent:
+                if axis != dim:
+                    print(f"{axis} = {dim}", file=outf)
+                continue
+            print(
+                f"{parent}, {axis} = {sch}[{tens}].split({parent}, factor={factor})",
+                file=outf,
+            )
+        print(f"{sch}[{tens}].reorder({', '.join(tilings)})", file=outf)
+
+    def _dump_tvm_schedule(self, obj="obj", sch="sch", outf=sys.stdout):
+        tilings = self._full_write_buffers()
+        for tens, parent, _ in tilings:
+            if not parent:
+                print(f"{tens} = {obj}[-1]", file=outf)
+            else:
+                print(f'{tens} = {sch}.cache_write({parent}, "local")', file=outf)
+        for idx, ((tens, parent, axis), tilings) in enumerate(tilings.items()):
+            if parent:
+                print(f"{sch}[{tens}].compute_at({sch}[{parent}], {axis})", file=outf)
+            self._emit_assign_axis(sch, tens, outf)
+            self._emit_assign_tilings(sch, tens, tilings, outf)
+            for axis, unroll in self.unrolling.items():
+                if axis in tilings:
+                    print(f"{sch}[{tens}].unroll({axis})", file=outf)
+            for axis in self.vectorization:
+                if axis in tilings:
+                    print(f"{sch}[{tens}].vectorize({axis})", file=outf)
+            if self.parallelization:
+                if self.parallelization[0] in tilings:
+                    if len(self.parallelization) > 1:
+                        print(
+                            f"{self.parallelization[0]} = {sch}[{tens}].fuse({', '.join(self.parallelization)})",
+                            file=outf,
+                        )
+                    print(
+                        f"{sch}[{tens}].parallel({self.parallelization[0]})", file=outf
+                    )
 
     def dump_schedule(self, obj=None, outf=sys.stdout):
         if obj is None:
