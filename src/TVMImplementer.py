@@ -290,6 +290,8 @@ class Implementer:
         packed_func_name = f"packed_{func_name}" if bare_ptr else func_name
 
         dump_base = "out" if dump_file is None else os.path.basename(dump_file)
+        lib_path = dump_file
+        packed_lib_path = f"{lib_path}_packed" if bare_ptr else lib_path
         print_source_ir = kwargs.get("print_source_ir", False)
         print_transformed_ir = kwargs.get("print_transformed_ir", False)
         print_assembly = kwargs.get("print_assembly", False)
@@ -313,8 +315,11 @@ class Implementer:
             save_temp(f"{dump_base}.scheduled.txt", lowered)
         built = self.op.build(operation, sch, func_name=packed_func_name)
         if save_temps:
-            llvm_ir = str(built.get_source("ll"))
-            save_temp(f"{dump_base}.scheduled.ll", llvm_ir)
+            for idx, mod in enumerate(built._collect_dso_modules()):
+                llvm_ir = str(mod.get_source("ll"))
+                save_temp(f"{dump_base}.lib{idx}.ll", llvm_ir)
+            # This will generate a .tar with the .o files
+            # built.export_library(f"{save_temps_dir}/{packed_lib_path}.tar")
         if print_assembly:
             with tempfile.TemporaryDirectory() as tdir:
                 soname = f"{tdir}/built.so"
@@ -330,8 +335,6 @@ class Implementer:
         if dump_file is not None:
             assert not executable, f"executable generation not supported yet for TVM"
             if shared_lib:
-                lib_path = dump_file
-                packed_lib_path = f"{lib_path}_packed" if bare_ptr else lib_path
                 built.export_library(f"{packed_lib_path}.so")
                 if bare_ptr:
                     wrapper = PackedOperatorWrapper(
