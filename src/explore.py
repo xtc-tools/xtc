@@ -96,7 +96,7 @@ def mlir_matmul_sched(i, j, k, ftype, args):
     )
     compiler = comp(
         mlir_module=sched,
-        mlir_install_dir=f"{HOME}/bin/llvm",
+        mlir_install_dir=args.mlir_prefix,
     )
     return compiler, sched, op_matmul, "mlir"
 
@@ -870,6 +870,9 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=True,
         help="do not execute, only compile",
+    )
+    parser.add_argument(
+        "--mlir-prefix", type=str, help="MLIR install prefix, defaults to mlir package"
     )
     parser.add_argument(
         "--debug", action=argparse.BooleanOptionalAction, help="debug mode"

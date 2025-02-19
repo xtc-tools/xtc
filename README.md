@@ -50,75 +50,92 @@ Roadmap:
 The previous version relied on XDSL (file Implementer.py). The current
 one relies on upstream MLIR bindings.
 
-### MLIR
+Ensure installation of minimal required dependencies on the distribution:
 
-The MLIR Python bindings are not distributed through PyPi
-(```pip install```). Thus, we need to compile ```llvm-project```,
-even if MLIR headers and binaries are available on Debian
-official repositories.
+    sudo apt install python3 pybind11-dev libxml2-dev build-essential
 
-Install dependencies (Debian):
-```
-sudo apt install pybind11-dev python3-numpy libxml2-dev objdump
-```
+Setup a virtual python environment with python >= 3.10,
+and install base requirements, for instance:
 
-Choose the commit ```76edf72501cd6f66788c631fada95972a797a4a6```: 
-```
-git clone git@github.com:llvm/llvm-project.git
-cd llvm-project
-git checkout 76edf72501cd6f66788c631fada95972a797a4a6
-```
+    python3 -m venv .venv
+    source .venv/bin/activate
 
-Compile MLIR/CLANG and the MLIR python bindings:
-```
-pip install -r mlir/python/requirements.txt
-mkdir build
-cd build
-cmake -DLLVM_ENABLE_PROJECTS="clang;mlir" -DLLVM_BUILD_EXAMPLES=ON \
-  -DCMAKE_INSTALL_PREFIX=$HOME/bin/llvm -DCMAKE_BUILD_TYPE=Release \
-  -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
-  -DLLVM_ENABLE_ASSERTIONS=ON -DCMAKE_C_COMPILER=clang \
-  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_ASM_COMPILER=clang \
-  -DCMAKE_SHARED_LINKER_FLAGS="-fno-omit-frame-pointer" \
-  -DCMAKE_EXE_LINKER_FLAGS="-fno-omit-frame-pointer" ../llvm
-make -j4
-make install
-```
+Install the package, for instance in editable mode:
 
-Add the Python bindings to your PYTHONPATH:
-```
-export PYTHONPATH=$PYTHONPATH:$HOME/bin/llvm/python_packages/mlir_core
-```
+    pip install -e .
 
-### TVM backend requirements (optional)
 
-For using tvm backend, install TVM and do (on pinocchio use for instance TVM installed in `/opt/local/tvm/tvm-v0.16.0.rc0/`):
-```
-pip install -r tvm_requirements.txt
-export PYTHONPATH=$PYTHONPATH:/path_to_tvm/python
-```
+Then install the MLIR requirements and optionally TVM and JIT backend requirements
+as described below.
 
-Note that if compiling TVM version v0.16 from source, one should first
-apply the patch `patches/tvm-Bugfix-TIR-Fix-race-on-ComputationCache.patch`
-which fix a race condition in TVM.
+### MLIR Backend Requirements
 
-### JIR backend requirements (optional)
+For the MLIR backend, install the python packages for MLIR dependencies
+(maintained at https://gitlab.inria.fr/CORSE/mlir-wheels):
+
+    pip install -r mlir_requirements.txt
+
+
+Optionally, one can build the MLIR project as follow.
+
+Ensure revision is earlier then the one specified iin `mlir-requirements.txt`.
+
+Then execute, for instance:
+
+    git clone git@github.com:llvm/llvm-project.git
+    cd llvm-project
+    git checkout v19.1.7
+
+Compile MLIR/CLANG and the MLIR python bindings, for instance:
+
+    pip install -r mlir/python/requirements.txt
+    mkdir build
+    cd build
+    cmake -DLLVM_ENABLE_PROJECTS="clang;mlir"
+    -DCMAKE_INSTALL_PREFIX=$HOME/install/llvm \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DMLIR_ENABLE_BINDINGS_PYTHON=ON \
+    -DLLVM_ENABLE_ASSERTIONS=ON \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_ASM_COMPILER=clang \
+    -DCMAKE_SHARED_LINKER_FLAGS="-fno-omit-frame-pointer" \
+    -DCMAKE_EXE_LINKER_FLAGS="-fno-omit-frame-pointer" \
+    ../llvm
+    make -j4
+    make install
+
+Add the tools to your `PATH` and the python bindings to your `PYTHONPATH`:
+
+    export PATH=$HOME/install/llvm
+    export PYTHONPATH=$PYTHONPATH:$HOME/install/llvm/python_packages/mlir_core
+
+
+### TVM backend requirements
+
+For the TVM backend, install the python packages for TVM dependencies
+(maintained at https://gitlab.inria.fr/CORSE/tvm-wheels):
+
+    pip install -r tvm_requirements.txt
+
+
+Note that, if compiling TVM v0.16+ from source instead of using these packages,
+one should first apply the patch `patches/tvm-Bugfix-TIR-Fix-race-on-ComputationCache.patch`
+which fix a race condition in TVM. This patch is included in the python package above.
+
+### JIR backend requirements
 
 For using jir backend, install JIR (ref to https://gitlab.inria/fr/jprotopo/jir.git) and set python path:
 ```
 export PYTHONPATH=$PYTHONPATH:/path_to_jir
 ```
 
-## Install and use it
+## Test Installation
 
-```
-pip install -e .
-```
+Validate installation by launching tests:
 
-Launch tests:
-```
-lit tests/filecheck
-```
+    lit tests/filecheck
+
 
 ## Exploration
 
@@ -167,9 +184,8 @@ Result of exploration and display in `data/results.mm06-tile7d-all.svg` were gen
 
     loop-explore --debug --dims 256 256 512 --backends tvm mlir jir --validate --strategy tile7d  --search random --trials 1000 --output data/results.mm06-tile7d-all.csv
     loop-display --title 'Tile7D tiling strategy on 1000 samples for 256x256x512 matmul' data/results.mm06-tile7d-all.csv:tvm:X:peak:tvm data/results.mm06-tile7d-all.csv:mlir:X:peak:mlir data/results.mm06-tile7d-all.csv:jir:X:peak:jir --output data/results.mm06-tile7d-all.svg
-    
+
 Comparative performance distribution on tile4dv tilings in `data/mlir_results.mm06-tile4dv-all.svg` were generated with:
 
     loop-explore --debug --dims 256 256 512 --backends tvm mlir jir --validate --strategy tile4dv  --search exhaustive --output data/results.mm06-tile4dv-all.csv
     loop-display --title "Tile4DV tiling strategy exhaustive for 256x256x512 vectorized matmul" data/results.mm06-tile4dv-all.csv:tvm:X:peak:tvm data/results.mm06-tile4dv-all.csv:mlir:X:peak:mlir data/results.mm06-tile4dv-all.csv:jir:X:peak:jir --output data/results.mm06-tile4dv-all.svg
-
