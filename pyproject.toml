@@ -1,7 +1,7 @@
 [project]
 name = "mlir_loop"
 version = "0.1"
-dependencies = ['matplotlib', 'numpy', 'ordered-set', 'py-cpuinfo', 'tqdm', 'typing_extensions', 'pyyaml','lit','filecheck','xdsl>=0.26']
+dependencies = ['matplotlib', 'numpy', 'ordered-set', 'py-cpuinfo', 'tqdm', 'typing_extensions', 'pyyaml','lit','filecheck','xdsl~=0.26.0']
 
 [tool.setuptools]
 platforms = ["Linux"]

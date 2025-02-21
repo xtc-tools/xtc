@@ -52,6 +52,7 @@ import numpy as np
 from tqdm import tqdm
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
 import time
 from pathlib import Path
 
@@ -840,6 +841,8 @@ def launch_child(argv, args):
 
 
 def main():
+    default_jobs = max(1, multiprocessing.cpu_count() // 2)
+    default_unroll = 512
     parser = argparse.ArgumentParser(
         description="Autotune Matmult",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -896,7 +899,10 @@ def main():
     parser.add_argument("--trials", type=int, default=10000, help="num trials")
     parser.add_argument("--threads", type=int, default=1, help="number of threads")
     parser.add_argument(
-        "--max-unroll", type=int, default=1024, help="max unroll in tiling strategies"
+        "--max-unroll",
+        type=int,
+        default=default_unroll,
+        help="max unroll in tiling strategies",
     )
     parser.add_argument("--seed", type=int, default=0, help="seed")
     parser.add_argument(
@@ -905,7 +911,7 @@ def main():
     parser.add_argument(
         "--eval", type=str, choices=["eval"], default="eval", help="evaluation method"
     )
-    parser.add_argument("--repeat", type=int, default=5, help="evaluation repeat")
+    parser.add_argument("--repeat", type=int, default=1, help="evaluation repeat")
     parser.add_argument("--number", type=int, default=1, help="evaluation number")
     parser.add_argument(
         "--min-repeat-ms", type=int, default=100, help="evaluation min repeat ms"
@@ -927,7 +933,9 @@ def main():
         default=False,
         help="internal flag for marking child execution",
     )
-    parser.add_argument("--jobs", type=int, default=1, help="parallel compile jobs")
+    parser.add_argument(
+        "--jobs", type=int, default=default_jobs, help="parallel compile jobs"
+    )
     parser.add_argument(
         "--execute",
         action=argparse.BooleanOptionalAction,

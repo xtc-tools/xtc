@@ -5,4 +5,4 @@ py-cpuinfo
 tqdm
 typing_extensions
 pyyaml
-xdsl>=0.26
+xdsl~=0.26.0
