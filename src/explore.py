@@ -244,14 +244,9 @@ def jir_matmul_impl(i, j, k, ftype, graph):
     import JIRImplementer
 
     node = graph["nodes"]["matmul"]
-    # TODO: MLIR JIR install dirs
-    jir_install_dir = f"{HOME}/bin/llvm-jir"
-    geist_install_dir = f"{HOME}/bin/llvm-geist"
     impl = JIRImplementer.Implementer(
         source_op=node["op"],
         dims=node["dims"],
-        jir_install_dir=jir_install_dir,
-        geist_install_dir=geist_install_dir,
     )
     compiler = impl
     node_scheduler = impl.get_scheduler()

@@ -61,6 +61,7 @@ exe_opts = [*cc_opts]
 runtime_libs = [
     "libmlir_runner_utils.so",
     "libmlir_c_runner_utils.so",
+    "libmlir_async_runtime.so",
 ]
 
 dump_file = "/tmp/dump"

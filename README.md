@@ -113,7 +113,7 @@ Add the tools to your `PATH` and the python bindings to your `PYTHONPATH`:
 
 ### TVM backend requirements
 
-For the TVM backend, install the python packages for TVM dependencies
+In order to use the tvm backend, install the python packages for TVM dependencies
 (maintained at https://gitlab.inria.fr/CORSE/tvm-wheels):
 
     pip install -r tvm_requirements.txt
@@ -125,10 +125,20 @@ which fix a race condition in TVM. This patch is included in the python package 
 
 ### JIR backend requirements
 
-For using jir backend, install JIR (ref to https://gitlab.inria/fr/jprotopo/jir.git) and set python path:
-```
-export PYTHONPATH=$PYTHONPATH:/path_to_jir
-```
+In order to use the jir backend, install the python packages for JIR dependencies:
+
+    pip install -r jir_requirements.txt
+
+Note that JIR is currently an Inria internal project, in order to get access to the package
+repository, put the following in yout `~/.netrc` file:
+
+    machine gitlab.inria.fr login <gitlab_login> password <gitlab_token>
+
+In order to get a gitlab token, get to https://gitlab.inria.fr/-/user_settings/personal_access_tokens
+and add a new token with the `api` scope.
+
+Optionally, one can use an alternative JIR build, refer to
+https://gitlab.inria.fr/CORSE/jir for building JIR and dependent tools from sources.
 
 ## Test Installation
 

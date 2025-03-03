@@ -8,10 +8,20 @@ from typing import Any
 from functools import partial
 from typing import Optional
 from copy import deepcopy
+import tempfile
+import subprocess
 
 import utils
 from evaluator import Evaluator, Executor
 from ndarray import NDArray
+
+from ext_tools import (
+    cc_bin,
+    llc_opts,
+    opt_opts,
+    runtime_libs,
+    shared_lib_opts,
+)
 
 from JIROps import Operation, Operators
 from JIRScheduler import JIRSchedulerAdaptor
@@ -116,16 +126,16 @@ class Implementer:
         self,
         source_op: Operation,
         dims: dict[str, int],
-        jir_install_dir: str,
-        geist_install_dir: str,
+        mlir_install_dir: str | None = None,
+        geist_install_dir: str | None = None,
         vectors_size: int = 16,
         **kwargs,
     ) -> None:
         self.payload_name = source_op.name
         self.source_op = source_op
         self.args = self.source_op.args
-        self.jir_install_dir = jir_install_dir
-        self.geist_install_dir = geist_install_dir
+        self.mlir_install_dir = utils.get_mlir_prefix(mlir_install_dir)
+        self.geist_install_dir = utils.get_geist_prefix(geist_install_dir)
         self.dims = dims
         self.jir_dims = {
             k: v
@@ -135,7 +145,7 @@ class Implementer:
         }
         self.op_function, self.jir_function = self.source_op.generate()
         self._vectors_size = vectors_size
-        self._jir_llvm_config = f"{jir_install_dir}/bin/llvm-config"
+        self._jir_llvm_config = f"{self.mlir_install_dir}/bin/llvm-config"
         self._target_triple = kwargs.get("target_triple") or get_host_target_triple(
             self._jir_llvm_config
         )
@@ -145,6 +155,26 @@ class Implementer:
         self._jir_parser = JIRParser()
         self._parse_function()
         self._parse_primitives()
+
+    @property
+    def _cmd_cc(self):
+        return [cc_bin]
+
+    @property
+    def _shared_libs(self):
+        return [f"{self.mlir_install_dir}/lib/{lib}" for lib in runtime_libs]
+
+    @property
+    def _shared_path(self):
+        return [f"-Wl,--rpath={self.mlir_install_dir}/lib/"]
+
+    @property
+    def _cmd_opt(self):
+        return [f"{self.mlir_install_dir}/bin/opt"] + opt_opts
+
+    @property
+    def _cmd_llc(self):
+        return [f"{self.mlir_install_dir}/bin/llc"] + llc_opts
 
     def _parse_function(self) -> None:
         assert self._jir_function_op is None
@@ -241,11 +271,12 @@ class Implementer:
         save_temp = partial(self._save_temp, save_temps, save_temps_dir)
         dump_base = os.path.basename(dump_file)
 
-        mlir_lowering = MLIRLowering(f"{self.jir_install_dir}/bin/mlir-opt")
-        mlir2llvm = MLIR2LLVMConversion(f"{self.jir_install_dir}/bin/mlir-translate")
+        mlir_lowering = MLIRLowering(f"{self.mlir_install_dir}/bin/mlir-opt")
+        mlir2llvm = MLIR2LLVMConversion(f"{self.mlir_install_dir}/bin/mlir-translate")
         llvm_compiler = LLVMSharedLibraryCompiler(
-            f"{self.jir_install_dir}/bin/clang",
-            f"{self.jir_install_dir}/lib",
+            f"{self.mlir_install_dir}/bin/clang",
+            f"{self.mlir_install_dir}/lib",
+            None,
             self._target_triple,
             self._target_arch,
         )
@@ -258,14 +289,94 @@ class Implementer:
         )
         save_temp(f"{dump_base}.merged.mlir", computation_module)
         lowered_computation_module = mlir_lowering(computation_module)
-        save_temp(f"{dump_base}.lowered.mlir", computation_module)
+        save_temp(f"{dump_base}.lowered.mlir", lowered_computation_module)
         llvm_computation_module = mlir2llvm(lowered_computation_module)
-        save_temp(f"{dump_base}.lowered.ll", computation_module)
-        compiled_computation_module = llvm_compiler(llvm_computation_module)
+        save_temp(f"{dump_base}.lowered.ll", llvm_computation_module)
+        compiled_bc = self._opt_compiler(llvm_computation_module, shared_lib=shared_lib)
+        compiled_obj = self._llc_compiler(compiled_bc, shared_lib=shared_lib)
         if dump_file is not None:
+            compiled_so = self._shlib_compiler(compiled_obj)
             library_path = f"{dump_file}.so"
             with open(library_path, "wb") as out:
-                out.write(compiled_computation_module)
+                out.write(compiled_so)
+
+    def _opt_compiler(self, llvm_compilation_module: str, **kwargs) -> bytes:
+        shared_lib = kwargs.get("shared_lib", False)
+        opt_pic = ["--relocation-model=pic"] if shared_lib else []
+        with tempfile.TemporaryDirectory() as tdir:
+            input_ll = f"{tdir}/input.ll"
+            with open(input_ll, "w") as outf:
+                outf.write(llvm_compilation_module)
+            temp_bc = f"{tdir}/output.bc"
+            opt_cmd = self._cmd_opt + opt_pic + [input_ll, "-o", temp_bc]
+            proc = subprocess.run(
+                args=opt_cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    "Failed to compile LLVM IR with opt: "
+                    f"{' '.join(cmd)}\n{proc.stderr}"
+                )
+            with open(temp_bc, "rb") as inf_bc:
+                result_bc = inf_bc.read()
+        return result_bc
+
+    def _llc_compiler(self, llvm_bc_module: bytes, **kwargs) -> bytes:
+        shared_lib = kwargs.get("shared_lib", False)
+        opt_pic = ["--relocation-model=pic"] if shared_lib else []
+        with tempfile.TemporaryDirectory() as tdir:
+            input_bc = f"{tdir}/input.bc"
+            with open(input_bc, "wb") as outf:
+                outf.write(llvm_bc_module)
+            temp_obj = f"{tdir}/output.o"
+            llc_cmd = self._cmd_llc + opt_pic + [input_bc, "-o", temp_obj]
+            proc = subprocess.run(
+                args=llc_cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    "Failed to compile LLVM IR with opt: "
+                    f"{' '.join(cmd)}\n{proc.stderr}"
+                )
+            with open(temp_obj, "rb") as inf_obj:
+                result_obj = inf_obj.read()
+        return result_obj
+
+    def _shlib_compiler(self, obj_module: bytes, **kwargs) -> bytes:
+        with tempfile.TemporaryDirectory() as tdir:
+            input_obj = f"{tdir}/input.o"
+            with open(input_obj, "wb") as outf:
+                outf.write(obj_module)
+            temp_so = f"{tdir}/output.so"
+            shlib_cmd = [
+                *self._cmd_cc,
+                *shared_lib_opts,
+                input_obj,
+                "-o",
+                temp_so,
+                *self._shared_libs,
+                *self._shared_path,
+            ]
+            proc = subprocess.run(
+                args=shlib_cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    "Failed to compile LLVM IR with opt: "
+                    f"{' '.join(cmd)}\n{proc.stderr}"
+                )
+            with open(temp_so, "rb") as inf_so:
+                result_so = inf_so.read()
+        return result_so
 
     def load_and_evaluate(
         self,
@@ -335,7 +446,7 @@ class Implementer:
                 exec_func = Executor(func)
                 exec_func(*parameters[0], *parameters[1])
                 for out_ref, out in zip(
-                    ref_outputs, [out.numpy() for out in test_outputs]
+                    ref_outputs, [out.numpy() for out in parameters[1]]
                 ):
                     if not np.allclose(out_ref, out):
                         return [], 1, "Error in validation: outputs differ"
