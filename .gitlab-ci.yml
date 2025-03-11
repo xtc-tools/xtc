@@ -43,8 +43,10 @@ test-xtc:
     - pip list
     - pyright
     - mypy
-    - lit -j1 --verbose tests/filecheck
-    - pytest tests
+    - lit -j1 -a tests/filecheck
+    - pytest tests/unit
+    - pytest tests/tvm
+    - pytest tests/jir
     - scripts/explore/run-explore-variants.sh artifacts/explore/
     - env NOSHOW=1 scripts/explore/display-explore-variants.sh artifacts/explore/
   artifacts:

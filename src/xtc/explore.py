@@ -215,10 +215,10 @@ def tvm_matmul_impl(i, j, k, ftype, graph):
 
 
 def jir_matmul_graph(i, j, k, ftype, name="matmul"):
-    import xtc.JIRImplementer as JIRImplementer
+    from xtc.backends.jir.JIROps import JIROperation, JIROperators
 
-    matmul = JIRImplementer.Operation(
-        JIRImplementer.Operators.matmul,
+    matmul = JIROperation(
+        JIROperators.matmul,
         (i, j, k, DTYPES_MAP[ftype]),
         name=name,
     )
@@ -235,16 +235,14 @@ def jir_matmul_graph(i, j, k, ftype, name="matmul"):
 
 
 def jir_matmul_impl(i, j, k, ftype, graph):
-    import xtc.JIRImplementer as JIRImplementer
+    from xtc.backends.jir import JIRImplementer
 
     node = graph["nodes"]["matmul"]
-    impl = JIRImplementer.Implementer(
+    impl = JIRImplementer(
         source_op=node["op"],
         dims=node["dims"],
     )
-    compiler = impl
-    node_scheduler = impl.get_scheduler()
-    return impl, compiler, node_scheduler, node_scheduler, node["op"], "jir"
+    return impl, None, None, None, node["op"], "jir"
 
 
 def tvm_relu_graph(i, ftype, threshold=0, name=None):
@@ -795,12 +793,13 @@ def compile_one(
         *op_args, operation
     )
     assert backend_name == backend
-    if scheduler is None:
-        scheduler = impl.get_scheduler()
     if node_scheduler is None:
-        node_scheduler = scheduler
+        node_scheduler = impl.get_scheduler()
     tile_strategy(node_scheduler, op_args, in_x)
-    schedule = scheduler.implement()
+    if scheduler is None:
+        schedule = node_scheduler.schedule()
+    else:
+        schedule = scheduler.implement()
     if dump_file is None:
         dump_file = f"{args.explore_dir}/payload_{ident}"
     compile_args = dict(
