@@ -809,6 +809,7 @@ def compile_one(
         dump_file=dump_file,
         no_entry=True,
         bare_ptr=args.bare_ptr,
+        debug=args.debug_compile,
     )
     if args.dump:
         compile_args.update(
@@ -1492,6 +1493,11 @@ def main():
     )
     parser.add_argument(
         "--debug", action=argparse.BooleanOptionalAction, help="debug mode"
+    )
+    parser.add_argument(
+        "--debug-compile",
+        action=argparse.BooleanOptionalAction,
+        help="debug compile commands",
     )
     parser.add_argument(
         "--quiet",
