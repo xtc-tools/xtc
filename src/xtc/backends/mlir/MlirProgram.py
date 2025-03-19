@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing_extensions import override
 from xdsl.dialects import func as xdslfunc
 from mlir.dialects import func, builtin, arith, memref, linalg
 from mlir.ir import (
@@ -17,7 +16,7 @@ from mlir.ir import (
 import numpy as np
 
 
-class RawMlirModule:
+class RawMlirProgram:
     def __init__(self, source: str):
         self.ctx = Context()
         self.loc = Location.unknown(self.ctx)
@@ -32,7 +31,7 @@ class RawMlirModule:
         return self.module
 
 
-class MlirModule(RawMlirModule):
+class MlirProgram(RawMlirProgram):
     def __init__(self, xdsl_func: xdslfunc.FuncOp) -> None:
         super().__init__("module{}")
         self.local_functions: dict[str, func.FuncOp] = {}

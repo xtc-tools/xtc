@@ -3,31 +3,13 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing_extensions import override
-from typing import Any, cast, TypeAlias
+from typing import Any, cast
 import subprocess
 import sys
 import os
 import tempfile
 import shutil
 from pathlib import Path
-
-
-from mlir.passmanager import PassManager
-from mlir.dialects import transform
-from mlir.dialects.transform import (
-    NamedSequenceOp,
-    structured,
-    vector,
-    get_parent_op,
-)
-from mlir.dialects.transform.structured import structured_match
-from mlir.dialects.transform.loop import loop_unroll
-from mlir.ir import (
-    Location,
-    InsertionPoint,
-    UnitAttr,
-    OpResult,
-)
 
 
 from xtc.utils.xdsl_aux import brand_inputs_with_noalias
@@ -37,8 +19,6 @@ from xtc.utils.tools import (
 )
 
 from xtc.utils.ext_tools import (
-    transform_opts,
-    lowering_opts,
     mlirtranslate_opts,
     llc_opts,
     opt_opts,
@@ -46,7 +26,6 @@ from xtc.utils.ext_tools import (
     exe_opts,
     runtime_libs,
     system_libs,
-    dump_file,
     mlirrunner_opts,
     objdump_bin,
     objdump_arm_bin,
@@ -60,9 +39,14 @@ from xtc.targets.host import HostModule
 import xtc.backends.mlir as backend
 import xtc.itf as itf
 
-from .MlirModule import MlirModule, RawMlirModule
+from .MlirProgram import MlirProgram, RawMlirProgram
 from .MlirScheduler import MlirSchedule
-from .MlirNodeScheduler import MlirNodeSchedule
+
+from .MlirCompilerPasses import (
+    MlirProgramInsertTransformPass,
+    MlirProgramApplyTransformPass,
+    MlirProgramToLLVMDialectPass,
+)
 
 
 class MlirCompiler(itf.comp.Compiler):
@@ -92,9 +76,9 @@ class MlirCompiler(itf.comp.Compiler):
             temp_dir = tempfile.mkdtemp()
             dump_file = f"{temp_dir}/{self._implementer.payload_name}"
             self._compiler_kwargs["dump_file"] = dump_file
-        module = self.generate_module()
-        compiler = MlirModuleCompiler(
-            mlir_module=module,
+        program = self.generate_program()
+        compiler = MlirProgramCompiler(
+            mlir_program=program,
             mlir_schedule=cast(MlirSchedule, schedule),
             concluding_passes=self._implementer.concluding_passes,
             always_vectorize=self._implementer.always_vectorize,
@@ -116,22 +100,22 @@ class MlirCompiler(itf.comp.Compiler):
             shutil.rmtree(temp_dir)
         return executable
 
-    def generate_module(self) -> RawMlirModule:
+    def generate_program(self) -> RawMlirProgram:
         # xdsl_func input must be read only, clone it first
         xdsl_func = self._implementer.xdsl_func.clone()
         if self._implementer.no_alias:
             brand_inputs_with_noalias(xdsl_func)
-        return MlirModule(xdsl_func)
+        return MlirProgram(xdsl_func)
 
 
-class MlirModuleCompiler:
+class MlirProgramCompiler:
     def __init__(
         self,
-        mlir_module: RawMlirModule,
+        mlir_program: RawMlirProgram,
         mlir_schedule: MlirSchedule | None = None,
         **kwargs: Any,
     ):
-        self._mlir_module = mlir_module
+        self._mlir_program = mlir_program
         self._mlir_schedule = mlir_schedule
         self.mlir_install_dir = get_mlir_prefix(kwargs.get("mlir_install_dir", None))
         self.to_disassemble = kwargs.get("to_disassemble", "")
@@ -218,33 +202,39 @@ class MlirModuleCompiler:
 
     def dump_ir(self, title: str):
         print(f"// -----// {title} //----- //", file=sys.stderr)
-        print(str(self._mlir_module.mlir_module), file=sys.stderr)
+        print(str(self._mlir_program.mlir_module), file=sys.stderr)
 
-    def mlir_transform(self) -> None:
-        transform_op = [op for op in self._mlir_module.mlir_module.body.operations][-1]
-        transform = isinstance(transform_op, NamedSequenceOp)
-        if not transform:
-            return
-        pm = PassManager("builtin.module", context=self._mlir_module.mlir_context)  # type: ignore
-        for opt in transform_opts:
-            pm.add(opt)  # type: ignore
-        pm.run(self._mlir_module.mlir_module)
-        transform_op = [op for op in self._mlir_module.mlir_module.body.operations][-1]
-        assert isinstance(transform_op, NamedSequenceOp)
-        transform_op.erase()
+    def mlir_insert_transform_pass(self) -> None:
+        insert_transform_pass = MlirProgramInsertTransformPass(
+            mlir_program=self._mlir_program,
+            mlir_schedule=self._mlir_schedule,
+            concluding_passes=self.concluding_passes,
+            always_vectorize=self.always_vectorize,
+        )
+        insert_transform_pass.run()
+        if self.print_source_ir:
+            self.dump_ir("IR Dump Before transform")
+
+    def mlir_apply_transform_pass(self) -> None:
+        apply_transform_pass = MlirProgramApplyTransformPass(
+            mlir_program=self._mlir_program,
+        )
+        apply_transform_pass.run()
         if self.print_transformed_ir:
             self.dump_ir("IR Dump After transform")
 
-    def mlir_compile(self) -> None:
-        if self.print_source_ir:
-            self.dump_ir("IR Dump Before transform")
-        self.mlir_transform()
-        pm = PassManager("builtin.module", context=self._mlir_module.mlir_context)  # type: ignore
-        for opt in lowering_opts:
-            pm.add(opt)  # type: ignore
-        pm.run(self._mlir_module.mlir_module)
+    def mlir_to_llvm_pass(self) -> None:
+        to_llvm_pass = MlirProgramToLLVMDialectPass(
+            mlir_program=self._mlir_program,
+        )
+        to_llvm_pass.run()
         if self.print_lowered_ir:
             self.dump_ir("IR Dump After MLIR Opt")
+
+    def mlir_compile(self) -> None:
+        self.mlir_insert_transform_pass()
+        self.mlir_apply_transform_pass()
+        self.mlir_to_llvm_pass()
 
     def disassemble(
         self,
@@ -282,7 +272,6 @@ class MlirModuleCompiler:
         return result
 
     def evaluate(self) -> str:
-        self.schedule_module()
         self.mlir_compile()
 
         obj_dump_file = f"{self.dump_file}.o"
@@ -291,7 +280,7 @@ class MlirModuleCompiler:
         )
         cmd_run = self.cmd_run_mlir + run_extra_opts
         result = self.execute_command(
-            cmd=cmd_run, input_pipe=str(self._mlir_module.mlir_module)
+            cmd=cmd_run, input_pipe=str(self._mlir_program.mlir_module)
         )
         if self.print_assembly:
             disassemble_process = self.disassemble(
@@ -299,20 +288,6 @@ class MlirModuleCompiler:
             )
             assert disassemble_process.returncode == 0
         return result.stdout
-
-    def schedule_module(self) -> None:
-        if self._mlir_schedule is not None:
-            scheduler = MlirModuleScheduler(
-                self._mlir_module,
-                self._mlir_schedule.schedule_impl,
-                concluding_passes=self.concluding_passes,
-                always_vectorize=self.always_vectorize,
-            )
-            scheduler.implement()
-
-    def generate_without_compilation(self) -> str:
-        self.schedule_module()
-        return str(self._mlir_module)
 
     def _save_temp(self, fname: str, content: Any) -> None:
         if not self.save_temps:
@@ -345,18 +320,25 @@ class MlirModuleCompiler:
         so_dump_file = f"{dump_file}.so"
         exe_dump_file = f"{dump_file}.out"
         src_ir_dump_file = f"{dump_base}.mlir"
+        mlir_btrn_dump_file = f"{dump_base}.before_trn.mlir"
+        mlir_atrn_dump_file = f"{dump_base}.after_trn.mlir"
         mlir_llvm_dump_file = f"{dump_base}.llvm.mlir"
 
-        self.schedule_module()
-        save_temp(src_ir_dump_file, self._mlir_module.mlir_module)
+        save_temp(src_ir_dump_file, self._mlir_program.mlir_module)
 
-        self.mlir_compile()
-        save_temp(mlir_llvm_dump_file, self._mlir_module.mlir_module)
+        self.mlir_insert_transform_pass()
+        save_temp(mlir_btrn_dump_file, self._mlir_program.mlir_module)
+
+        self.mlir_apply_transform_pass()
+        save_temp(mlir_atrn_dump_file, self._mlir_program.mlir_module)
+
+        self.mlir_to_llvm_pass()
+        save_temp(mlir_llvm_dump_file, self._mlir_program.mlir_module)
 
         translate_cmd = self.cmd_mlirtranslate + ["-o", ir_dump_file]
         llvmir_process = self.execute_command(
             cmd=translate_cmd,
-            input_pipe=str(self._mlir_module.mlir_module),
+            input_pipe=str(self._mlir_program.mlir_module),
         )
         assert llvmir_process.returncode == 0
 
@@ -413,171 +395,3 @@ class MlirModuleCompiler:
             Path(exe_c_file).unlink(missing_ok=True)
         if temp_dir is not None:
             shutil.rmtree(temp_dir)
-
-
-class MlirModuleScheduler:
-    def __init__(
-        self,
-        module: RawMlirModule,
-        schedule_impl: list[MlirNodeSchedule],
-        concluding_passes: list[str] = [],
-        always_vectorize: bool = True,
-    ) -> None:
-        self._module = module
-        self._loc = Location.unknown(self._module.mlir_context)
-        self._schedules = schedule_impl
-        self._concluding_passes = concluding_passes
-        self._always_vectorize = always_vectorize
-        self.named_sequence: NamedSequenceOp | None = None
-
-    def implement(self) -> None:
-        with (
-            InsertionPoint(self._module.mlir_module.body),
-            self._module.mlir_context,
-            self._loc,
-        ):
-            self._module.mlir_module.operation.attributes[
-                "transform.with_named_sequence"
-            ] = UnitAttr.get()
-            self.named_sequence = transform.NamedSequenceOp(
-                "__transform_main",
-                [transform.AnyOpType.get()],
-                [],
-                arg_attrs=[{"transform.readonly": UnitAttr.get()}],
-            )
-        with (
-            InsertionPoint.at_block_begin(self.named_sequence.body),
-            self._module.mlir_context,
-            self._loc,
-        ):
-            if len(self._schedules) > 0:
-                self._implement()
-            else:
-                transform.YieldOp([])
-
-    def _generate_vectorization(self, handle: OpResult) -> OpResult:
-        if self._always_vectorize or self._needs_vectorization():
-            handle = structured.VectorizeChildrenAndApplyPatternsOp(handle)
-            with InsertionPoint(transform.ApplyPatternsOp(handle).patterns):
-                vector.ApplyLowerOuterProductPatternsOp()
-                vector.ApplyLowerContractionPatternsOp()
-        return handle
-
-    def _needs_vectorization(self) -> bool:
-        for schedule in self._schedules:
-            if self._node_needs_vectorization(schedule):
-                return True
-        return False
-
-    def _generate_tiling(self) -> OpResult:
-        assert self.named_sequence is not None
-        handle = None
-        for schedule in self._schedules:
-            match0 = structured_match(
-                results_=transform.AnyOpType.get(),
-                target=self.named_sequence.bodyTarget,
-                op_attrs={schedule.node_ident: UnitAttr.get()},
-            )
-            handle = self._generate_node_tiling(match0, schedule)
-        assert handle, "At least 1 operation should have been processed"
-        return handle
-
-    def _generate_unroll(self, handle: OpResult) -> None:
-        for schedule in self._schedules:
-            self._generate_node_unroll(handle, schedule)
-
-    def _implement(self) -> None:
-        assert self.named_sequence is not None
-        with (
-            InsertionPoint.at_block_begin(self.named_sequence.body),
-            self._module.mlir_context,
-            self._loc,
-        ):
-            handle = self._generate_tiling()
-            handle = get_parent_op(
-                transform.AnyOpType.get(),
-                handle,
-                isolated_from_above=True,
-            )
-            handle = self._generate_vectorization(handle)
-            self._generate_unroll(handle)
-            for p in self._concluding_passes:
-                handle = transform.ApplyRegisteredPassOp(
-                    transform.AnyOpType.get(), handle, pass_name=p
-                )
-            transform.YieldOp([])
-
-    def _node_needs_vectorization(self, schedule: MlirNodeSchedule) -> bool:
-        return len(schedule.vectorization) > 0
-
-    def _generate_node_tiling(
-        self, handle: OpResult, schedule: MlirNodeSchedule
-    ) -> OpResult:
-        # Produce the sequence of commands needed for the tiling
-        tiling_arrays: dict[str, list[int]] = {}
-        deepest_tiling = max(schedule.tiles.values(), key=len)
-        depth_deepest_tiling = len(deepest_tiling)
-        for tile_level in range(depth_deepest_tiling):
-            for index_of_dim, (_, tiles) in enumerate(schedule.tiles.items()):
-                # This dimension is not tiled at this level.
-                if tile_level >= len(tiles):
-                    continue
-
-                # Create the array describing the tiling of this
-                # dimension. If I have a (x,y,z) nest and I want
-                # to tile the y dimension with a tile size of 16,
-                # the resulting array is [0,16,0].
-                tile_dim_name = list(tiles.keys())[tile_level]
-                tiling_array = [
-                    tiles[tile_dim_name] if i == index_of_dim else 0
-                    for i in range(len(schedule.tiles))
-                ]
-                tiling_arrays[tile_dim_name] = tiling_array
-        # Reorder the tiling according to permutation.
-        tiling_arrays = {p: tiling_arrays[p] for p in schedule.permutation}
-        # Materialize loops
-        op_to_tile = handle
-        all_loops = []
-        for tile_name, tiling_array in tiling_arrays.items():
-            # Useless to materialize a loop which will be vectorized
-            if tile_name in schedule.vectorization:
-                break
-            # Generate the tiling itself
-            if tile_name in schedule.parallelization:
-                tiling_command = structured.TileUsingForallOp(
-                    op_to_tile, tile_sizes=tiling_array
-                )
-            else:
-                tiling_command = structured.TileUsingForOp(
-                    op_to_tile, sizes=tiling_array
-                )
-            # Annotate the resulting loop if successfully generated
-            if len(tiling_command.results) > 1:
-                generated_loop = tiling_command.results[1]
-                transform.AnnotateOp(
-                    generated_loop, f"{schedule.node_ident}{tile_name}"
-                )
-                all_loops.append(generated_loop)
-            #
-            op_to_tile = tiling_command.results[0]
-
-        # Stamp the outermost loop
-        outer_loop = all_loops[0]
-        for s in schedule.loop_stamps:
-            transform.AnnotateOp(outer_loop, s)
-
-        return outer_loop
-
-    def _generate_node_unroll(
-        self, handle: OpResult, schedule: MlirNodeSchedule
-    ) -> None:
-        for dim, factor in schedule.unrolling.items():
-            match0 = structured_match(
-                results_=transform.AnyOpType.get(),
-                target=handle,
-                op_attrs={f"{schedule.node_ident}{dim}": UnitAttr.get()},
-            )
-            # TODO: LLVM metadata instead of transform unroll may put less pressure
-            # on MLIR front-end
-            # https://llvm.org/docs/LangRef.html#llvm-loop
-            loop_unroll(match0, factor)

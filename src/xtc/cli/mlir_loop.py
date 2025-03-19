@@ -13,11 +13,8 @@ from xdsl.ir import (
 )
 
 from xtc.utils.xdsl_aux import parse_xdsl_module
-from xtc.backends.mlir import MlirModule
-from xtc.backends.mlir import MlirScheduler
-from xtc.backends.mlir import MlirNodeImplementer
-from xtc.backends.mlir import MlirGraphImplementer
-from xtc.backends.mlir import MlirCompiler
+from xtc.backends.mlir.MlirNodeImplementer import MlirNodeImplementer
+from xtc.backends.mlir.MlirGraphImplementer import MlirGraphImplementer
 
 
 def remove_attr(o: Operation, attr_name: str):

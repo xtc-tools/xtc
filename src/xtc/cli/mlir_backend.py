@@ -6,8 +6,8 @@
 
 import argparse
 import os
-from xtc.backends.mlir.MlirModule import RawMlirModule
-from xtc.backends.mlir.MlirCompiler import MlirModuleCompiler
+from xtc.backends.mlir.MlirProgram import RawMlirProgram
+from xtc.backends.mlir.MlirCompiler import MlirProgramCompiler
 
 
 def main():
@@ -57,12 +57,12 @@ def main():
         parser.error(f"{args.filename} does not exist.")
     with open(args.filename, "r") as f:
         source = f.read()
-    impl_module = RawMlirModule(source)
+    mlir_program = RawMlirProgram(source)
     print_source = args.print_source_ir or not (
         args.print_lowered_ir or args.print_assembly
     )
-    compiler = MlirModuleCompiler(
-        mlir_module=impl_module,
+    compiler = MlirProgramCompiler(
+        mlir_program=mlir_program,
         mlir_install_dir=args.llvm_dir,
         print_source_ir=print_source,
         print_lowered_ir=args.print_lowered_ir,
