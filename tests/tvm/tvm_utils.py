@@ -11,10 +11,10 @@ def requires_tvm(*arg):
 
 
 def matmul_impl(i, j, k, dtype, name):
-    from TVMImplementer import Implementer
-    from TVMOps import Operators, Operation
-    op = Operation(Operators.matmul, (i, j, k, dtype), name=name)
-    impl = Implementer(
+    from xtc.backends.tvm import TVMBackend
+    from xtc.backends.tvm.TVMOps import TVMOperators, TVMOperation
+    op = TVMOperation(TVMOperators.matmul, (i, j, k, dtype), name=name)
+    impl = TVMBackend(
         source_op = op,
         dims=dict(i=i, j=j, k=k),
         parallel_dims=["i", "j"],

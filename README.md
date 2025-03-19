@@ -47,12 +47,9 @@ Roadmap:
 
 ## Installation instructions
 
-The previous version relied on XDSL (file Implementer.py). The current
-one relies on upstream MLIR bindings.
-
 Ensure installation of minimal required dependencies on the distribution:
 
-    sudo apt install python3 pybind11-dev libxml2-dev build-essential libomp5 binutils binutils-aarch64-linux-gnu
+    sudo apt install python3 build-essential libomp5 binutils binutils-aarch64-linux-gnu
 
 Setup a virtual python environment with python >= 3.10,
 and install base requirements, for instance:
@@ -88,6 +85,7 @@ Then execute, for instance:
 
 Compile MLIR/CLANG and the MLIR python bindings, for instance:
 
+    sudo apt install pybind11-dev libxml2-dev
     pip install -r mlir/python/requirements.txt
     mkdir build
     cd build

@@ -1,0 +1,27 @@
+site_name: XTC
+site_url: https://xdsl-transform-hpompoug-8a88f9c7c15c5db96a357f031fcad875bfc97c2.gitlabpages.inria.fr/
+
+nav:
+- "Home": index.md
+- "Architecture": design/architecture.md
+- "Reference API": reference/api.md
+
+theme:
+  # mkdocs, readthedoscs or material
+  name: mkdocs
+  navigation_depth: 4
+
+plugins:
+- search
+- mkdocstrings:
+    handlers:
+      python:
+        paths: [../../src]
+        options:
+          show_submodules: true
+          show_root_heading: true
+          show_source: true
+          parameter_headings: true
+
+exclude_docs: |
+  *~

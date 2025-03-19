@@ -1,0 +1,9 @@
+filecheck
+lit
+mkdocs
+mkdocs-material
+mkdocstrings-python
+mypy
+pytest
+pyright
+

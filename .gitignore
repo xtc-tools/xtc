@@ -1,4 +1,4 @@
-__*
+__pycache__
 *.so
 *.csv
 venv
@@ -7,3 +7,6 @@ dist
 *egg-info*
 data
 .lit_test_times.txt
+public
+tmp.*
+save_temps_dir

@@ -7,8 +7,3 @@ tqdm
 typing_extensions
 pyyaml
 xdsl~=0.26.0
-
-[dev]
-lit
-filecheck
-pytest

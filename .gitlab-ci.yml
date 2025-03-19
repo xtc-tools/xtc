@@ -23,22 +23,48 @@ variables:
 
 test-xtc:
   stage: test
+  rules:
+    # Avoid duplicate pipeline when in a merge request
+    # Runs only the merge_request_event pipeline
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_OPEN_MERGE_REQUESTS != null
+      when: never
+    # Do not run this step when building pages by pushing to *gitlab-pages
+    - if: $CI_COMMIT_REF_NAME =~ /gitlab-pages$/
+      when: never
+    - when: on_success
   script:
-    - apt-get update
-    - apt-get install -y build-essential libomp5 binutils-aarch64-linux-gnu
     - echo "machine gitlab.inria.fr login gitlab-ci-token password $CI_JOB_TOKEN" >"$HOME"/.netrc
     - pip3 install -e .[dev]
+    - apt-get update
+    - apt-get install -y build-essential libomp5 binutils-aarch64-linux-gnu
     - pip3 install -r mlir_requirements.txt
     - pip3 install -r tvm_requirements.txt
     - pip3 install -r jir_requirements.txt
     - pip list
-    - lit -j1 --verbose tests/filecheck
-    - pytest tests
+    - pyright
+    - mypy
+    - lit -a tests/filecheck
+    - pytest tests/unit
+    - pytest tests/mlir
+    - pytest tests/tvm
+    - pytest tests/jir
     - scripts/explore/run-explore-variants.sh artifacts/explore/
     - env NOSHOW=1 scripts/explore/display-explore-variants.sh artifacts/explore/
   artifacts:
     paths:
       - artifacts/
+
+pages:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_REF_NAME =~ /gitlab-pages$/
+    - if: $CI_COMMIT_TAG =~ /^xtc-v/
+  script:
+    - pip3 install -e .[dev]
+    - (cd docs/site && mkdocs build --clean --strict --site-dir ../../public)
+  artifacts:
+    paths:
+      - public
 
 deploy-xtc:
   stage: deploy

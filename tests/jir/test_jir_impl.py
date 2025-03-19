@@ -1,24 +1,28 @@
 
-from tvm_utils import requires_tvm, matmul_impl
+from jir_utils import requires_jir, matmul_impl
 
 I, J, K, DTYPE = 128, 256, 91, "float32"
 MATMUL_ARGS = (I, J, K, DTYPE)
 
 def sched_nop(sch):
-    # Expected in TVM schedule
+    # Expected in JIR schedule
     return [
-        "reorder(i, j, k)"
+        "commands: []",
+        "I: 128",
+        "J: 256",
+        "K: 91",
     ]
 
 def sched_tile2(sch):
     sch.tile("i", {"i1": 64, "i2": 4})
     sch.tile("j", {"j1": 64, "j2": 64})
     sch.tile("k", {"k1": 13})
-    # Expected in TVM schedule
+    # Expected in JIR schedule
     return [
-        "reorder(i, j, k, i1, j1, k1, i2, j2)",
-        "split(j, factor=64)",
-        "split(j1, factor=64)",
+        "tile target=JJ tile=J_1 inner=JJ_j1",
+        "tile target=JJ_j1 tile=J_2 inner=JJ_j2",
+        "J_1: 64",
+        "J_2: 64",
     ]
 
 def sched_tile2p(sch):
@@ -29,13 +33,11 @@ def sched_tile2p(sch):
     sch.parallelize(["i", "i1"])
     sch.unroll({"j2": 64, "k1": 13, "i2": 4})
     sch.vectorize(["j2"])
-    # Expected in TVM schedule
+    # Expected in JIR schedule
     return [
-        "reorder(i, i1, j, k, j1, k1, i2, j2)",
-        "unroll(j2)",
-        "vectorize(j2)",
-        "fuse(i, i1)",
-        "parallel(i1)",
+        "update_props target=JJ_j2 vector=64",
+        "update_props target=II parallel",
+        "update_props target=II_i1 parallel",
     ]
 
 def sched_tile3wc(sch):
@@ -48,31 +50,22 @@ def sched_tile3wc(sch):
     sch.vectorize(["j3"])
     sch.buffer_at("j", "write")
     sch.buffer_at("j1", "write")
-    # Expected in TVM schedule
+    # Expected in JIR schedule
+    # TODO: buffer not implemented yet
     return [
-        "sch[O].reorder(i, j, i_, j_)",
-        "sch[O_W0].compute_at(sch[O], j)",
-        "sch[O_W0].reorder(i1, j1, i_, j_)",
-        "sch[O_W1].compute_at(sch[O_W0], j1)",
-        "sch[O_W1].reorder(k, i2, j2, k1, i3, j3)",
+        "update_props target=JJ_j3 vector=64",
+        "update_props target=II_i3 unroll=4",
+        "update_props target=KK_k1 unroll=13",
+        "update_props target=II parallel",
+        "update_props target=JJ parallel",
     ]
-
-def check_self_sched(impl, sch):
-    schedule_str = sch.get_schedule_str()
-    sch2 = impl.get_scheduler()
-    exec(schedule_str, {"sch": sch2}, {})
-    schedule_str2 = sch2.get_schedule_str()
-    assert schedule_str == schedule_str2
 
 def check_schedule(impl, sched_func):
     sch = impl.get_scheduler()
     expected = sched_func(sch)
-    check_self_sched(impl, sch)
-    schedule_str = sch.get_schedule_str()
-    print(f"Schedule:\n{schedule_str}")
     schedule = sch.schedule()
     schedule_str = str(schedule)
-    print(f"TVM schedule:\n{schedule_str}")
+    print(f"JIR schedule:\n{schedule_str}")
     for substr in expected:
         assert substr in schedule_str
     return schedule
@@ -82,25 +75,25 @@ def check_evaluate(impl, schedule):
     print(f"Result: {result}")
     assert isinstance(result, float) and float(result) > 0
 
-@requires_tvm
+@requires_jir
 def test_sched_nop():
     impl = matmul_impl(*MATMUL_ARGS, "matmul")
     schedule = check_schedule(impl, sched_nop)
     check_evaluate(impl, schedule)
 
-@requires_tvm
+@requires_jir
 def test_sched_tile2():
     impl = matmul_impl(*MATMUL_ARGS, "matmul")
     schedule = check_schedule(impl, sched_tile2)
     check_evaluate(impl, schedule)
 
-@requires_tvm
+@requires_jir
 def test_sched_tile2p():
     impl = matmul_impl(*MATMUL_ARGS, "matmul")
     schedule = check_schedule(impl, sched_tile2p)
     check_evaluate(impl, schedule)
 
-@requires_tvm
+@requires_jir
 def test_sched_tile3wc():
     impl = matmul_impl(*MATMUL_ARGS, "matmul")
     schedule = check_schedule(impl, sched_tile3wc)
