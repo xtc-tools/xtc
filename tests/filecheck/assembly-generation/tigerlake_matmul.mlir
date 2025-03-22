@@ -7,6 +7,13 @@ func.func @myfun(
 ) {
   %cst = arith.constant 0.000000e+00 : f32
   linalg.fill
+       {
+        loop.dims = ["i","j"],
+        loop.tiles_names = {"i" = ["i1"], "j" = ["j1"]},
+        loop.tiles_sizes = {i1 = 1, j1 = 64},
+        loop.interchange = ["i","j","i1","j1"],
+        loop.vectorize = ["j1"]
+    }
     ins(%cst : f32)
     outs(%C : memref<512x128xf32>)
   linalg.matmul

@@ -1,4 +1,4 @@
-// RUN: mlir-loop %s --no-alias --always-vectorize --arch aarch64 --cpu apple-m2 --print-assembly --hide-jumps 2>&1 | filecheck %s
+// RUN: mlir-loop %s --no-alias --arch aarch64 --cpu apple-m2 --print-assembly --hide-jumps 2>&1 | filecheck %s
 
 func.func @myfun(
   %A: memref<256x512xf32>,
@@ -12,9 +12,9 @@ func.func @myfun(
   linalg.matmul
     {
       loop.dims = ["i","j","k"],
-      loop.tiles_names = {"j" = ["j1"], "k" = ["k1"]},
-      loop.tiles_sizes = {j1 = 16, k1 = 4},
-      loop.interchange = ["i","j","k","k1","j1"],
+      loop.tiles_names = {"i" = ["i1"], "j" = ["j1"], "k" = ["k1"]},
+      loop.tiles_sizes = {i1 = 1, j1 = 16, k1 = 4},
+      loop.interchange = ["i","j","k","i1","k1","j1"],
       loop.vectorize = ["j1"]
     }
     ins(%A, %B : memref<256x512xf32>, memref<512x256xf32>)

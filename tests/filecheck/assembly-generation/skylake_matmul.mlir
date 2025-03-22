@@ -1,4 +1,4 @@
-// RUN: mlir-loop %s --no-alias --always-vectorize --arch x86-64 --cpu skylake --print-assembly --hide-jumps 2>&1 | filecheck %s
+// RUN: mlir-loop %s --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps 2>&1 | filecheck %s
 
 func.func @myfun(
   %A: memref<256x512xf32>,
@@ -7,16 +7,22 @@ func.func @myfun(
 ) {
   %cst = arith.constant 0.000000e+00 : f32
   linalg.fill
+      {
+        loop.dims = ["i","j"],
+        loop.tiles_names = {"i" = ["i1"], "j" = ["j1"]},
+        loop.tiles_sizes = {i1 = 1, j1 = 64},
+        loop.interchange = ["i","j","i1","j1"],
+        loop.vectorize = ["j1"]
+    }
     ins(%cst : f32)
     outs(%C : memref<256x256xf32>)
   linalg.matmul
     {
       loop.dims = ["i","j","k"],
-      loop.tiles_names = {"j" = ["j1"], "k" = ["k1"]},
-      loop.tiles_sizes = {j1 = 64, k1 = 8},
-      loop.interchange = ["i","j","k","k1","j1"],
-      loop.vectorize = ["j1"],
-      loop.unroll = {"k1" = 8}
+      loop.tiles_names = {"i" = ["i1"], "j" = ["j1"], "k" = ["k1"]},
+      loop.tiles_sizes = {i1 = 1, j1 = 64, k1 = 8},
+      loop.interchange = ["i","j","k","i1","k1","j1"],
+      loop.vectorize = ["j1"]
     }
     ins(%A, %B : memref<256x512xf32>, memref<512x256xf32>)
     outs(%C : memref<256x256xf32>)
@@ -37,8 +43,8 @@ func.func @myfun(
 // CHECK-NEXT:  	xor    %esi,%esi
 // CHECK-NEXT:  	call   <myfun+0x23>
 // CHECK-NEXT:  			R_X86_64_PLT32	memset-0x4
-// CHECK-NEXT:  	add    $0x1c00,%r14
 // CHECK-NEXT:  	add    $0x1c,%r15
+// CHECK-NEXT:  	add    $0x1c00,%r14
 // CHECK-NEXT:  	xchg   %ax,%ax
 // CHECK-NEXT:  	mov    %r12,%rax
 // CHECK-NEXT:  	shl    $0xa,%rax
