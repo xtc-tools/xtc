@@ -100,10 +100,6 @@ class MlirProgramInsertTransformPass:
         assert handle, "At least 1 operation should have been processed"
         return handle
 
-    def _generate_unroll(self, handle: OpResult) -> None:
-        for schedule in self._nodes_schedules:
-            self._generate_node_unroll(handle, schedule)
-
     def _implement(self) -> None:
         assert self._named_sequence is not None
         with (
@@ -118,7 +114,6 @@ class MlirProgramInsertTransformPass:
                 isolated_from_above=True,
             )
             handle = self._generate_vectorization(handle)
-            self._generate_unroll(handle)
             for p in self._concluding_passes:
                 handle = transform.ApplyRegisteredPassOp(
                     transform.AnyOpType.get(), handle, pass_name=p
@@ -155,7 +150,7 @@ class MlirProgramInsertTransformPass:
         tiling_arrays = {p: tiling_arrays[p] for p in schedule.permutation}
         # Materialize loops
         op_to_tile = handle
-        all_loops = []
+        all_loops = {}
         for tile_name, tiling_array in tiling_arrays.items():
             # Useless to materialize a loop which will be vectorized
             if tile_name in schedule.vectorization:
@@ -175,36 +170,28 @@ class MlirProgramInsertTransformPass:
                 transform.AnnotateOp(
                     generated_loop, f"{schedule.node_ident}{tile_name}"
                 )
-                all_loops.append(generated_loop)
+                all_loops[tile_name] = generated_loop
             #
             op_to_tile = tiling_command.results[0]
+
+        # TODO: LLVM metadata instead of transform unroll may
+        # ultimately put less pressure on opt/llc front-end
+        # https://llvm.org/docs/LangRef.html#llvm-loop
+        for dim in reversed(schedule.permutation):
+            if dim in schedule.unrolling and dim in all_loops:
+                loop_unroll(all_loops[dim], schedule.unrolling[dim])
 
         # The resulting operation is either the outermost loop or
         # the initial (not tiled) handle
         if all_loops:
-            handle_after_tiling = all_loops[0]
+            handle_after_tiling = next(iter(all_loops.values()))
         else:
             handle_after_tiling = handle
 
         # Stamp the resulting operation
         for s in schedule.loop_stamps:
             transform.AnnotateOp(handle_after_tiling, s)
-
         return handle_after_tiling
-
-    def _generate_node_unroll(
-        self, handle: OpResult, schedule: MlirNodeSchedule
-    ) -> None:
-        for dim, factor in schedule.unrolling.items():
-            match0 = structured_match(
-                results_=transform.AnyOpType.get(),
-                target=handle,
-                op_attrs={f"{schedule.node_ident}{dim}": UnitAttr.get()},
-            )
-            # TODO: LLVM metadata instead of transform unroll may put less pressure
-            # on MLIR front-end
-            # https://llvm.org/docs/LangRef.html#llvm-loop
-            loop_unroll(match0, factor)
 
 
 class MlirProgramApplyTransformPass:

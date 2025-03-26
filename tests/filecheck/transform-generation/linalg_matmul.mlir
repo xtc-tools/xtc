@@ -20,7 +20,8 @@ func.func @myfun(
       loop.dims = ["i","j","k"],
       loop.tiles = {"i" = {"i1" = 1}, "j" = {"j1" = 64}, "k" = {"k1" = 8}},
       loop.interchange = ["i","j","k","i1","k1","j1"],
-      loop.vectorize = ["j1"]
+      loop.vectorize = ["j1"],
+      loop.unroll = {"i1" = 1, "k" = 8}
     }
     ins(%A, %B : memref<256x512xf32>, memref<512x256xf32>)
     outs(%C : memref<256x256xf32>)
@@ -53,6 +54,8 @@ func.func @myfun(
 // CHECK-NEXT:      transform.annotate %loops_11 "__id1__i1" : !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_12, %loops_13 = transform.structured.tile_using_for %tiled_linalg_op_10 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_13 "__id1__k1" : !transform.any_op
+// CHECK-NEXT:      transform.loop.unroll %loops_11 {factor = 1 : i64} : !transform.any_op
+// CHECK-NEXT:      transform.loop.unroll %loops_9 {factor = 8 : i64} : !transform.any_op
 // CHECK-NEXT:      %2 = transform.get_parent_op %loops_5 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      %3 = transform.structured.vectorize_children_and_apply_patterns %2 : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.apply_patterns to %3 {

@@ -93,39 +93,7 @@ class MlirNodeScheduler:
         self.permutation = permutation
 
     def vectorize(self, vectorization: list[str]):
-        for dim_vect in vectorization:
-            # Identify the tile level
-            tile_level = None
-            for dim, tiles in self.tiles.items():
-                for i, (tile_name, tile_size) in enumerate(tiles.items()):
-                    if tile_name == dim_vect:
-                        tile_level = i
-            assert not tile_level is None
-            # Gather the tile level
-            tiles_of_level = {}
-            for dim, tiles in self.tiles.items():
-                for i, (tile_name, tile_size) in enumerate(tiles.items()):
-                    if i == tile_level:
-                        tiles_of_level[tile_name] = tile_size
-            # In the general case, we vectorize the whole tile level,
-            # in order to let MLIR vectorization algorithms do
-            # fancy stuff. But when the vectorized operation is
-            # too big, we just vectorize the specified dimension because
-            # the generated code is too heavy and stresses the back-end's
-            # parser.
-            vectorize_all_level = True
-            for tile_name, tile_size in tiles_of_level.items():
-                if tile_size > 64 or tile_size == 1:
-                    vectorize_all_level = False
-            # Update the dimensions to be vectorized
-            if vectorize_all_level:
-                for tile in tiles_of_level:
-                    if tile in self.unrolling:
-                        del self.unrolling[tile]
-                    if not tile in self.vectorization:
-                        self.vectorization.append(tile)
-            else:
-                self.vectorization.append(dim_vect)
+        self.vectorization = vectorization
 
     def parallelize(self, parallelization: list[str]):
         self.parallelization = parallelization

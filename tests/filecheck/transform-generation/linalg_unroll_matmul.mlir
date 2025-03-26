@@ -37,9 +37,8 @@ func.func @myfun(
 // CHECK-NEXT:      transform.annotate %loops_5 "__id1__j" : !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_7 "__id1__k" : !transform.any_op
+// CHECK-NEXT:      transform.loop.unroll %loops_7 {factor = 8 : i64} : !transform.any_op
 // CHECK-NEXT:      %2 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      %3 = transform.structured.match attributes {__id1__k} in %2 : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      transform.loop.unroll %3 {factor = 8 : i64} : !transform.any_op
 // CHECK-NEXT:      transform.yield 
 // CHECK-NEXT:    }
 // CHECK-NEXT:  }

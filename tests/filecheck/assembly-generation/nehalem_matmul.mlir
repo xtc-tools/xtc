@@ -14,7 +14,8 @@ func.func @myfun(
       loop.dims = ["i","j","k"],
       loop.tiles = {"i" = {"i1" = 1}, "j" = {"j1" = 16}, "k" = {"k1" = 4}},
       loop.interchange = ["i","j","k","i1","k1","j1"],
-      loop.vectorize = ["j1"]
+      loop.vectorize = ["j1"],
+      loop.unroll = {i1 = 1, k1 = 4}
     }
     ins(%A, %B : memref<256x512xf32>, memref<512x256xf32>)
     outs(%C : memref<256x256xf32>)
@@ -35,8 +36,8 @@ func.func @myfun(
 // CHECK-NEXT:  	xor    %esi,%esi
 // CHECK-NEXT:  	call   <myfun+0x23>
 // CHECK-NEXT:  			R_X86_64_PLT32	memset-0x4
-// CHECK-NEXT:  	add    $0xc,%r15
 // CHECK-NEXT:  	add    $0xc00,%r14
+// CHECK-NEXT:  	add    $0xc,%r15
 // CHECK-NEXT:  	xchg   %ax,%ax
 // CHECK-NEXT:  	mov    %r12,%rax
 // CHECK-NEXT:  	shl    $0xa,%rax
