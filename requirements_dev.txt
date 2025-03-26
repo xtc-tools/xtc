@@ -3,7 +3,7 @@ lit
 mkdocs
 mkdocs-material
 mkdocstrings-python
-mypy
+mypy==1.15.0
 pytest
-pyright
+pyright==1.1.398
 

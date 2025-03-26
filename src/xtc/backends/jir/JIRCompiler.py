@@ -195,7 +195,7 @@ class JIRCompiler(itf.comp.Compiler):
         ctx = JIRFunctionContext(transformed_function_op)
         index(transformed_function_op)
         for dimension, size in transform_dims.items():
-            ctx.define_dimension(index[dimension], int(size))
+            ctx.define_dimension(index.index[dimension], int(size))
         if not ctx.well_defined:
             raise RuntimeError("Some ctx dimensions are missing")
         module = self._generate_module_for(ctx)
