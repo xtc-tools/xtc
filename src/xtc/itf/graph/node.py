@@ -4,6 +4,7 @@
 #
 from abc import ABC, abstractmethod
 from ..operator.operator import Operator
+from ..data import TensorType, Tensor
 
 
 class Node(ABC):
@@ -51,5 +52,29 @@ class Node(ABC):
 
         Returns:
             The algebraic operation associated with this node
+        """
+        ...
+
+    @abstractmethod
+    def forward_types(self, inputs_types: list[TensorType]) -> list[TensorType]:
+        """Infers output tensor types from input tensor types.
+
+        Args:
+            inputs: List of input tensor types
+
+        Returns:
+            List of inferred output tensor types
+        """
+        ...
+
+    @abstractmethod
+    def forward(self, inputs: list[Tensor]) -> list[Tensor]:
+        """Evaluate the node with input tensors to produce output tensors.
+
+        Args:
+            inputs: List of input tensors
+
+        Returns:
+            List of output tensors
         """
         ...

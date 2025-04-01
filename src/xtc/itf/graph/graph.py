@@ -4,6 +4,7 @@
 #
 from abc import ABC, abstractmethod
 from .node import Node
+from ..data import TensorType, Tensor
 
 
 class Graph(ABC):
@@ -56,5 +57,29 @@ class Graph(ABC):
 
         Returns:
             List of output tensor names
+        """
+        ...
+
+    @abstractmethod
+    def forward_types(self, inputs_types: list[TensorType]) -> list[TensorType]:
+        """Infers output tensor types from input tensor types.
+
+        Args:
+            inputs: List of input tensor types
+
+        Returns:
+            List of inferred output tensor types
+        """
+        ...
+
+    @abstractmethod
+    def forward(self, inputs: list[Tensor]) -> list[Tensor]:
+        """Evaluate the graph with input tensors to produce output tensors.
+
+        Args:
+            inputs: List of input tensors
+
+        Returns:
+            List of output tensors
         """
         ...

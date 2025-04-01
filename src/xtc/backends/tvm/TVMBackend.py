@@ -8,6 +8,7 @@ from pathlib import Path
 from typing_extensions import override
 
 import xtc.itf as itf
+from xtc.itf.data import TensorType, Tensor
 
 from .TVMOps import TVMOperation
 from .TVMScheduler import TVMScheduler
@@ -31,14 +32,12 @@ class TVMOperator(itf.operator.Operator):
         return self._operator.name
 
     @override
-    def apply(self, inputs: list[itf.data.Tensor]) -> list[itf.data.Tensor]:
-        # TODO
-        return []
+    def forward_types(self, inputs_types: list[TensorType]) -> list[TensorType]:
+        raise RuntimeError("not implemented")
 
     @override
-    def applyType(self, inputs: list[itf.data.TensorType]) -> list[itf.data.TensorType]:
-        # TODO
-        return []
+    def forward(self, inputs: list[Tensor]) -> list[Tensor]:
+        raise RuntimeError("not implemented")
 
 
 class TVMNode(itf.graph.Node):
@@ -76,6 +75,14 @@ class TVMNode(itf.graph.Node):
         # Tensor output 0 is node name
         return [self.name]
 
+    @override
+    def forward_types(self, inputs_types: list[TensorType]) -> list[TensorType]:
+        raise RuntimeError("not implemented")
+
+    @override
+    def forward(self, inputs: list[Tensor]) -> list[Tensor]:
+        raise RuntimeError("not implemented")
+
 
 class TVMGraph(itf.graph.Graph):
     def __init__(
@@ -108,6 +115,14 @@ class TVMGraph(itf.graph.Graph):
     @override
     def outputs(self) -> list[str]:
         return self._outputs
+
+    @override
+    def forward_types(self, inputs_types: list[TensorType]) -> list[TensorType]:
+        raise RuntimeError("not implemented")
+
+    @override
+    def forward(self, inputs: list[Tensor]) -> list[Tensor]:
+        raise RuntimeError("not implemented")
 
 
 class TVMBackend(itf.back.Backend):

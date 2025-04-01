@@ -2,4 +2,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from .tensor import TensorType, Tensor, DataType, ShapeType
+from .builder import graph_builder as graph
+from .operations import *

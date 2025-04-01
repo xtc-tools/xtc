@@ -5,6 +5,7 @@
 from typing_extensions import override
 
 import xtc.itf as itf
+from xtc.itf.data import TensorType, Tensor
 
 from .JIROps import JIROperation
 
@@ -22,12 +23,12 @@ class JIROperator(itf.operator.Operator):
         return self._operator.name
 
     @override
-    def apply(self, inputs: list[itf.data.Tensor]) -> list[itf.data.Tensor]:
+    def forward_types(self, inputs_types: list[TensorType]) -> list[TensorType]:
         # TODO
         return []
 
     @override
-    def applyType(self, inputs: list[itf.data.TensorType]) -> list[itf.data.TensorType]:
+    def forward(self, inputs: list[Tensor]) -> list[Tensor]:
         # TODO
         return []
 
@@ -65,6 +66,14 @@ class JIRNode(itf.graph.Node):
         # Tensor output 0 is node name
         return [self.name]
 
+    @override
+    def forward_types(self, inputs_types: list[TensorType]) -> list[TensorType]:
+        raise RuntimeError("not implemented")
+
+    @override
+    def forward(self, inputs: list[Tensor]) -> list[Tensor]:
+        raise RuntimeError("not implemented")
+
 
 class JIRGraph(itf.graph.Graph):
     def __init__(
@@ -97,3 +106,11 @@ class JIRGraph(itf.graph.Graph):
     @override
     def outputs(self) -> list[str]:
         return self._outputs
+
+    @override
+    def forward_types(self, inputs_types: list[TensorType]) -> list[TensorType]:
+        raise RuntimeError("not implemented")
+
+    @override
+    def forward(self, inputs: list[Tensor]) -> list[Tensor]:
+        raise RuntimeError("not implemented")
