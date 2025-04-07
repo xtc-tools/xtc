@@ -12,7 +12,7 @@ def process_file(file_path: str, in_place: bool, regexp: bool):
         lines = file.readlines()
 
     # Handle any comment kind, generally '//' or '#'
-    re_prefix = r"^([^ ])+ +RUN:"
+    re_prefix = r"^([^ ]+) +RUN:"
     m = re.match(re_prefix, lines[0])
     if not m:
         print(f"Error: The first line of the file does not start with '... RUN:'")
