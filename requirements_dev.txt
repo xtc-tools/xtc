@@ -5,5 +5,5 @@ mkdocs-material
 mkdocstrings-python
 mypy==1.15.0
 pytest
-pyright==1.1.398
+pyright==1.1.399
 
