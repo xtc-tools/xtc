@@ -1,4 +1,4 @@
-// RUN: mlir-loop %s --vectors-size 8 --no-alias --print-transformed-ir 2>&1 | filecheck %s
+// RUN: mlir-loop %s --no-alias --print-transformed-ir 2>&1 | filecheck %s
 
 func.func @myfun(
   %I: memref<1x30x30x64xf32>,
@@ -36,5 +36,5 @@ func.func @myfun(
   return
 }
 
-// CHECK: vector.transfer_read
-// CHECK: vector.transfer_write
+// CHECK-NOT: vector.transfer_read
+// CHECK-NOT: vector.transfer_write

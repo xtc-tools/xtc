@@ -34,10 +34,6 @@ func.func @myfun(
 // CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
 // CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 // CHECK-NEXT:      } : !transform.any_op
-// CHECK-NEXT:      %3 = transform.apply_registered_pass "convert-linalg-to-affine-loops" to %2 : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      %4 = transform.apply_registered_pass "affine-super-vectorize" to %3 {options = "virtual-vector-size=16"} : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      %5 = transform.apply_registered_pass "affine-super-vectorize" to %4 {options = "virtual-vector-size=8"} : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      %6 = transform.apply_registered_pass "affine-super-vectorize" to %5 {options = "virtual-vector-size=4"} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.yield 
 // CHECK-NEXT:    }
 // CHECK-NEXT:  }

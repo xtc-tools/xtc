@@ -69,7 +69,6 @@ def schedule_operation(
     always_vectorize: bool,
     concluding_passes: list[str],
     no_alias: bool,
-    evaluate: bool,
 ):
     parsed_id = None
     for attr_name in o.attributes:
@@ -171,6 +170,12 @@ def main():
         help="Vectorize even if no vectorization dimension has been specified..",
     )
     parser.add_argument(
+        "--vectors-size",
+        type=int,
+        default=None,
+        help="The default vectors size.",
+    )
+    parser.add_argument(
         "--print-source-ir",
         action="store_true",
         default=False,
@@ -241,7 +246,6 @@ def main():
             always_vectorize=args.always_vectorize,
             concluding_passes=args.concluding_passes,
             no_alias=args.no_alias,
-            evaluate=args.evaluate,
         )
         nodes_scheds.append(sched)
 
@@ -276,6 +280,7 @@ def main():
         dump_file=dump_file,
         arch=args.arch,
         cpu=args.cpu,
+        vectors_size=args.vectors_size,
     )
     if args.evaluate:
         compiler_args.update(dict(shared_lib=True))

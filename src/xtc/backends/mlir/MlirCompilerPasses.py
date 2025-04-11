@@ -35,12 +35,14 @@ class MlirProgramInsertTransformPass:
         mlir_schedule: MlirSchedule | None = None,
         concluding_passes: list[str] = [],
         always_vectorize: bool = True,
+        vectors_size: int | None = None,
     ) -> None:
         self._mlir_program = mlir_program
         self._mlir_schedule = mlir_schedule
         self._loc = Location.unknown(self._mlir_program.mlir_context)
         self._concluding_passes = concluding_passes
         self._always_vectorize = always_vectorize
+        self._vectors_size = vectors_size
         self._named_sequence: NamedSequenceOp | None = None
         self._nodes_schedules = (
             self._mlir_schedule.schedule_impl if self._mlir_schedule is not None else []
@@ -79,19 +81,18 @@ class MlirProgramInsertTransformPass:
             with InsertionPoint(transform.ApplyPatternsOp(handle).patterns):
                 vector.ApplyLowerOuterProductPatternsOp()
                 vector.ApplyLowerContractionPatternsOp()
-            affine_code = transform.ApplyRegisteredPassOp(
-                transform.AnyOpType.get(),
-                handle,
-                pass_name="convert-linalg-to-affine-loops",
-            )
-            for size in [16, 8, 4]:
-                affine_code = transform.ApplyRegisteredPassOp(
+            if self._vectors_size is not None:
+                handle = transform.ApplyRegisteredPassOp(
                     transform.AnyOpType.get(),
-                    affine_code,
-                    pass_name="affine-super-vectorize",
-                    options=f"virtual-vector-size={size}",
+                    handle,
+                    pass_name="convert-linalg-to-affine-loops",
                 )
-            handle = affine_code
+                handle = transform.ApplyRegisteredPassOp(
+                    transform.AnyOpType.get(),
+                    handle,
+                    pass_name="affine-super-vectorize",
+                    options=f"virtual-vector-size={self._vectors_size}",
+                )
         return handle
 
     def _needs_vectorization(self) -> bool:

@@ -129,6 +129,7 @@ class MlirProgramCompiler:
         self.dump_file = kwargs.get("dump_file")
         self.concluding_passes = kwargs.get("concluding_passes", [])
         self.always_vectorize = kwargs.get("always_vectorize", False)
+        self.vectors_size = kwargs.get("vectors_size", None)
         self.arch = kwargs.get("arch", "native")
         self.cpu = kwargs.get("cpu", "native")
 
@@ -208,6 +209,7 @@ class MlirProgramCompiler:
             mlir_schedule=self._mlir_schedule,
             concluding_passes=self.concluding_passes,
             always_vectorize=self.always_vectorize,
+            vectors_size=self.vectors_size,
         )
         insert_transform_pass.run()
         if self.print_source_ir:
