@@ -4,76 +4,45 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 """
-Explore tilings for a matmult
+Explore tilings for some operators.
 
-Matmult is defined as :
-- dimensions in order: i, j, k
-- C[i, j] += A[i,k] * B[k,j]
-- k is the reduction axis
-- j is the vectorizable axis
+Refer to xtc.search.strategies.py for the available scheduling strategies.
 
-Different tiling strategies are available:
-- tile3d: 3D input vector for 1-level tiling of the three axes
-  - filter only inner 3D tile with number of vector ops <= 1024
-  - axes order i, k, j, i1, k1, j1
-  - paralleliwe outer axe
-  - unroll i1 and k1
-  - vectorize j1
+Currently, depending on backend ans strategies, the combinations of
+operator x strategies is limited.
 
-- tile4d: 4D input vector for 1-level tiling + ordering of the three axes
-  - filter only inner 3D tile with number of vector ops <= 1024
-  - axes order i, j, k + order(i1, k1, j1)
-  - paralleliwe outer axes i and j
-  - unroll inner axes i1, j1, k1
-  - vectorize j1 if inner
-
-- tile4dv: 4D input vector for 1-level tiling + ordering of the three axes + vectorization
-  - same as tile4d and filter only orders were j1 is inner and >= VEC_SIZE elts
-
-- tile7d: 7D input vector with fixed ordering strategy inspired from Ansor sketches
-  - tile all parallel axes at 4 levels
-  - tile all reduction axes at 2 levels
-  - order as PPRPRP where P are parallel axes and R reduction axes
-  - parallelize the outer P level
-  - vectorize the inner axis
-  - Always unroll the inner RP levels
-
-- tile7dv: 7D input vector with fixed ordering strategy inspired from Ansor sketches + vectorization
-  - same as tile7d where j inner >= VEC_SIZE elts
-
-- tile7dvr: 7D input vector with fixed ordering strategy inspired from Ansor sketches + vectorization
-  - same as tile7dv with some constraints
-
-- tile8d: 8D input vector where [0:7] corresponds to tile7d and last element is for a write buffer
-  - same as tile 7D for the first 7 elements
-  - last element is boolean for write buffer activation
-  - the order is: PP|RPRP where | is the location of the write buffer is any
-
-- tile8dv:
-  - same as tile8d with the constraints of tile7dv
-
-- tile8dvr:
-  - same as tile8d with the constraints of tile7dvr
+Though most strategies are supported for all backends for matmult.
 
 """
 
 import sys
 import os
 import argparse
+from argparse import Namespace as NS
 import logging
 import itertools
 from functools import partial
 import csv
 import random
 import numpy as np
+import numpy.typing
 from tqdm import tqdm
 import subprocess
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, Future
 import multiprocessing
 import time
 from pathlib import Path
+from collections.abc import Sequence, Iterator, Mapping
+from typing import Any, Type, TypeAlias, cast
+from typing_extensions import override
 
+from xtc.itf.back import Backend
 from xtc.itf.graph import Graph
+from xtc.itf.schd import Scheduler
+from xtc.itf.comp import Module
+from xtc.itf.search import Strategy, Sample
+
+from xtc.search.strategies import Strategies
 
 from xtc.utils.numpy import (
     np_init,
@@ -88,8 +57,11 @@ import xtc.runtimes.host.runtime as runtime
 
 logger = logging.getLogger(__name__)
 
+NPSamples: TypeAlias = numpy.typing.NDArray[np.int64]
+CallBacks: TypeAlias = Mapping[str, Any]
 
-def xtc_matmul_graph(i: int, j: int, k: int, ftype: str, name: str = "matmul"):
+
+def xtc_matmul_graph(i: int, j: int, k: int, ftype: str, name: str = "matmul") -> Graph:
     import xtc.graphs.xtc.op as O
 
     dtype = DTYPES_MAP[ftype]
@@ -100,7 +72,7 @@ def xtc_matmul_graph(i: int, j: int, k: int, ftype: str, name: str = "matmul"):
     return gb.graph
 
 
-def xtc_relu_graph(i: int, ftype: str, name: str = "relu"):
+def xtc_relu_graph(i: int, ftype: str, name: str = "relu") -> Graph:
     import xtc.graphs.xtc.op as O
 
     dtype = DTYPES_MAP[ftype]
@@ -110,28 +82,28 @@ def xtc_relu_graph(i: int, ftype: str, name: str = "relu"):
     return gb.graph
 
 
-def tvm_matmul_impl(i: int, j: int, k: int, ftype: str, graph: Graph):
+def tvm_matmul_impl(graph: Graph) -> tuple[Backend, str]:
     from xtc.backends.tvm import TVMBackend
 
     impl = TVMBackend(graph)
     return impl, "tvm"
 
 
-def tvm_relu_impl(i: int, ftype: str, graph: Graph):
+def tvm_relu_impl(graph: Graph) -> tuple[Backend, str]:
     from xtc.backends.tvm import TVMBackend
 
     impl = TVMBackend(graph)
     return impl, "tvm"
 
 
-def jir_matmul_impl(i, j, k, ftype, graph):
+def jir_matmul_impl(graph: Graph) -> tuple[Backend, str]:
     from xtc.backends.jir import JIRBackend
 
     impl = JIRBackend(graph)
     return impl, "jir"
 
 
-def mlir_matmul_impl(i, j, k, ftype, graph):
+def mlir_matmul_impl(graph: Graph) -> tuple[Backend, str]:
     from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend
 
     impl = MlirGraphBackend(
@@ -142,442 +114,7 @@ def mlir_matmul_impl(i, j, k, ftype, graph):
     return impl, "mlir"
 
 
-def tile_strategy_1d(impl, op_args, in_x):
-    i, dtype = op_args
-    tiles_i = factors_to_sizes(in_x[0:1])
-    tiles_i_dict = {f"i{i + 1}": v for i, v in enumerate(tiles_i)}
-    axes_order = ["i", "i1"]
-    vector_axes = axes_order[-1:]
-    parallel_axes = []
-    if THREADS > 1:
-        parallel_axes = axes_order[:1]
-    unroll_axes = {}
-    logger.debug(
-        "input: %s: tile i: %s, order: %s, vector: %s, parallel: %s, unroll: %s",
-        in_x,
-        tiles_i_dict,
-        axes_order,
-        vector_axes,
-        parallel_axes,
-        unroll_axes,
-    )
-    impl.tile("i", tiles_i_dict)
-    impl.interchange(axes_order)
-    if parallel_axes:
-        impl.parallelize(parallel_axes)
-    if vector_axes:
-        impl.vectorize(vector_axes)
-    if unroll_axes:
-        impl.unroll(unroll_axes)
-
-
-def tile_schedule_default_1d(opt_level, op_args):
-    i, dtype = op_args
-    default_schedule = [1, 1, 1]
-    if opt_level >= 3:
-        tile = VEC_SIZE
-        div = i >= tile and i % tile == 0
-        if div:
-            default_schedule = [tile]
-    return default_schedule
-
-
-def tile_strategy_3d(impl, op_args, in_x):
-    # TODO: generalize: no need to be matmul specific as soon as
-    # we have axes names
-    i, j, k, dtype = op_args
-    tiles_i = factors_to_sizes(in_x[0:1])
-    tiles_j = factors_to_sizes(in_x[1:2])
-    tiles_k = factors_to_sizes(in_x[2:3])
-    tiles_i_dict = {f"i{i + 1}": v for i, v in enumerate(tiles_i)}
-    tiles_j_dict = {f"j{i + 1}": v for i, v in enumerate(tiles_j)}
-    tiles_k_dict = {f"k{i + 1}": v for i, v in enumerate(tiles_k)}
-    axes_order = ["i", "k", "j", "i1", "k1", "j1"]
-    vector_axes = axes_order[-1:]
-    parallel_axes = None
-    if THREADS > 1:
-        parallel_axes = axes_order[:1]
-    unroll_axes = {"j1": tiles_j[0], "k1": tiles_k[0], "i1": tiles_i[0]}
-    logger.debug(
-        "input: %s: tile i: %s, j: %s, k: %s, order: %s, vector: %s, parallel: %s, unroll: %s",
-        in_x,
-        tiles_i_dict,
-        tiles_j_dict,
-        tiles_k_dict,
-        axes_order,
-        vector_axes,
-        parallel_axes,
-        unroll_axes,
-    )
-    impl.tile("i", tiles_i_dict)
-    impl.tile("j", tiles_j_dict)
-    impl.tile("k", tiles_k_dict)
-    impl.interchange(axes_order)
-    if parallel_axes is not None:
-        impl.parallelize(parallel_axes)
-    impl.vectorize(vector_axes)
-    impl.unroll(unroll_axes)
-
-
-def tile_schedule_default_3d(opt_level, op_args):
-    i, j, k, dtype = op_args
-    default_schedule = [1, 1, 1]
-    if opt_level >= 3:
-        jtile = VEC_SIZE
-        itile = 2  # todo IPC
-        ktile = 1
-        idiv = i >= itile and i % itile == 0
-        jdiv = j >= jtile and j % jtile == 0
-        kdiv = k >= ktile and k % ktile == 0
-        if idiv and jdiv and kdiv:
-            default_schedule = [itile, jtile, ktile]
-    return default_schedule
-
-
-def tile_generator_1d(op_args, size=None):
-    i, dtype = op_args
-    tiles_i = [t[0] for t in factors_enumeration(i, 1)]
-    all_tiles = [tiles_i]
-    all_in_x = list(itertools.product(*all_tiles))
-    logger.debug(f"Total space size: {len(all_in_x)} for problem dims: {i}")
-    all_in_x = [x for x in all_in_x if x[0] / min(x[0], VEC_SIZE) <= MAX_UNROLL]
-    logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}")
-    return np.array(all_in_x)
-
-
-def tile_generator_3d(op_args, size=None):
-    i, j, k, dtype = op_args
-    tiles_i = [t[0] for t in factors_enumeration(i, 1)]
-    tiles_j = [t[0] for t in factors_enumeration(j, 1)]
-    tiles_k = [t[0] for t in factors_enumeration(k, 1)]
-    all_tiles = [tiles_i, tiles_j, tiles_k]
-    all_in_x = list(itertools.product(*all_tiles))
-    logger.debug(f"Total space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    # Filter out last level if > 1024 vector elems
-    all_in_x = [x for x in all_in_x if mulall(x) / min(x[1], VEC_SIZE) <= MAX_UNROLL]
-    logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    return np.array(all_in_x)
-
-
-_tile_strategy_4d_permutations = None
-
-
-def tile_strategy_4d(impl, op_args, in_x):
-    # TODO: generalize: no need to be matmul specific when we have axes names
-    global _tile_strategy_4d_permutations
-    if _tile_strategy_4d_permutations is None:
-        _tile_strategy_4d_permutations = list(
-            itertools.permutations(["i1", "j1", "k1"])
-        )
-    i, j, k, dtype = op_args
-    ti = in_x[0]
-    tj = in_x[1]
-    tk = in_x[2]
-    order = in_x[3]
-    permutations = list(_tile_strategy_4d_permutations[order])
-    tiles = {"i1": ti, "j1": tj, "k1": tk}
-    axes_order = ["i", "j", "k"] + permutations
-    vector_axes = [axes_order[-1]] if axes_order[-1] == "j1" else None
-    parallel_axes = None
-    if THREADS > 1:
-        parallel_axes = [axes_order[0]] if axes_order[0] in ["i", "j"] else None
-        if parallel_axes is not None:
-            parallel_axes += [axes_order[1]] if axes_order[1] in ["i", "j"] else []
-    unroll_axes = {axis: tiles[axis] for axis in permutations[::-1]}
-    logger.debug(
-        "input: %s: tiles: %s, order: %s, vector: %s, parallel: %s, unroll: %s",
-        in_x,
-        tiles,
-        axes_order,
-        vector_axes,
-        parallel_axes,
-        unroll_axes,
-    )
-    impl.tile("i", {"i1": ti})
-    impl.tile("j", {"j1": tj})
-    impl.tile("k", {"k1": tk})
-    impl.interchange(axes_order)
-    if parallel_axes is not None:
-        impl.parallelize(parallel_axes)
-    if vector_axes is not None:
-        impl.vectorize(vector_axes)
-    impl.unroll(unroll_axes)
-
-
-def tile_schedule_default_4d(opt_level, op_args):
-    i, j, k, dtype = op_args
-    default_schedule = [1, 1, 1, 0]
-    if opt_level >= 2:
-        default_schedule = [1, 1, 1, 1]
-    if opt_level >= 3:
-        jtile = VEC_SIZE
-        itile = 2  # todo IPC
-        ktile = 1
-        idiv = i >= itile and i % itile == 0
-        jdiv = j >= jtile and j % jtile == 0
-        kdiv = k >= ktile and k % ktile == 0
-        if idiv and jdiv and kdiv:
-            default_schedule = [itile, jtile, ktile, 1]
-    return default_schedule
-
-
-def tile_generator_4d(op_args, size=None):
-    i, j, k, dtype = op_args
-    tiles_i = [t[0] for t in factors_enumeration(i, 1)]
-    tiles_j = [t[0] for t in factors_enumeration(j, 1)]
-    tiles_k = [t[0] for t in factors_enumeration(k, 1)]
-    orders = list(range(6))  # 6 permutations for 3 axes
-    all_tiles = [tiles_i, tiles_j, tiles_k, orders]
-    all_in_x = list(itertools.product(*all_tiles))
-    logger.debug(f"Total space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    # Filter out last level if > 1024 vector elems.
-    # x[1] is the tile size for the vector axis, x[-1] in [1, 4] is true when the vector axis is inner
-    all_in_x = [
-        x
-        for x in all_in_x
-        if mulall(x[:-1]) / min(x[1], max((x[-1] in [1, 4]) * VEC_SIZE, 1))
-        <= MAX_UNROLL
-    ]
-    logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    return np.array(all_in_x)
-
-
-def tile_generator_4dv(op_args, size=None):
-    i, j, k, dtype = op_args
-    all_in_x = tile_generator_4d(op_args)
-    # Keep only vectorized dims, i.e. x[-1] in [1, 4] and tile j >= VEC_SIZE
-    all_in_x = [x for x in all_in_x if (x[-1] in [1, 4] and x[1] >= VEC_SIZE)]
-    logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    return np.array(all_in_x)
-
-
-def tile_strategy_7d(impl, op_args, in_x):
-    # TODO: generalize: no need to be matmul specific as soon as
-    # we have axes names
-    # actually PPRPRP -> i j i1 j1 k i2 j2 k1 i3 j3
-    # where the input vector is: i1 i2 i3 j1 j2 j3 k1
-    i, j, k, dtype = op_args
-    tiles_i = factors_to_sizes(in_x[0:3])
-    tiles_j = factors_to_sizes(in_x[3:6])
-    tiles_k = factors_to_sizes(in_x[6:7])
-    tiles_i_dict = {f"i{i + 1}": v for i, v in enumerate(tiles_i)}
-    tiles_j_dict = {f"j{i + 1}": v for i, v in enumerate(tiles_j)}
-    tiles_k_dict = {f"k{i + 1}": v for i, v in enumerate(tiles_k)}
-    axes_order = ["i", "j", "i1", "j1", "k", "i2", "j2", "k1", "i3", "j3"]
-    vector_axes = axes_order[-1:]
-    parallel_axes = None
-    if THREADS > 1:
-        parallel_axes = axes_order[:2]
-    unroll_axes = {"j3": tiles_j[-1], "i3": tiles_i[-1], "k1": tiles_k[-1]}
-    logger.debug(
-        "input: %s: tile i: %s, j: %s, k: %s, order: %s, vector: %s, parallel: %s, unroll: %s",
-        in_x,
-        tiles_i_dict,
-        tiles_j_dict,
-        tiles_k_dict,
-        axes_order,
-        vector_axes,
-        parallel_axes,
-        unroll_axes,
-    )
-    impl.tile("i", tiles_i_dict)
-    impl.tile("j", tiles_j_dict)
-    impl.tile("k", tiles_k_dict)
-    impl.interchange(axes_order)
-    if parallel_axes is not None:
-        impl.parallelize(parallel_axes)
-    impl.vectorize(vector_axes)
-    impl.unroll(unroll_axes)
-
-
-def tile_strategy_7d_wc(impl, op_args, in_x):
-    # TODO: generalize: no need to be matmul specific as soon as
-    # we have axes names
-    # actually PP|RPRP -> i j i1 j1 k i2 j2 k1 i3 j3
-    # where the input vector is: i1 i2 i3 j1 j2 j3 k1
-    # and where | is the write cache location
-    i, j, k, dtype = op_args
-    tiles_i = factors_to_sizes(in_x[0:3])
-    tiles_j = factors_to_sizes(in_x[3:6])
-    tiles_k = factors_to_sizes(in_x[6:7])
-    tiles_i_dict = {f"i{i + 1}": v for i, v in enumerate(tiles_i)}
-    tiles_j_dict = {f"j{i + 1}": v for i, v in enumerate(tiles_j)}
-    tiles_k_dict = {f"k{i + 1}": v for i, v in enumerate(tiles_k)}
-    axes_order = ["i", "j", "i1", "j1", "k", "i2", "j2", "k1", "i3", "j3"]
-    vector_axes = axes_order[-1:]
-    parallel_axes = None
-    if THREADS > 1:
-        parallel_axes = axes_order[:2]
-    unroll_axes = {"j3": tiles_j[-1], "i3": tiles_i[-1], "k1": tiles_k[-1]}
-    logger.debug(
-        "input: %s: tile i: %s, j: %s, k: %s, order: %s, vector: %s, parallel: %s, unroll: %s",
-        in_x,
-        tiles_i_dict,
-        tiles_j_dict,
-        tiles_k_dict,
-        axes_order,
-        vector_axes,
-        parallel_axes,
-        unroll_axes,
-    )
-    impl.tile("i", tiles_i_dict)
-    impl.tile("j", tiles_j_dict)
-    impl.tile("k", tiles_k_dict)
-    impl.interchange(axes_order)
-    impl.buffer_at("j1", "write")
-    if parallel_axes is not None:
-        impl.parallelize(parallel_axes)
-    impl.vectorize(vector_axes)
-    impl.unroll(unroll_axes)
-
-
-def tile_schedule_default_7d(opt_level, op_args):
-    i, j, k, dtype = op_args
-
-    def sched_o2():
-        jtile = VEC_SIZE
-        itile = 2
-        ktile = 1
-        idiv = i >= itile and i % itile == 0
-        jdiv = j >= jtile and j % jtile == 0
-        kdiv = k >= ktile and k % ktile == 0
-        if idiv and jdiv and kdiv:
-            return [1, 1, itile, 1, 1, jtile, ktile]
-        return None
-
-    def sched_o3():
-        jtile = VEC_SIZE * 4
-        itile = 4
-        ktiles = factors_enumeration(k, 1)
-        ktile = [x[0] for x in ktiles if x[0] <= 16][-1]
-        idiv = i >= itile and i % itile == 0
-        jdiv = j >= jtile and j % jtile == 0
-        kdiv = k >= ktile and k % ktile == 0
-        if idiv and jdiv and kdiv:
-            return [i // itile, 1, itile, 1, j // jtile, jtile, ktile]
-        return None
-
-    default_schedule = [1, 1, 1, 1, 1, 1, 1]
-    if opt_level >= 2:
-        o2 = sched_o2()
-        if o2:
-            default_schedule = o2
-        if opt_level >= 3:
-            o3 = sched_o3()
-            if o3:
-                default_schedule = o3
-    return default_schedule
-
-
-def tile_schedule_default_8d(opt_level, op_args):
-    default_schedule = tile_schedule_default_7d(opt_level, op_args)
-    wc = 0
-    if opt_level >= 2:
-        wc = 1
-    return default_schedule + [wc]
-
-
-def tile_strategy_8d(impl, op_args, in_x):
-    if in_x[7] == 0:
-        return tile_strategy_7d(impl, op_args, in_x[:7])
-    else:
-        return tile_strategy_7d_wc(impl, op_args, in_x[:7])
-
-
-def tile_generator_7d(op_args, size=None):
-    i, j, k, dtype = op_args
-    tiles_i = factors_enumeration(i, 3)
-    tiles_j = factors_enumeration(j, 3)
-    tiles_k = factors_enumeration(k, 1)
-    all_tiles = tiles_i + tiles_j + tiles_k
-    space_size = len(tiles_i) * len(tiles_j) * len(tiles_k)
-    logger.debug(f"Raw space size: {space_size} for problem dims: {i}x{j}x{k}")
-
-    def in_space(x):
-        # Filter out last level if > 1024 vector elems
-        return x[2] * x[5] * x[6] / min(x[5], VEC_SIZE) <= MAX_UNROLL
-
-    if size is None or size >= space_size:
-        logger.debug(f"Generate exhaustive")
-        # Exhaustive
-        for ti in tiles_i:
-            for tj in tiles_j:
-                for tk in tiles_k:
-                    x = ti + tj + tk
-                    if in_space(x):
-                        yield np.array(x)
-    else:
-        logger.debug(f"Generate random {size}")
-        seen = set()
-        noop_num = 0
-        while len(seen) < size and noop_num < 10000:
-            noop_num += 1
-            xi = random.randint(0, len(tiles_i) - 1)
-            xj = random.randint(0, len(tiles_j) - 1)
-            xk = random.randint(0, len(tiles_k) - 1)
-            x = tiles_i[xi] + tiles_j[xj] + tiles_k[xk]
-            if not in_space(x):
-                continue
-            tx = tuple(x)
-            if tx in seen:
-                continue
-            noop_num = 0
-            seen.add(tx)
-            yield np.array(x)
-
-
-def tile_generator_7dv(op_args, size=None):
-    i, j, k, dtype = op_args
-    all_in_x = tile_generator_7d(op_args)
-    # Keep only vectorized dims, i.e. x[5] (inner j) >= VEC_SIZE
-    all_in_x = [x for x in all_in_x if x[5] >= VEC_SIZE]
-    logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    return np.array(all_in_x)
-
-
-def tile_generator_7dvr(op_args, size=None):
-    MAX_VREG = 32
-    MAX_L1_ELTS = 32 * 1024 / 4  # where 4 is float size (todo)
-    MAX_L2_ELTS = 1024 * 1024 / 4  # where 4 is float size (todo)
-    i, j, k, dtype = op_args
-    all_in_x = tile_generator_7d(op_args)
-    # Keep only vectorized dims, i.e. x[5] (inner j) >= VEC_SIZE
-    all_in_x = [x for x in all_in_x if x[5] >= VEC_SIZE]
-    # Keep only inner i*j <= VEC_SIZE * MAX_REG
-    all_in_x = [x for x in all_in_x if x[2] * x[5] <= VEC_SIZE * MAX_VREG]
-    # Keep only inner k*i*j <= MAX_L1_ELTS
-    all_in_x = [x for x in all_in_x if x[2] * x[5] * x[6] <= MAX_L1_ELTS]
-    # Keep only inner 2 k*i*j <= MAX_L2_ELTS
-    all_in_x = [x for x in all_in_x if x[1] * x[2] * x[4] * x[5] * x[6] <= MAX_L2_ELTS]
-    # # If %64 set inner j to >= 64
-    # if j % 64 == 0:
-    #     all_in_x = [x for x in all_in_x if x[5] >= 64]
-    # # If %4 set inner i to >= 4
-    # if i % 4 == 0:
-    #     all_in_x = [x for x in all_in_x if x[2] >= 4]
-    logger.debug(f"Filtered space size: {len(all_in_x)} for problem dims: {i}x{j}x{k}")
-    return np.array(all_in_x)
-
-
-def tile_generator_8d(op_args, size=None):
-    for sample in tile_generator_7d(op_args):
-        yield np.hstack((sample, [0]))
-        yield np.hstack((sample, [1]))
-
-
-def tile_generator_8dv(op_args, size=None):
-    for sample in tile_generator_7dv(op_args):
-        yield np.hstack((sample, [0]))
-        yield np.hstack((sample, [1]))
-
-
-def tile_generator_8dvr(op_args, size=None):
-    for sample in tile_generator_7dvr(op_args):
-        yield np.hstack((sample, [0]))
-        yield np.hstack((sample, [1]))
-
-
-def get_eval_parameters(args):
+def get_eval_parameters(args: NS):
     if args.huge_pages:
         NDArray.set_alloc_alignment(
             2 * 1024 * 1024
@@ -608,57 +145,45 @@ def get_eval_parameters(args):
     return (nd_inputs, nd_outputs)
 
 
-def get_all_impls(op_args, args):
-    return [
-        (
-            backend,
-            OPERATORS[args.operator]["backends"][backend]["operation"](
-                *op_args, name=args.func_name
-            ),
-        )
-        for backend in args.backends
-    ]
-
-
-def compile_one_impls(ident, impls, tile_strategy, op_args, in_x, args, callbacks):
+def compile_one_all_backends(
+    ident: str,
+    graph: Graph,
+    strategy: Strategy,
+    in_x: Sample,
+    args: NS,
+    callbacks: CallBacks = {},
+):
     compiled = []
-    for name, impl in impls:
-        task_ident = f"{args.operator}_{name}_{ident}"
+    for backend in args.backends:
+        task_ident = f"{args.operator}_{backend}_{ident}"
         compiled.append(
             compile_one(
-                task_ident,
-                name,
-                impl,
-                tile_strategy,
-                op_args,
-                in_x,
-                args,
-                callbacks=callbacks,
+                task_ident, backend, graph, strategy, in_x, args, callbacks=callbacks
             )
         )
     return compiled
 
 
 def compile_one(
-    ident,
-    backend,
-    operation,
-    tile_strategy,
-    op_args,
-    in_x,
-    args,
-    callbacks=None,
-    dump_file=None,
+    ident: str,
+    backend: str,
+    graph: Graph,
+    strategy: Strategy,
+    in_x: Sample,
+    args: NS,
+    callbacks: CallBacks = {},
+    dump_file: str | None = None,
 ):
     assert isinstance(in_x, list), f"X not a list: {in_x} ({type(in_x)})"
     logger.debug("Compile: %s: %s: %s...", ident, backend, in_x)
     implementer = OPERATORS[args.operator]["backends"][backend]["implementer"]
-    impl, backend_name = implementer(*op_args, operation)
+    impl, backend_name = implementer(graph)
     assert backend_name == backend
     scheduler = impl.get_scheduler()
     node_scheduler = scheduler  # by default the output node is scheduled
-    tile_strategy(node_scheduler, op_args, in_x)
+    strategy.generate(node_scheduler, in_x)
     schedule = scheduler.schedule()
+    logger.debug("  Schedule done: %s: %s.", ident, schedule)
     if dump_file is None:
         dump_file = f"{args.explore_dir}/payload_{ident}"
     compile_args = dict(
@@ -693,8 +218,13 @@ def compile_one(
     return (ident, backend, module, dump_file, in_x)
 
 
-def load_and_evaluate_one(
-    ident, backend, module, dump_file, in_x, args, callbacks=None
+def load_and_evaluate_sample(
+    ident: str,
+    backend: str,
+    module: Module,
+    in_x: Sample,
+    args: NS,
+    callbacks: CallBacks = {},
 ):
     logger.debug("Evaluate: %s: %s...", ident, in_x)
     evaluator_args = dict(
@@ -732,10 +262,7 @@ def load_and_evaluate_one(
 
 
 class SearchProgress:
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def search_start(self, ntasks):
+    def search_start(self, ntasks: int):
         pass
 
     def compile_batch_start(self):
@@ -768,15 +295,25 @@ class SearchProgress:
 
 class SearchProgressTQDM(SearchProgress):
     def __init__(
-        self, ncomp_per_job=1, nexec_per_job=1, quiet=False, prefix="", position=0
+        self,
+        ncomp_per_job: int = 1,
+        nexec_per_job: int = 1,
+        quiet: bool = False,
+        prefix: str = "",
+        position: int = 0,
     ):
         self.ncomp_per_job = ncomp_per_job
         self.nexec_per_job = nexec_per_job
         self.quiet = quiet
         self.prefix = prefix
         self.position = position
+        self.allbar: Any = None
+        self.compbar: Any = None
+        self.evalbar: Any = None
+        self.ntasks = None
 
-    def search_start(self, ntasks):
+    @override
+    def search_start(self, ntasks: int):
         self.ntasks = ntasks
         tqdm_args = dict(
             total=self.ntasks,
@@ -790,51 +327,60 @@ class SearchProgressTQDM(SearchProgress):
             colour="red",
             position=self.position + 0,
             **tqdm_args,
-        )
+        )  # type: ignore
         self.compbar = tqdm(
             desc=f"{self.prefix} compile".strip(),
             colour="blue",
             position=self.position + 1,
             **tqdm_args,
-        )
+        )  # type: ignore
         if self.nexec_per_job > 0:
             self.evalbar = tqdm(
                 desc=f"{self.prefix} execute".strip(),
                 colour="green",
                 position=self.position + 2,
                 **tqdm_args,
-            )
+            )  # type: ignore
 
+    @override
     def compile_batch_start(self):
         self.compbar.unpause()
 
+    @override
     def compile_job_start(self):
         pass
 
+    @override
     def compile_job_end(self):
         self.compbar.update(self.ncomp_per_job)
         if self.nexec_per_job == 0:
             self.allbar.update(self.ncomp_per_job)
 
+    @override
     def compile_batch_end(self):
         self.compbar.update(0)
         self.allbar.update(0)
 
+    @override
     def execute_batch_start(self):
         if self.nexec_per_job > 0:
             self.evalbar.unpause()
 
+    @override
     def execute_job_start(self):
         pass
 
+    @override
     def execute_job_end(self):
         if self.nexec_per_job > 0:
             self.evalbar.update(self.nexec_per_job)
             self.allbar.update(self.nexec_per_job)
 
+    @override
     def execute_batch_end(self):
         pass
 
+    @override
     def search_end(self):
         self.compbar.unpause()
         if self.nexec_per_job > 0:
@@ -845,22 +391,30 @@ class SearchProgressTQDM(SearchProgress):
             self.evalbar.close()
 
 
-def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbacks):
+def evaluate_all_parallel(
+    strategy: Strategy,
+    all_in_x: NPSamples,
+    graph: Graph,
+    args: NS,
+    callbacks: CallBacks,
+):
     jobs = args.jobs
 
-    def do_compile(idx, in_x):
-        return idx, compile_one_impls(
+    def do_compile(idx: int, in_x: Sample):
+        return idx, compile_one_all_backends(
             ident=f"{idx:04}",
-            impls=impls,
+            graph=graph,
+            strategy=strategy,
             in_x=in_x,
-            tile_strategy=tile_strategy,
-            op_args=op_args,
             args=args,
-            callbacks=None,
+            callbacks=callbacks,
         )
 
     ntasks = len(all_in_x) * len(args.backends)
-    search_callback = callbacks["search"] if "search" in callbacks else SearchProgress()
+    search_callback = cast(
+        SearchProgress,
+        callbacks["search"] if "search" in callbacks else SearchProgress(),
+    )
     search_callback.search_start(ntasks)
     try:
         for job_idx, job_in_x in enumerate(
@@ -879,7 +433,7 @@ def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbac
                 search_callback.compile_job_end()
             else:
 
-                def future_callback(future):
+                def future_callback(future: Future):
                     job_compiled.append(future.result())
                     search_callback.compile_job_end()
 
@@ -905,15 +459,9 @@ def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbac
                 for compiled_list in compiled_results:
                     for compiled in compiled_list:
                         search_callback.execute_job_start()
-                        ident, backend, impl, dump_file, in_x = compiled
-                        load_and_evaluate_one(
-                            ident,
-                            backend,
-                            impl,
-                            dump_file,
-                            in_x,
-                            args,
-                            callbacks=callbacks,
+                        ident, backend, module, dump_file, in_x = compiled
+                        load_and_evaluate_sample(
+                            ident, backend, module, in_x, args, callbacks=callbacks
                         )
                         search_callback.execute_job_end()
                 search_callback.execute_batch_end()
@@ -921,45 +469,54 @@ def evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbac
         search_callback.search_end()
 
 
-def evaluate_generate(tile_strategy, tile_generator, impls, op_args, args, callbacks):
+def evaluate_generate(strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks):
     assert args.search in ["exhaustive", "random"]
-    gen_size = args.trials if args.search == "random" else None
-    all_in_x = tile_generator(op_args, size=gen_size)
-    all_in_x = np.array(list(all_in_x))  # convert list or generator to np.array
+    all_in_x = strategy.exhaustive()
     if args.search == "random":
-        if len(all_in_x) > args.trials:
-            idxs = np.random.choice(
-                np.arange(len(all_in_x)), size=args.trials, replace=False
-            )
-            all_in_x = all_in_x[idxs]
-    evaluate_all_parallel(tile_strategy, all_in_x, impls, op_args, args, callbacks)
+        # TODO: for now randomize from exhaustive
+        all_in_x = np.array(list(all_in_x))
+        trials = (
+            args.trials
+            if args.trials and len(all_in_x) > args.trials
+            else len(all_in_x)
+        )
+        idxs = np.random.choice(np.arange(len(all_in_x)), size=trials, replace=False)
+        all_in_x = all_in_x[idxs]
+    elif args.trials:
+        all_in_x = np.array(list(itertools.islice(all_in_x, args.trials)))
+    else:
+        all_in_x = np.array(list(all_in_x))
+    evaluate_all_parallel(strategy, all_in_x, graph, args, callbacks)
 
 
-def evaluate_data(tile_strategy, X, impls, op_args, args, callbacks):
+def evaluate_data(
+    strategy: Strategy, X: NPSamples, graph: Graph, args: NS, callbacks: CallBacks
+):
     size = len(X)
     logger.debug(f"Search space size: {size}")
-    evaluate_all_parallel(tile_strategy, X, impls, op_args, args, callbacks)
+    evaluate_all_parallel(strategy, X, graph, args, callbacks)
 
 
-def evaluate_one(tile_strategy, in_x, impls, op_args, args, callbacks):
-    evaluate_all_parallel(
-        tile_strategy, np.array([in_x]), impls, op_args, args, callbacks
-    )
+def evaluate_sample(
+    strategy: Strategy, in_x: Sample, graph: Graph, args: NS, callbacks: CallBacks
+):
+    evaluate_all_parallel(strategy, np.array([in_x]), graph, args, callbacks)
 
 
-def read_input(fname, args):
+def read_input(fname: str, args: NS) -> NPSamples:
     X = []
     with open(fname, newline="") as infile:
         reader = csv.reader(infile, delimiter=";")
+        X_idx = 0
         for idx, row in enumerate(reader):
             if idx == 0:
                 X_idx = row.index("X")
-            else:
-                X.append(eval(row[X_idx], {}, {}))
+                continue
+            X.append(eval(row[X_idx], {}, {}))
     return np.array(X)
 
 
-def peak_time(args):
+def peak_time(args: NS) -> float:
     if not args.execute:
         return 0
     dtype = DTYPES_MAP[args.dtype]
@@ -970,7 +527,7 @@ def peak_time(args):
     return time
 
 
-def search_some(tile_strategy, tile_generator, impls, op_args, args):
+def search_some(strategy: Strategy, graph: Graph, args: NS):
     # Search depends on search strategy
     ncomp_per_job = len(args.backends)
     nexec_per_job = 1 if args.execute else 0
@@ -986,7 +543,7 @@ def search_some(tile_strategy, tile_generator, impls, op_args, args):
         writer.writerow(("X", "time", "peak", "backend"))
         outf.flush()
 
-        def result_callback(result):
+        def result_callback(result: Sequence):
             x, error, time, backend = result
             if error != 0:
                 logger.debug(f"Skip recording error for: {backend}: {x}")
@@ -999,10 +556,8 @@ def search_some(tile_strategy, tile_generator, impls, op_args, args):
 
         if args.search in ["exhaustive", "random"]:
             evaluate_generate(
-                tile_strategy,
-                tile_generator,
-                impls,
-                op_args,
+                strategy,
+                graph,
                 args,
                 callbacks={
                     "result": result_callback,
@@ -1013,10 +568,9 @@ def search_some(tile_strategy, tile_generator, impls, op_args, args):
             assert args.data is not None
             X = read_input(args.data, args)
             evaluate_data(
-                tile_strategy,
+                strategy,
                 X,
-                impls,
-                op_args,
+                graph,
                 args,
                 callbacks={
                     "result": result_callback,
@@ -1025,16 +579,16 @@ def search_some(tile_strategy, tile_generator, impls, op_args, args):
             )
 
 
-def optimize(args):
+def optimize(args: NS):
     dims = args.dims
     dtype = args.dtype
     op_args = (*dims, dtype)
-    tile_strategy = STRATEGIES[args.strategy]["strategy"]
-    impls = get_all_impls(op_args, args)
+    graph = OPERATORS[args.operator]["operation"](*op_args, name=args.func_name)
+    strategy = get_strategy(graph, args)
     if args.test or args.opt_level in [0, 1, 2, 3]:
         schedule = args.test
         if not schedule:
-            schedule = STRATEGIES[args.strategy]["schedule"](args.opt_level, op_args)
+            schedule = strategy.default_schedule(args.opt_level)
         ncomp_per_job = len(args.backends)
         nexec_per_job = 1 if args.execute else 0
         search_callback = SearchProgressTQDM(
@@ -1045,14 +599,14 @@ def optimize(args):
         )
         all_results = []
 
-        def output_one(results):
+        def output_one(results: Sequence):
             all_results.append(results)
 
         callbacks = {
             "result": output_one,
             "search": search_callback,
         }
-        evaluate_one(tile_strategy, schedule, impls, op_args, args, callbacks=callbacks)
+        evaluate_sample(strategy, schedule, graph, args, callbacks=callbacks)
         ptime = peak_time(args)
         for results in all_results:
             in_x, error, time, backend = results
@@ -1061,8 +615,21 @@ def optimize(args):
                     f"Schedule: {backend}: {in_x}: time: {time * 1000:.2f} msecs, peak perf: {ptime / time * 100:.2f}%"
                 )
     else:
-        tile_generator = STRATEGIES[args.strategy]["generator"]
-        search_some(tile_strategy, tile_generator, impls, op_args, args)
+        search_some(strategy, graph, args)
+
+
+def get_strategy(graph: Graph, args: NS) -> Strategy:
+    def strat_name(name: str) -> str:
+        alias = STRATEGIES_ALIASES.get(name)
+        if alias is None:
+            return name
+        return strat_name(alias)
+
+    name = strat_name(args.strategy)
+    cls = Strategies.from_name(name)
+    return cls(
+        graph, threads=args.threads, max_unroll=args.max_unroll, vec_size=VEC_SIZE
+    )
 
 
 HOME = os.environ.get("HOME", "")
@@ -1082,31 +649,19 @@ OPERATORS = {
         "inputs": [["i", "k"], ["k", "j"]],
         "outputs": [["i", "j"]],
         "reference_impl": None,  # defaults to graph evaluation
+        "operation": xtc_matmul_graph,
         "backends": {
             "mlir": {
-                "operation": xtc_matmul_graph,
                 "implementer": mlir_matmul_impl,
             },
             "tvm": {
-                "operation": xtc_matmul_graph,
                 "implementer": tvm_matmul_impl,
             },
             "jir": {
-                "operation": xtc_matmul_graph,
                 "implementer": jir_matmul_impl,
             },
         },
-        "default_strategy": "tile3d",
-        "strategies": {
-            "tile3d",
-            "tile4d",
-            "tile4dv",
-            "tile7d",
-            "tile7dv",
-            "tile7dvr",
-            "tile8d",
-            "tile8dvr",
-        },
+        "default_strategy": "tile_t1",
     },
     "relu": {
         "dims": ["i"],
@@ -1115,74 +670,36 @@ OPERATORS = {
         "inputs": [["i"]],
         "outputs": [["i"]],
         "reference_impl": None,  # defaults to graph evaluation
+        "operation": xtc_relu_graph,
         "backends": {
             "tvm": {
-                "operation": xtc_relu_graph,
                 "implementer": tvm_relu_impl,
             },
         },
-        "default_strategy": "tile1d",
-        "strategies": {
-            "tile1d",
-        },
+        "default_strategy": "tile_t1",
     },
 }
 
-STRATEGIES = {
-    "tile1d": {
-        "strategy": tile_strategy_1d,
-        "generator": tile_generator_1d,
-        "schedule": tile_schedule_default_1d,
-    },
-    "tile3d": {
-        "strategy": tile_strategy_3d,
-        "generator": tile_generator_3d,
-        "schedule": tile_schedule_default_3d,
-    },
-    "tile4d": {
-        "strategy": tile_strategy_4d,
-        "generator": tile_generator_4d,
-        "schedule": tile_schedule_default_4d,
-    },
-    "tile4dv": {
-        "strategy": tile_strategy_4d,
-        "generator": tile_generator_4dv,
-        "schedule": tile_schedule_default_4d,
-    },
-    "tile7d": {
-        "strategy": tile_strategy_7d,
-        "generator": tile_generator_7d,
-        "schedule": tile_schedule_default_7d,
-    },
-    "tile7dv": {
-        "strategy": tile_strategy_7d,
-        "generator": tile_generator_7dv,
-        "schedule": tile_schedule_default_7d,
-    },
-    "tile7dvr": {
-        "strategy": tile_strategy_7d,
-        "generator": tile_generator_7dvr,
-        "schedule": tile_schedule_default_7d,
-    },
-    "tile8d": {
-        "strategy": tile_strategy_8d,
-        "generator": tile_generator_8d,
-        "schedule": tile_schedule_default_8d,
-    },
-    "tile8dv": {
-        "strategy": tile_strategy_8d,
-        "generator": tile_generator_8dv,
-        "schedule": tile_schedule_default_8d,
-    },
-    "tile8dvr": {
-        "strategy": tile_strategy_8d,
-        "generator": tile_generator_8dvr,
-        "schedule": tile_schedule_default_8d,
-    },
+STRATEGIES_ALIASES = {
+    # legacy: same as t1 for 1 dimensional kernels
+    "tile1d": "tile_t1",
+    # legacy: same as t1 for matmul kernel
+    "tile3d": "tile_t1",
+    # legacy: tile4d* for matmul is same as tile_p1*
+    "tile4d": "tile_p1",
+    "tile4dv": "tile_p1_v",
+    # legacy: tile7d* for matmul is same as tile_pprprp*
+    "tile7d": "tile_pprprp",
+    "tile7dv": "tile_pprprp_v",
+    "tile7dvr": "tile_pprprp_vr",
+    # legacy: tile8d* for matmul is same as tile_ppwrprp*
+    "tile8d": "tile_ppwrprp",
+    "tile8dv": "tile_ppwrprp_v",
+    "tile8dvr": "tile_ppwrprp_vr",
 }
 
 
-def setup_args(args):
+def setup_args(args: NS):
     global THREADS
     global MAX_UNROLL
     global VEC_SIZE
@@ -1201,7 +718,7 @@ def setup_args(args):
     args.backends = sorted(args.backends)
 
 
-def launch_child(argv, args):
+def launch_child(argv: Sequence[str], args: NS):
     env = {}
     if "tvm" in args.backends:
         # Force number of threads for TVM
@@ -1230,8 +747,12 @@ def launch_child(argv, args):
 
 
 def main():
+    default_op = "matmul"
+    default_dims = OPERATORS[default_op]["default_dims"]
+    default_dtype = OPERATORS[default_op]["default_type"]
     default_jobs = max(1, multiprocessing.cpu_count() // 2)
     default_unroll = 512
+    choice_strategies = list(Strategies.names()) + list(STRATEGIES_ALIASES.keys())
     parser = argparse.ArgumentParser(
         description="Autotune Matmult",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -1240,7 +761,7 @@ def main():
         "--operator",
         type=str,
         choices=list(OPERATORS.keys()),
-        default="matmul",
+        default=default_op,
         help="operator to optimize",
     )
     parser.add_argument(
@@ -1249,7 +770,7 @@ def main():
     parser.add_argument(
         "--strategy",
         type=str,
-        choices=list(STRATEGIES.keys()),
+        choices=choice_strategies,
         help="tile strategy to use, default to operator's default",
     )
     parser.add_argument(
@@ -1271,7 +792,11 @@ def main():
         "--data", type=str, help="data CSV file for input to data search"
     )
     parser.add_argument(
-        "--dims", nargs="+", type=int, help="dimensions, default to operators's default"
+        "--dims",
+        nargs="+",
+        type=int,
+        default=default_dims,
+        help="dimensions, default to operators's default",
     )
     parser.add_argument(
         "--huge-pages",
@@ -1288,6 +813,7 @@ def main():
     parser.add_argument(
         "--dtype",
         type=str,
+        default=default_dtype,
         choices=list(DTYPES_MAP.keys()),
         help="data type, default to operator's default",
     )
@@ -1383,10 +909,6 @@ def main():
         args.dims = OPERATORS[args.operator]["default_dims"]
     if not args.dtype:
         args.dtype = OPERATORS[args.operator]["default_type"]
-
-    assert args.strategy in OPERATORS[args.operator]["strategies"], (
-        f"strategy {args.strategy} not available for operator {args.operator}"
-    )
 
     for backend in args.backends:
         assert backend in OPERATORS[args.operator]["backends"], (
