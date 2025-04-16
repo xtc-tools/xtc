@@ -28,7 +28,7 @@ def main():
     schedulers = []
     for idx, op in enumerate(ops_to_schedule):
         node_name = f"v{idx}"
-        sched = parse_scheduler(
+        sched = parse_scheduler_old_syntax(
             op,
             node_name,
             always_vectorize=args.always_vectorize,
@@ -87,7 +87,7 @@ def main():
         print(min(res))
 
 
-def parse_scheduler(
+def parse_scheduler_old_syntax(
     op: Operation,
     node_name: str,
     always_vectorize: bool,
