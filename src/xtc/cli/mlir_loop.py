@@ -25,10 +25,12 @@ def main():
     ops_to_schedule = get_annotated_operations(myfunc)
 
     # Build the transform script
+    get_scheduler = parse_scheduler_legacy if args.old_syntax else None
+    assert get_scheduler
     schedulers = []
     for idx, op in enumerate(ops_to_schedule):
         node_name = f"v{idx}"
-        sched = parse_scheduler_old_syntax(
+        sched = get_scheduler(
             op,
             node_name,
             always_vectorize=args.always_vectorize,
@@ -87,7 +89,7 @@ def main():
         print(min(res))
 
 
-def parse_scheduler_old_syntax(
+def parse_scheduler_legacy(
     op: Operation,
     node_name: str,
     always_vectorize: bool,
@@ -274,6 +276,11 @@ def parse_args() -> argparse.Namespace:
         "--hide-jumps",
         action="store_true",
         help="Hide assembly visualization of control flow.",
+    )
+    parser.add_argument(
+        "--old-syntax",
+        action="store_true",
+        help="Parse the old version of the attributes dialect.",
     )
     parser.add_argument(
         "--debug", action="store_true", default=False, help="Print debug messages."

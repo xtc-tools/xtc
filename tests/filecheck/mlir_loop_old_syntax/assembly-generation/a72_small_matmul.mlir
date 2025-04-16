@@ -1,4 +1,4 @@
-// RUN: mlir-loop %s --no-alias --arch aarch64 --cpu cortex-a72 --print-assembly | filecheck %s
+// RUN: mlir-loop --old-syntax %s --no-alias --arch aarch64 --cpu cortex-a72 --print-assembly | filecheck %s
 
 func.func @myfun(
   %A: memref<4x4xf32>,

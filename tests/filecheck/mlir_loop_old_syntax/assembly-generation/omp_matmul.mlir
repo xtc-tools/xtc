@@ -1,4 +1,4 @@
-// RUN: mlir-loop %s --no-alias --print-lowered-ir 2>&1 | grep omp | filecheck %s
+// RUN: mlir-loop --old-syntax %s --no-alias --print-lowered-ir 2>&1 | grep omp | filecheck %s
 
 func.func @myfun(
   %A: memref<256x512xf32>,

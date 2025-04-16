@@ -1,4 +1,4 @@
-// RUN: mlir-loop %s --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps 2>&1 | filecheck %s
+// RUN: mlir-loop --old-syntax %s --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps 2>&1 | filecheck %s
 
 func.func @myfun(
   %A: memref<16x4xf32>,

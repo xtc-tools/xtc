@@ -1,4 +1,4 @@
-// RUN: mlir-loop %s --print-transformed-ir 2>&1 | filecheck %s
+// RUN: mlir-loop --old-syntax %s --print-transformed-ir 2>&1 | filecheck %s
 
 func.func @myfun(
   %A: memref<4x4xf32>,

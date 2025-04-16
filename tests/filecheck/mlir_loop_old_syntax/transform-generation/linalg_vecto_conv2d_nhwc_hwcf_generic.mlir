@@ -1,4 +1,4 @@
-// RUN: mlir-loop %s --vectors-size 8 --no-alias --print-source-ir 2>&1 | filecheck %s
+// RUN: mlir-loop --old-syntax %s --vectors-size 8 --no-alias --print-source-ir 2>&1 | filecheck %s
 
 func.func @myfun(
   %I: memref<1x30x30x64xf32>,
