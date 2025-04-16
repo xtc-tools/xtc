@@ -7,8 +7,9 @@
 import argparse
 from pathlib import Path
 from xdsl.dialects import func, builtin
-from xdsl.ir import Operation
+from xdsl.ir import Attribute, Operation
 
+from xtc.itf.schd.scheduler import Scheduler
 from xtc.utils.xdsl_aux import parse_xdsl_module
 from xtc.backends.mlir.MlirNodeBackend import MlirNodeBackend
 from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend
@@ -104,9 +105,27 @@ def parse_scheduler(
         no_alias=no_alias,
     )
 
-    sched = backend.get_scheduler()
+    scheduler = backend.get_scheduler()
 
-    return sched
+    if "loop.schedule" in op.attributes:
+        schedule_attribute = op.attributes.get("loop.schedule")
+        assert isinstance(schedule_attribute, builtin.DictionaryAttr)
+        parse_schedule(scheduler, schedule_attribute)
+        remove_attribute(op, "loop.schedule")
+
+    return scheduler
+
+
+def parse_schedule(scheduler: Scheduler, schedule: builtin.DictionaryAttr):
+    assert isinstance(scheduler.backend, MlirNodeBackend)
+
+    interchange = []
+    for key, _ in schedule.data.items():
+        if key in scheduler.backend.dims:
+            interchange.append(key)
+
+    scheduler.interchange(interchange)
+    return scheduler
 
 
 def parse_scheduler_legacy(
