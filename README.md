@@ -1,49 +1,18 @@
-# mlir-loop: high-level scheduling specifications in MLIR
+# Overview
 
-The ```mlir-loop``` tool provides a high-level syntax for
-controlling the scheduling of MLIR linear algebra (```linalg```)
-operators. For now, it only applies at ```memref``` level
-(not ```tensor```) and supports the following transformations:
-+ Tiling
-+ Loop interchange
-+ Vectorization
-+ Unrolling
+XTC is a domain specific dataflow graph compiler featuring operational DSL, scheduling DSL, multiple backends and autotuning.
 
-See the code below. For the simplicity of the example, it is a
-single operator function, but the tool accepts multiple operator
-functions.
+Refer to documentation at https://corse.gitlabpages.inria.fr/xtc
 
-```
-func.func @myfun(
-  %A: memref<512x1024xf32>,
-  %B: memref<1024x128xf32>,
-  %C: memref<512x128xf32>
-) {
-  linalg.matmul
-    {
-      loop.tiles_names = {"i" = ["i1"], "j" = ["j1"], "k" = ["k1"]},
-      loop.tiles_sizes = {i1 = 4, j1 = 64, k1 = 8},
-      loop.interchange = ["i","j","k","k1","i1","j1"],
-      loop.vectorize = ["j1"],
-      loop.parallelize = ["i"],
-      loop.unroll = {i1 = 4, k1 = 8}
-    }
-    ins(%A, %B : memref<512x1024xf32>, memref<1024x128xf32>)
-    outs(%C : memref<512x128xf32>)
-  return
-}
-```
-
-Under the hood, this declarative "loop" attributes dialect is
-translated into the corresponding MLIR ```transform``` dialect
-command sequence. Thus, ```mlir-loop``` transformations fully reuse
-those implemented in ```mlir-opt```.
+Refer to installable python packages at: https://gitlab.inria.fr/corse/xtc/-/packages
 
 Roadmap:
 + Allow tensor-level specifications
 + Implement graph-level transformations (fusion, etc.).
 + Implement more node-level transformations (padding, packing, etc.).
 + Integrate with an ML front-end.
+
+# XTC Framework
 
 ## Installation instructions
 
@@ -198,3 +167,46 @@ Comparative performance distribution on tile4dv tilings in `data/mlir_results.mm
 
     loop-explore --debug --dims 256 256 512 --backends tvm mlir jir --validate --strategy tile4dv  --search exhaustive --output data/results.mm06-tile4dv-all.csv
     loop-display --title "Tile4DV tiling strategy exhaustive for 256x256x512 vectorized matmul" data/results.mm06-tile4dv-all.csv:tvm:X:peak:tvm data/results.mm06-tile4dv-all.csv:mlir:X:peak:mlir data/results.mm06-tile4dv-all.csv:jir:X:peak:jir --output data/results.mm06-tile4dv-all.svg
+
+
+# mlir-loop: high-level scheduling specifications in MLIR
+
+The ```mlir-loop``` tool provides a high-level syntax for
+controlling the scheduling of MLIR linear algebra (```linalg```)
+operators. For now, it only applies at ```memref``` level
+(not ```tensor```) and supports the following transformations:
++ Tiling
++ Loop interchange
++ Vectorization
++ Unrolling
+
+See the code below. For the simplicity of the example, it is a
+single operator function, but the tool accepts multiple operator
+functions.
+
+```
+func.func @myfun(
+  %A: memref<512x1024xf32>,
+  %B: memref<1024x128xf32>,
+  %C: memref<512x128xf32>
+) {
+  linalg.matmul
+    {
+      loop.tiles_names = {"i" = ["i1"], "j" = ["j1"], "k" = ["k1"]},
+      loop.tiles_sizes = {i1 = 4, j1 = 64, k1 = 8},
+      loop.interchange = ["i","j","k","k1","i1","j1"],
+      loop.vectorize = ["j1"],
+      loop.parallelize = ["i"],
+      loop.unroll = {i1 = 4, k1 = 8}
+    }
+    ins(%A, %B : memref<512x1024xf32>, memref<1024x128xf32>)
+    outs(%C : memref<512x128xf32>)
+  return
+}
+```
+
+Under the hood, this declarative "loop" attributes dialect is
+translated into the corresponding MLIR ```transform``` dialect
+command sequence. Thus, ```mlir-loop``` transformations fully reuse
+those implemented in ```mlir-opt```.
+
