@@ -55,6 +55,8 @@ test-xtc:
     - coverage xml -o artifacts/coverage/coverage.xml
     - coverage report --format=markdown >artifacts/coverage/coverage.md
     - coverage html -d artifacts/coverage/html
+    - scripts/explore/run-explore-one-shot.sh artifacts/explore/
+    - env NOSHOW=1 scripts/explore/display-explore-one-shot.sh artifacts/explore/
     - scripts/explore/run-explore-variants.sh artifacts/explore/
     - env NOSHOW=1 scripts/explore/display-explore-variants.sh artifacts/explore/
   coverage:  '/^TOTAL.* (\d+\%)$/'

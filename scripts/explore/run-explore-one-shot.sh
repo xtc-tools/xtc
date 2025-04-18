@@ -3,7 +3,7 @@ set -euo pipefail
 
 outdir="${1-.}"
 BACKENDS="${BACKENDS:-mlir tvm jir}"
-TRIALS="${TRIALS:-20}"
+OPTS="1 2 3"
 STRATEGIES="${STRATEGIES:-" \
           "tile3d " \
           "tile4d tile4dv " \
@@ -13,11 +13,12 @@ STRATEGIES="${STRATEGIES:-" \
 mkdir -p "$outdir"
 rm -f "$outdir/*.csv"
 
-t="$TRIALS"
 for s in $STRATEGIES; do
     for b in $BACKENDS; do
-        echo "Testing backend $b with tiling strategy $s for $t trials..."
-        (set -x && loop-explore --backends "$b" --trials "$t" --jobs 1 --strategy "$s" --output "$outdir/results.b$b.s$s.t$t.csv")
+        for o in $OPTS; do
+            echo "Testing backend $b with tiling strategy $s for opt level $o..."
+            (set -x && loop-explore --backends "$b" --opt-level "$o" --jobs 1 --strategy "$s" --output "$outdir/results.b$b.s$s.o$o.csv")
+        done
     done
 done
 

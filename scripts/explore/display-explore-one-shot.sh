@@ -17,8 +17,8 @@ opts=""
 
 
 for s in $STRATEGIES; do
-    # match file = results.b<backend>.s<strategy>.t<trials>.csv -> file:backend:X:peak
-    args="$(ls "$outdir"/results.b*.s$s.t*.csv 2>/dev/null | sed 's|/\(\([^.]*\)\.b\([^.]*\)\.s\([^.]*\)\.t\([^.]*\)\.csv\)|/\1:\3:X:peak|' || true)"
+    # match file = results.b<backend>.s<strategy>.o<level>.csv -> file:backend:X:peak
+    args="$(ls "$outdir"/results.b*.s$s.o*.csv 2>/dev/null | sed 's|/\(\([^.]*\)\.b\([^.]*\)\.s\([^.]*\)\.o\([^.]*\)\.csv\)|/\1:\3-O\5:X:peak|' || true)"
     [ -n "$args" ] || continue
-    (set -x && loop-display $opts --title "Distributions for strategy $s" --output "$outdir/results.$s.png" $args)
+    (set -x && loop-display $opts --no-cdf --title "Opt Level performance for strategy $s" --output "$outdir/results.$s.png" $args)
 done

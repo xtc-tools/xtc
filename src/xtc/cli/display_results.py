@@ -81,17 +81,30 @@ def save_fig(fname):
 
 
 def display_results(results, args):
-    fig, axs = plt.subplots(2, 1, figsize=(6, 6))
+    num_figs = sum([bool(opt) for opt in [args.pmf, args.cdf]])
+    if num_figs == 0:
+        return
+    fig, axs = plt.subplots(num_figs, 1, figsize=(6, 3 * num_figs))
+    if num_figs < 2:
+        if args.pmf:
+            ax_pmf = axs
+        else:
+            ax_cdf = axs
+    else:
+        ax_pmf, ax_cdf = axs
 
-    for res in results:
-        draw_pmf(axs[0], res.Y, label=res.label)
-    axs[0].legend()
-    axs[0].set_title("Peak performance distribution")
+    if args.pmf:
+        for res in results:
+            draw_pmf(ax_pmf, res.Y, label=res.label)
+        ax_pmf.legend()
+        ax_pmf.set_title("Peak performance distribution")
 
-    for res in results:
-        draw_cdf(axs[1], res.Y, label=res.label)
-    axs[1].legend()
-    axs[1].set_title("Peak performance cumulative distribution")
+    if args.cdf:
+        for res in results:
+            draw_cdf(ax_cdf, res.Y, label=res.label)
+        ax_cdf.legend()
+        ax_cdf.set_title("Peak performance cumulative distribution")
+
     if args.title:
         fig.suptitle(args.title)
 
@@ -114,6 +127,12 @@ def main():
     )
     parser.add_argument("--title", type=str, help="Figure title")
     parser.add_argument("--output", type=str, help="Save figure to file")
+    parser.add_argument(
+        "--pmf", action=argparse.BooleanOptionalAction, default=True, help="draw PMF"
+    )
+    parser.add_argument(
+        "--cdf", action=argparse.BooleanOptionalAction, default=True, help="draw CDF"
+    )
     parser.add_argument(
         "--show",
         action=argparse.BooleanOptionalAction,
