@@ -527,6 +527,44 @@ def peak_time(args: NS) -> float:
     return time
 
 
+class CSVCallback:
+    def __init__(self, fname: str, peak_time: float) -> None:
+        self._fname = fname
+        self._peak_time = peak_time
+        self._outf = open(fname, "w", newline="")
+        self._header = ("X", "time", "peak", "backend")
+        self._writer = csv.writer(self._outf, delimiter=";")
+        self._write_header()
+        self._results = []
+        self._rows = []
+
+    def _write_header(self) -> None:
+        self._writer.writerow(self._header)
+        self._outf.flush()
+
+    def _write_row(self, row: Sequence) -> None:
+        self._rows.append(row)
+        self._writer.writerow(row)
+        self._outf.flush()
+
+    def _write_result(self, result: Sequence) -> None:
+        self._results.append(result)
+        x, error, time, backend = result
+        if error != 0:
+            logger.debug(f"Skip recording error for: {backend}: {x}")
+            return
+        peak = self._peak_time / time
+        row = [x, time, peak, backend]
+        logger.debug(f"Record row: {row}")
+        self._write_row(row)
+
+    def __call__(self, result: Sequence) -> None:
+        self._write_result(result)
+
+    def __del__(self) -> None:
+        self._outf.close()
+
+
 def search_some(strategy: Strategy, graph: Graph, args: NS):
     # Search depends on search strategy
     ncomp_per_job = len(args.backends)
@@ -538,45 +576,28 @@ def search_some(strategy: Strategy, graph: Graph, args: NS):
         args.operator,
     )
     ptime = peak_time(args)
-    with open(args.output, "w", newline="") as outf:
-        writer = csv.writer(outf, delimiter=";")
-        writer.writerow(("X", "time", "peak", "backend"))
-        outf.flush()
-
-        def result_callback(result: Sequence):
-            x, error, time, backend = result
-            if error != 0:
-                logger.debug(f"Skip recording error for: {backend}: {x}")
-                return
-            peak = ptime / time
-            row = [x, time, peak, backend]
-            logger.debug(f"Record row: {row}")
-            writer.writerow(row)
-            outf.flush()
-
-        if args.search in ["exhaustive", "random"]:
-            evaluate_generate(
-                strategy,
-                graph,
-                args,
-                callbacks={
-                    "result": result_callback,
-                    "search": search_callback,
-                },
-            )
-        elif args.search == "data":
-            assert args.data is not None
-            X = read_input(args.data, args)
-            evaluate_data(
-                strategy,
-                X,
-                graph,
-                args,
-                callbacks={
-                    "result": result_callback,
-                    "search": search_callback,
-                },
-            )
+    result_callback = CSVCallback(args.output, ptime)
+    callbacks = {
+        "result": result_callback,
+        "search": search_callback,
+    }
+    if args.search in ["exhaustive", "random"]:
+        evaluate_generate(
+            strategy,
+            graph,
+            args,
+            callbacks=callbacks,
+        )
+    elif args.search == "data":
+        assert args.data is not None
+        X = read_input(args.data, args)
+        evaluate_data(
+            strategy,
+            X,
+            graph,
+            args,
+            callbacks=callbacks,
+        )
 
 
 def optimize(args: NS):
@@ -597,23 +618,18 @@ def optimize(args: NS):
             args.quiet,
             args.operator,
         )
-        all_results = []
-
-        def output_one(results: Sequence):
-            all_results.append(results)
-
+        ptime = peak_time(args)
+        result_callback = CSVCallback(args.output, ptime)
         callbacks = {
-            "result": output_one,
+            "result": result_callback,
             "search": search_callback,
         }
         evaluate_sample(strategy, schedule, graph, args, callbacks=callbacks)
-        ptime = peak_time(args)
-        for results in all_results:
-            in_x, error, time, backend = results
-            if error == 0:
-                tqdm.write(
-                    f"Schedule: {backend}: {in_x}: time: {time * 1000:.2f} msecs, peak perf: {ptime / time * 100:.2f}%"
-                )
+        for row in result_callback._rows:
+            in_x, time, peak, backend = row
+            tqdm.write(
+                f"Schedule: {backend}: {in_x}: time: {time * 1000:.2f} msecs, peak perf: {peak * 100:.2f}%"
+            )
     else:
         search_some(strategy, graph, args)
 
