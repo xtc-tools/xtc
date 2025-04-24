@@ -19,6 +19,7 @@ class XTCOperation(Operation):
         inputs_types: Sequence[TensorType],
         outputs_types: Sequence[TensorType],
         dims: Mapping[str, int | str],
+        kinds: Sequence[str],
         inps_maps: Sequence[Sequence[str]],
         outs_maps: Sequence[Sequence[str]],
     ) -> None:
@@ -27,6 +28,8 @@ class XTCOperation(Operation):
         self._outputs_types = tuple(outputs_types)
         self._attrs = dict(attrs)
         self._dims = dict(dims)
+        self._kinds = tuple(kinds)
+        assert len(self._dims) == len(self._kinds)
         self._maps = (
             tuple(dims.keys()),
             tuple([tuple(inp_map) for inp_map in inps_maps]),
@@ -57,6 +60,10 @@ class XTCOperation(Operation):
     @override
     def dims(self) -> Mapping[str, int | str]:
         return self._dims
+
+    @override
+    def dims_kind(self, kind: str) -> Sequence[str]:
+        return [d for d, k in zip(self._dims, self._kinds) if k == kind]
 
     @property
     @override

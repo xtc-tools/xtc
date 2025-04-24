@@ -86,6 +86,19 @@ class Operation(ABC):
         """
         ...
 
+    @abstractmethod
+    def dims_kind(self, kind: str) -> Sequence[DimSpec]:
+        """Returns the list of dimensions of the given kind.
+
+        The kind argument is currently one of:
+        - "P" for parallel dims
+        - "R" for reduction axes
+
+        Returns:
+            List of dims names
+        """
+        ...
+
     @property
     @abstractmethod
     def accesses_maps(self) -> AccessesMaps:

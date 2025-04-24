@@ -119,7 +119,7 @@ class Node(ABC):
         """Infers output tensor types from input tensor types.
 
         Args:
-            inputs: List of input tensor types
+            inputs_types: List of input tensor types
 
         Returns:
             List of inferred output tensor types

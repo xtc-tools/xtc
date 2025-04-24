@@ -61,12 +61,42 @@ class Graph(ABC):
         """
         ...
 
+    @property
+    @abstractmethod
+    def inputs_nodes(self) -> Sequence[Node]:
+        """Returns the list of inputs nodes.
+
+        The list is such that:
+        - nodes appear in the same order as outputs
+        - nodes appear only once in the list, hence
+          the size may differe from the inputs size
+
+        Returns:
+            List of input nodes
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def outputs_nodes(self) -> Sequence[Node]:
+        """Returns the list of output nodes.
+
+        The list is such that:
+        - nodes appear in the same order as outputs
+        - nodes appear only once in the list, hence
+          the size may differe from the outputs size
+
+        Returns:
+            List of output nodes
+        """
+        ...
+
     @abstractmethod
     def forward_types(self, inputs_types: Sequence[TensorType]) -> Sequence[TensorType]:
         """Infers output tensor types from input tensor types.
 
         Args:
-            inputs: List of input tensor types
+            inputs_types: List of input tensor types
 
         Returns:
             List of inferred output tensor types
