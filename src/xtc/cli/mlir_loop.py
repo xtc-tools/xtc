@@ -88,6 +88,12 @@ def main():
     module = compiler.compile(final_schedule)
 
     if args.evaluate:
+        if args.huge_pages:
+            NDArray.set_alloc_alignment(
+                2 * 1024 * 1024
+            )  # 2MB to catch Huge Pages if THB is one
+        else:
+            NDArray.set_alloc_alignment(256)  # default align to 256 bytes as DLPack
         inputs_spec = graph_backend.np_inputs_spec()
         outputs_spec = graph_backend.np_outputs_spec()
         nd_inputs = [NDArray(np_init(**spec)) for spec in inputs_spec]
@@ -381,6 +387,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Evaluate the generated code.",
+    )
+    parser.add_argument(
+        "--huge-pages",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="alloc at huge page boundaries",
     )
     parser.add_argument(
         "--init-zero",
