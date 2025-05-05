@@ -57,7 +57,7 @@ test-xtc:
     - coverage html -d artifacts/coverage/html
     - scripts/explore/run-explore-variants.sh artifacts/explore/
     - env NOSHOW=1 scripts/explore/display-explore-variants.sh artifacts/explore/
-  coverage:  '/TOTAL.*? (100(?:\.0+)?\%\|[1-9]?\d(?:\.\d+)?\%)$/'
+  coverage:  '/^TOTAL.* (\d+\%)$/'
   artifacts:
     paths:
       - artifacts/
