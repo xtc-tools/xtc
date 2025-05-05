@@ -84,6 +84,15 @@ class MlirCompiler(itf.comp.Compiler):
         )
         assert compiler.dump_file is not None
         compiler.compile()
+        io_specs_args = {}
+        if self._backend._graph is None:
+            # Pass backend defined inputs/outputs specs when not a Graph
+            io_specs_args.update(
+                {
+                    "np_inputs_spec": self._backend.np_inputs_spec,
+                    "np_outputs_spec": self._backend.np_outputs_spec,
+                }
+            )
         executable = HostModule(
             Path(compiler.dump_file).name,
             self._backend.payload_name,
@@ -91,6 +100,7 @@ class MlirCompiler(itf.comp.Compiler):
             "shlib",
             bare_ptr=compiler.bare_ptr,
             graph=self._backend._graph,
+            **io_specs_args,
         )
         if temp_dir is not None:
             shutil.rmtree(temp_dir)

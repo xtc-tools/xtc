@@ -36,14 +36,15 @@ class HostModule(itf.comp.Module):
         assert self._file_type == "shlib", "only support shlib for JIR Module"
         assert self._file_name.endswith(".so"), "file name is not a shlib"
         self._bare_ptr = kwargs.get("bare_ptr", True)
-        self._np_inputs_spec = kwargs.get("np_inputs_spec")
-        self._np_outputs_spec = kwargs.get("np_outputs_spec")
-        self._reference_impl = kwargs.get("reference_impl")
         self._graph = graph
         if self._graph is not None:
             self._np_inputs_spec = self._graph_np_inputs_spec
             self._np_outputs_spec = self._graph_np_outputs_spec
             self._reference_impl = self._graph_reference_impl
+        else:
+            self._np_inputs_spec = kwargs.get("np_inputs_spec")
+            self._np_outputs_spec = kwargs.get("np_outputs_spec")
+            self._reference_impl = kwargs.get("reference_impl")
 
     def _graph_np_inputs_spec(self) -> list[dict[str, Any]]:
         assert isinstance(self._graph, XTCGraph)

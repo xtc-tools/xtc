@@ -14,10 +14,6 @@ from xtc.utils.xdsl_aux import parse_xdsl_module
 from xtc.backends.mlir.MlirNodeBackend import MlirNodeBackend
 from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend
 from xtc.runtimes.types.ndarray import NDArray
-from xtc.utils.numpy import (
-    np_init,
-)
-import numpy as np
 
 
 def main():
@@ -94,13 +90,9 @@ def main():
             )  # 2MB to catch Huge Pages if THB is one
         else:
             NDArray.set_alloc_alignment(256)  # default align to 256 bytes as DLPack
-        inputs_spec = graph_backend.np_inputs_spec()
-        outputs_spec = graph_backend.np_outputs_spec()
-        nd_inputs = [NDArray(np_init(**spec)) for spec in inputs_spec]
-        nd_outputs = [NDArray(np.empty(**spec)) for spec in outputs_spec]
-        eval_parameters = (nd_inputs, nd_outputs)
         evaluator = module.get_evaluator(
-            init_zero=args.init_zero, min_repeat_ms=100, parameters=eval_parameters
+            init_zero=args.init_zero,
+            min_repeat_ms=100,
         )
         res, code, err = evaluator.evaluate()
         if code != 0:
