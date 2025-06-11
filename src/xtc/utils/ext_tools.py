@@ -91,6 +91,5 @@ objdump_opts = [
 ]
 
 objdump_color_opts = [
-    "--visualize-jumps=color",
     "--disassembler-color=on",
 ]
