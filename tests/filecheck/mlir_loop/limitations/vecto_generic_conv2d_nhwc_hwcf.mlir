@@ -1,4 +1,4 @@
-// RUN: mlir-loop --no-alias --print-transformed-ir %s 2>&1 | filecheck %s
+// RUN: not mlir-loop --no-alias --print-transformed-ir %s 2>&1 | filecheck %s
 
 func.func @myfun(
   %I: memref<1x30x30x64xf32>,
@@ -44,5 +44,4 @@ func.func @myfun(
   return
 }
 
-// CHECK-NOT: vector.transfer_read
-// CHECK-NOT: vector.transfer_write
+// CHECK: Attempted to vectorize, but failed

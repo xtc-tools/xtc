@@ -21,8 +21,9 @@ func.func @myfun(
     outs(%C : memref<256x256xf32>)
   return
 }
-// CHECK:           omp.parallel {
-// CHECK-NEXT:        omp.wsloop {
-// CHECK-NEXT:          omp.loop_nest (%arg3) : i64 = (%4) to (%5) step (%6) {
-// CHECK-NEXT:            omp.yield
-// CHECK-NEXT:        omp.terminator
+// CHECK:      omp.parallel {
+// CHECK-NEXT: omp.wsloop {
+// CHECK-NEXT: omp.loop_nest (%{{.*}}) : i64 = (%{{.*}}) to (%{{.*}}) step (%{{.*}}) {
+// CHECK-NEXT: omp.yield
+// CHECK-NEXT: omp.terminator
+// CHECK-NEXT: omp.terminator

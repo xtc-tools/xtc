@@ -43,31 +43,31 @@ func.func @myfun(
 // CHECK-NEXT:            %subview_10 = memref.subview %subview_5[0, %arg5] [1, 1] [1, 1] : memref<1x512xf32, strided<[512, 1], offset: ?>> to memref<1x1xf32, strided<[512, 1], offset: ?>>
 // CHECK-NEXT:            %subview_11 = memref.subview %subview_6[%arg5, 0] [1, 1] [1, 1] : memref<512x1xf32, strided<[256, 1], offset: ?>> to memref<1x1xf32, strided<[256, 1], offset: ?>>
 // CHECK-NEXT:            %subview_12 = memref.subview %subview_7[0, 0] [1, 1] [1, 1] : memref<1x1xf32, strided<[256, 1], offset: ?>> to memref<1x1xf32, strided<[256, 1], offset: ?>>
-// CHECK-NEXT:            linalg.matmul {__id0__} ins(%subview_10, %subview_11 : memref<1x1xf32, strided<[512, 1], offset: ?>>, memref<1x1xf32, strided<[256, 1], offset: ?>>) outs(%subview_12 : memref<1x1xf32, strided<[256, 1], offset: ?>>)
+// CHECK-NEXT:            linalg.matmul {__node0__} ins(%subview_10, %subview_11 : memref<1x1xf32, strided<[512, 1], offset: ?>>, memref<1x1xf32, strided<[256, 1], offset: ?>>) outs(%subview_12 : memref<1x1xf32, strided<[256, 1], offset: ?>>)
 // CHECK-NEXT:            %c1_13 = arith.constant 1 : index
 // CHECK-NEXT:            %0 = arith.muli %c1_9, %c1_13 : index
 // CHECK-NEXT:            %1 = arith.addi %arg5, %0 : index
 // CHECK-NEXT:            %subview_14 = memref.subview %subview_5[0, %1] [1, 1] [1, 1] : memref<1x512xf32, strided<[512, 1], offset: ?>> to memref<1x1xf32, strided<[512, 1], offset: ?>>
 // CHECK-NEXT:            %subview_15 = memref.subview %subview_6[%1, 0] [1, 1] [1, 1] : memref<512x1xf32, strided<[256, 1], offset: ?>> to memref<1x1xf32, strided<[256, 1], offset: ?>>
 // CHECK-NEXT:            %subview_16 = memref.subview %subview_7[0, 0] [1, 1] [1, 1] : memref<1x1xf32, strided<[256, 1], offset: ?>> to memref<1x1xf32, strided<[256, 1], offset: ?>>
-// CHECK-NEXT:            linalg.matmul {__id0__} ins(%subview_14, %subview_15 : memref<1x1xf32, strided<[512, 1], offset: ?>>, memref<1x1xf32, strided<[256, 1], offset: ?>>) outs(%subview_16 : memref<1x1xf32, strided<[256, 1], offset: ?>>)
+// CHECK-NEXT:            linalg.matmul {__node0__} ins(%subview_14, %subview_15 : memref<1x1xf32, strided<[512, 1], offset: ?>>, memref<1x1xf32, strided<[256, 1], offset: ?>>) outs(%subview_16 : memref<1x1xf32, strided<[256, 1], offset: ?>>)
 // CHECK-NEXT:            %c2 = arith.constant 2 : index
 // CHECK-NEXT:            %2 = arith.muli %c1_9, %c2 : index
 // CHECK-NEXT:            %3 = arith.addi %arg5, %2 : index
 // CHECK-NEXT:            %subview_17 = memref.subview %subview_5[0, %3] [1, 1] [1, 1] : memref<1x512xf32, strided<[512, 1], offset: ?>> to memref<1x1xf32, strided<[512, 1], offset: ?>>
 // CHECK-NEXT:            %subview_18 = memref.subview %subview_6[%3, 0] [1, 1] [1, 1] : memref<512x1xf32, strided<[256, 1], offset: ?>> to memref<1x1xf32, strided<[256, 1], offset: ?>>
 // CHECK-NEXT:            %subview_19 = memref.subview %subview_7[0, 0] [1, 1] [1, 1] : memref<1x1xf32, strided<[256, 1], offset: ?>> to memref<1x1xf32, strided<[256, 1], offset: ?>>
-// CHECK-NEXT:            linalg.matmul {__id0__} ins(%subview_17, %subview_18 : memref<1x1xf32, strided<[512, 1], offset: ?>>, memref<1x1xf32, strided<[256, 1], offset: ?>>) outs(%subview_19 : memref<1x1xf32, strided<[256, 1], offset: ?>>)
+// CHECK-NEXT:            linalg.matmul {__node0__} ins(%subview_17, %subview_18 : memref<1x1xf32, strided<[512, 1], offset: ?>>, memref<1x1xf32, strided<[256, 1], offset: ?>>) outs(%subview_19 : memref<1x1xf32, strided<[256, 1], offset: ?>>)
 // CHECK-NEXT:            %c3 = arith.constant 3 : index
 // CHECK-NEXT:            %4 = arith.muli %c1_9, %c3 : index
 // CHECK-NEXT:            %5 = arith.addi %arg5, %4 : index
 // CHECK-NEXT:            %subview_20 = memref.subview %subview_5[0, %5] [1, 1] [1, 1] : memref<1x512xf32, strided<[512, 1], offset: ?>> to memref<1x1xf32, strided<[512, 1], offset: ?>>
 // CHECK-NEXT:            %subview_21 = memref.subview %subview_6[%5, 0] [1, 1] [1, 1] : memref<512x1xf32, strided<[256, 1], offset: ?>> to memref<1x1xf32, strided<[256, 1], offset: ?>>
 // CHECK-NEXT:            %subview_22 = memref.subview %subview_7[0, 0] [1, 1] [1, 1] : memref<1x1xf32, strided<[256, 1], offset: ?>> to memref<1x1xf32, strided<[256, 1], offset: ?>>
-// CHECK-NEXT:            linalg.matmul {__id0__} ins(%subview_20, %subview_21 : memref<1x1xf32, strided<[512, 1], offset: ?>>, memref<1x1xf32, strided<[256, 1], offset: ?>>) outs(%subview_22 : memref<1x1xf32, strided<[256, 1], offset: ?>>)
-// CHECK-NEXT:          } {__id0__K}
-// CHECK-NEXT:        } {__id0__J}
-// CHECK-NEXT:      } {__id0__I}
+// CHECK-NEXT:            linalg.matmul {__node0__} ins(%subview_20, %subview_21 : memref<1x1xf32, strided<[512, 1], offset: ?>>, memref<1x1xf32, strided<[256, 1], offset: ?>>) outs(%subview_22 : memref<1x1xf32, strided<[256, 1], offset: ?>>)
+// CHECK-NEXT:          } {"__node0__/K0"}
+// CHECK-NEXT:        } {"__node0__/J0"}
+// CHECK-NEXT:      } {"__node0__/I0"}
 // CHECK-NEXT:      return
 // CHECK-NEXT:    }
 // CHECK-NEXT:  }

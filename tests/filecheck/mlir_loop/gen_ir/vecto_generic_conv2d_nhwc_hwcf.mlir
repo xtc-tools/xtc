@@ -1,4 +1,4 @@
-// RUN: mlir-loop --vectors-size 8 --no-alias --print-transformed-ir %s 2>&1 | filecheck %s
+// RUN: mlir-loop --vectors-size 8 --no-alias --print-transformed-ir %s 2>&1 | grep "vector\." | filecheck %s
 
 func.func @myfun(
   %I: memref<1x30x30x64xf32>,
@@ -44,5 +44,7 @@ func.func @myfun(
   return
 }
 
-// CHECK: vector.transfer_read
-// CHECK: vector.transfer_write
+// CHECK:      %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [true], permutation_map = #map1} : memref<1x30x30x64xf32>, vector<8xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}], %{{.*}} : memref<3x3x64x128xf32>, vector<8xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}], %{{.*}} : memref<1x28x28x128xf32>, vector<8xf32>
+// CHECK-NEXT: vector.transfer_write %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}] : vector<8xf32>, memref<1x28x28x128xf32>

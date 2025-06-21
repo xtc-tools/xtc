@@ -64,6 +64,9 @@ class TVMScheduler(itf.schd.Scheduler):
         ]
 
     @override
+    def split(self, dim: str, segments: dict[str, int]) -> None: ...
+
+    @override
     def tile(
         self,
         dim: str,

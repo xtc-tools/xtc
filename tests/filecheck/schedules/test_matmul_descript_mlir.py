@@ -2,6 +2,7 @@
 
 import xtc.graphs.xtc.op as O
 from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend as Backend
+from xtc.schedules.descript import descript_scheduler
 
 I, J, K, dtype = 4, 32, 512, "float32"
 a = O.tensor((I, K), dtype, name="A")
@@ -16,16 +17,24 @@ print(graph)
 impl = Backend(graph, always_vectorize=False, no_alias=True)
 
 sch = impl.get_scheduler()
-sch.tile("i", {"i1": 2})
-sch.tile("j", {"j1": 16})
-sch.interchange(["k", "i", "j", "i1", "j1"])
-sch.vectorize(["j1"])
-sch.unroll({"i1": 2})
+descript_scheduler(
+    scheduler = sch,
+    node_name = "C_reduce",
+    abstract_axis = ["i","j","k"],
+    spec = {
+        "k": {},
+        "i": {},
+        "j": {},
+        "i#2": {"unroll": None},
+        "j#16": {"vectorize": None},
+    }
+)
+
 sched = sch.schedule()
 
 comp = impl.get_compiler(
     shared_lib=True,
-    dump_file="matmul_mlir",
+    dump_file="matmul_descript_mlir",
     print_source_ir=True,
     print_transformed_ir=True,
 )
@@ -33,6 +42,7 @@ module = comp.compile(sched)
 executor = module.get_executor(validate=True)
 res = executor.execute()
 print(f"CODE: {res}")
+
 # CHECK:       // -----// IR Dump Before transform //----- //
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:    func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
@@ -49,13 +59,13 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.annotate %loops_1 "j" : !transform.any_op
 # CHECK-NEXT:      %1 = transform.structured.match attributes {__xtc_id_C_reduce_} in %arg0 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %1 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_3 "k" : !transform.any_op
+# CHECK-NEXT:      transform.annotate %loops_3 "C_reduce/k0" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_linalg_op_2 tile_sizes [2, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_5 "i" : !transform.any_op
+# CHECK-NEXT:      transform.annotate %loops_5 "C_reduce/i0" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 16, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_7 "j" : !transform.any_op
+# CHECK-NEXT:      transform.annotate %loops_7 "C_reduce/j0" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_9 "i1" : !transform.any_op
+# CHECK-NEXT:      transform.annotate %loops_9 "C_reduce/i1" : !transform.any_op
 # CHECK-NEXT:      transform.structured.vectorize %tiled_linalg_op_8 : !transform.any_op
 # CHECK-NEXT:      transform.loop.unroll %loops_9 {factor = 2 : i64} : !transform.any_op
 # CHECK-NEXT:      transform.yield 
@@ -143,9 +153,9 @@ print(f"CODE: {res}")
 # CHECK-NEXT:            %11 = vector.multi_reduction <add>, %10, %9 [2] : vector<1x16x1xf32> to vector<1x16xf32>
 # CHECK-NEXT:            %c0_39 = arith.constant 0 : index
 # CHECK-NEXT:            vector.transfer_write %11, %subview_31[%c0_39, %c0_39] : vector<1x16xf32>, memref<1x16xf32, strided<[32, 1], offset: ?>>
-# CHECK-NEXT:          } {j}
-# CHECK-NEXT:        } {i}
-# CHECK-NEXT:      } {k}
+# CHECK-NEXT:          } {"C_reduce/j0"}
+# CHECK-NEXT:        } {"C_reduce/i0"}
+# CHECK-NEXT:      } {"C_reduce/k0"}
 # CHECK-NEXT:      return
 # CHECK-NEXT:    }
 # CHECK-NEXT:  }

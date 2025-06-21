@@ -7,7 +7,7 @@ MATMUL_ARGS = (I, J, K, DTYPE)
 def sched_nop(sch):
     # Expected in MLIR schedule
     return [
-        "permutation=['i', 'j', 'k']"
+        "permutation={'.': ['i', 'j', 'k']}"
     ]
 
 def sched_tile2(sch):
@@ -16,7 +16,7 @@ def sched_tile2(sch):
     sch.tile("k", {"k1": 13})
     # Expected in MLIR schedule
     return [
-        "permutation=['i', 'j', 'k', 'i1', 'j1', 'k1', 'i2', 'j2']",
+        "permutation={'.': ['i', 'j', 'k', 'i1', 'j1', 'k1', 'i2', 'j2']}",
         "'j': {'j': 64, 'j1': 64, 'j2': 1}",
     ]
 
@@ -30,7 +30,7 @@ def sched_tile2p(sch):
     sch.vectorize(["j2"])
     # Expected in MLIR schedule
     return [
-        "permutation=['i', 'i1']",
+        "permutation={'C_reduce': ['i', 'i1']}",
         "unrolling={'j2': 64, 'k1': 13, 'i2': 4}",
         "vectorization=['j2']",
         "parallelization=['i', 'i1']",
@@ -48,7 +48,7 @@ def sched_tile3wc(sch):
     sch.buffer_at("j1", "write")
     # Expected in MLIR schedule
     return [
-        "permutation=['i', 'j', 'i1', 'j1', 'k', 'i2', 'j2', 'k1', 'i3', 'j3']",
+        "permutation={'C_reduce': ['i', 'j', 'i1', 'j1', 'k', 'i2', 'j2', 'k1', 'i3', 'j3']",
         "vectorization=['j3']",
         "parallelization=['i', 'j']",
         "unrolling={'k1': 13, 'i3': 4, 'j3': 64}",

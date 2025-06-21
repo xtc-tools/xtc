@@ -45,6 +45,23 @@ class Scheduler(ABC):
         ...
 
     @abstractmethod
+    def split(self, dim: str, segments: dict[str, int]) -> None:
+        """Split a dimension into `len(segments)` segments.
+
+        Each segment is characterized by a starting/cutting point,
+        which is also the endpoint of the previous segment, and by
+        the name of the new axis created by the cut. The segments
+        items must be provided in ascending order of the cut points
+        on the axis.
+
+        Args:
+            dim: name of the dimension to split
+            segments: ordered dict of new root name and segment
+                      starting point
+        """
+        ...
+
+    @abstractmethod
     def tile(self, dim: str, tiles: dict[str, int]) -> None:
         """Apply a multi level tiling operation on a dimension.
 

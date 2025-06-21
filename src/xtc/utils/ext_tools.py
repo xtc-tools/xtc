@@ -14,7 +14,7 @@ lowering_opts = [
     "expand-strided-metadata",
     "convert-linalg-to-loops",
     "lower-affine",
-    "convert-vector-to-scf",
+    "convert-vector-to-scf{full-unroll=true}",
     "scf-forall-to-parallel",
     "convert-scf-to-openmp",
     "canonicalize",
@@ -53,9 +53,7 @@ llc_opts = [
     "-filetype=obj",
 ]
 
-opt_opts = [
-    "-O3",
-]
+opt_opts = ["-O3", "--enable-unsafe-fp-math", "--fp-contract=fast"]
 
 cc_opts = ["-O3", "-march=native"]
 
@@ -93,6 +91,5 @@ objdump_opts = [
 ]
 
 objdump_color_opts = [
-    "--visualize-jumps=color",
     "--disassembler-color=on",
 ]

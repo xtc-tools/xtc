@@ -32,10 +32,9 @@ class MlirNodeBackend(MlirBackend):
         if id is None:
             self.op_id_attribute = f"__id{MlirNodeBackend.count}__"
             MlirNodeBackend.count += 1
-            source_op.attributes[self.op_id_attribute] = xdslUnitAttr()
         else:
             self.op_id_attribute = id
-        assert self.op_id_attribute in source_op.attributes
+        source_op.attributes[self.op_id_attribute] = xdslUnitAttr()
         xdsl_func = xdsl_operator_to_function(source_op, payload_name)
         # Call the parent constructor
         super().__init__(

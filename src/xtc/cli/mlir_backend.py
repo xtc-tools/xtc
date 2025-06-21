@@ -30,6 +30,12 @@ def main():
         help="Print the source IR.",
     )
     parser.add_argument(
+        "--print-transformed-ir",
+        action="store_true",
+        default=False,
+        help="Print the IR after application of the transform dialect.",
+    )
+    parser.add_argument(
         "--print-lowered-ir",
         action="store_true",
         default=False,
@@ -58,13 +64,18 @@ def main():
     with open(args.filename, "r") as f:
         source = f.read()
     mlir_program = RawMlirProgram(source)
-    print_source = args.print_source_ir or not (
-        args.print_lowered_ir or args.print_assembly
+    print_source = args.print_source_ir or not any(
+        [
+            args.print_transformed_ir,
+            args.print_lowered_ir,
+            args.print_assembly,
+        ]
     )
     compiler = MlirProgramCompiler(
         mlir_program=mlir_program,
         mlir_install_dir=args.llvm_dir,
         print_source_ir=print_source,
+        print_transformed_ir=args.print_transformed_ir,
         print_lowered_ir=args.print_lowered_ir,
         print_assembly=args.print_assembly,
         color=args.color,

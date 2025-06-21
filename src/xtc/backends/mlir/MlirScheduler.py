@@ -76,6 +76,11 @@ class MlirScheduler(itf.schd.Scheduler):
         return MlirSchedule(scheduler=self, nodes_schedules=nodes_schedules)
 
     @override
+    def split(self, dim: str, segments: dict[str, int]) -> None:
+        assert self._scheduler is not None
+        self._scheduler.split(dim, segments)
+
+    @override
     def tile(self, dim: str, tiles: dict[str, int]) -> None:
         assert self._scheduler is not None
         self._scheduler.tile(dim, tiles)

@@ -1,4 +1,4 @@
-// RUN: mlir-loop --no-alias --print-transformed-ir %s 2>&1 | grep "vector\.fma" | filecheck %s
+// RUN: mlir-loop --no-alias --print-transformed-ir %s 2>&1 | grep "vector\." | filecheck %s
 
 func.func @myfun(
   %A: memref<256x512xf32>,
@@ -21,11 +21,44 @@ func.func @myfun(
     outs(%C : memref<256x256xf32>)
   return
 }
-// CHECK:                 %7 = vector.fma %5, %3, %6 : vector<64xf32>
-// CHECK-NEXT:            %16 = vector.fma %14, %12, %15 : vector<64xf32>
-// CHECK-NEXT:            %25 = vector.fma %23, %21, %24 : vector<64xf32>
-// CHECK-NEXT:            %34 = vector.fma %32, %30, %33 : vector<64xf32>
-// CHECK-NEXT:            %43 = vector.fma %41, %39, %42 : vector<64xf32>
-// CHECK-NEXT:            %52 = vector.fma %50, %48, %51 : vector<64xf32>
-// CHECK-NEXT:            %61 = vector.fma %59, %57, %60 : vector<64xf32>
-// CHECK-NEXT:            %70 = vector.fma %68, %66, %69 : vector<64xf32>
+
+// CHECK:      %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [false, true, false], permutation_map = #map} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [true, false, false], permutation_map = #map1} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64xf32>
+// CHECK-NEXT: %{{.*}} = vector.multi_reduction <add>, %{{.*}}, %{{.*}} [2] : vector<1x64x1xf32> to vector<1x64xf32>
+// CHECK-NEXT: vector.transfer_write %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}] : vector<1x64xf32>, memref<1x64xf32, strided<[256, 1], offset: ?>>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [false, true, false], permutation_map = #map} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [true, false, false], permutation_map = #map1} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64xf32>
+// CHECK-NEXT: %{{.*}} = vector.multi_reduction <add>, %{{.*}}, %{{.*}} [2] : vector<1x64x1xf32> to vector<1x64xf32>
+// CHECK-NEXT: vector.transfer_write %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}] : vector<1x64xf32>, memref<1x64xf32, strided<[256, 1], offset: ?>>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [false, true, false], permutation_map = #map} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [true, false, false], permutation_map = #map1} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64xf32>
+// CHECK-NEXT: %{{.*}} = vector.multi_reduction <add>, %{{.*}}, %{{.*}} [2] : vector<1x64x1xf32> to vector<1x64xf32>
+// CHECK-NEXT: vector.transfer_write %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}] : vector<1x64xf32>, memref<1x64xf32, strided<[256, 1], offset: ?>>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [false, true, false], permutation_map = #map} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [true, false, false], permutation_map = #map1} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64xf32>
+// CHECK-NEXT: %{{.*}} = vector.multi_reduction <add>, %{{.*}}, %{{.*}} [2] : vector<1x64x1xf32> to vector<1x64xf32>
+// CHECK-NEXT: vector.transfer_write %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}] : vector<1x64xf32>, memref<1x64xf32, strided<[256, 1], offset: ?>>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [false, true, false], permutation_map = #map} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [true, false, false], permutation_map = #map1} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64xf32>
+// CHECK-NEXT: %{{.*}} = vector.multi_reduction <add>, %{{.*}}, %{{.*}} [2] : vector<1x64x1xf32> to vector<1x64xf32>
+// CHECK-NEXT: vector.transfer_write %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}] : vector<1x64xf32>, memref<1x64xf32, strided<[256, 1], offset: ?>>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [false, true, false], permutation_map = #map} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [true, false, false], permutation_map = #map1} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64xf32>
+// CHECK-NEXT: %{{.*}} = vector.multi_reduction <add>, %{{.*}}, %{{.*}} [2] : vector<1x64x1xf32> to vector<1x64xf32>
+// CHECK-NEXT: vector.transfer_write %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}] : vector<1x64xf32>, memref<1x64xf32, strided<[256, 1], offset: ?>>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [false, true, false], permutation_map = #map} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [true, false, false], permutation_map = #map1} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64xf32>
+// CHECK-NEXT: %{{.*}} = vector.multi_reduction <add>, %{{.*}}, %{{.*}} [2] : vector<1x64x1xf32> to vector<1x64xf32>
+// CHECK-NEXT: vector.transfer_write %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}] : vector<1x64xf32>, memref<1x64xf32, strided<[256, 1], offset: ?>>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [false, true, false], permutation_map = #map} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} {in_bounds = [true, false, false], permutation_map = #map1} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64x1xf32>
+// CHECK-NEXT: %{{.*}} = vector.transfer_read %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}} : memref<1x64xf32, strided<[256, 1], offset: ?>>, vector<1x64xf32>
+// CHECK-NEXT: %{{.*}} = vector.multi_reduction <add>, %{{.*}}, %{{.*}} [2] : vector<1x64x1xf32> to vector<1x64xf32>
+// CHECK-NEXT: vector.transfer_write %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}] : vector<1x64xf32>, memref<1x64xf32, strided<[256, 1], offset: ?>>
