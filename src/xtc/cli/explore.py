@@ -21,7 +21,6 @@ import argparse
 from argparse import Namespace as NS
 import logging
 import itertools
-from functools import partial
 import csv
 import random
 import numpy as np
@@ -30,28 +29,22 @@ from tqdm import tqdm
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, Future
 import multiprocessing
-import time
 from pathlib import Path
-from collections.abc import Sequence, Iterator, Mapping
-from typing import Any, Type, TypeAlias, cast
+from collections.abc import Sequence, Mapping
+from typing import Any, TypeAlias, cast
 from typing_extensions import override
 
 from xtc.itf.back import Backend
 from xtc.itf.graph import Graph
-from xtc.itf.schd import Scheduler
 from xtc.itf.comp import Module
 from xtc.itf.search import Strategy, Sample
 
-from xtc.search.strategies import Strategies
+from xtc.search.strategies import Strategies, BaseStrategyPRTScheme
 
 from xtc.utils.numpy import (
     np_init,
 )
-from xtc.utils.math import (
-    mulall,
-    factors_to_sizes,
-    factors_enumeration,
-)
+from xtc.utils.math import mulall
 from xtc.runtimes.types.ndarray import NDArray
 import xtc.runtimes.host.runtime as runtime
 
@@ -82,28 +75,44 @@ def xtc_relu_graph(i: int, ftype: str, name: str = "relu") -> Graph:
     return gb.graph
 
 
-def tvm_matmul_impl(graph: Graph) -> tuple[Backend, str]:
+def xtc_conv2d_graph(
+    n: int,
+    h: int,
+    w: int,
+    f: int,
+    r: int,
+    s: int,
+    c: int,
+    SH: int,
+    SW: int,
+    ftype: str,
+    name: str = "matmul",
+) -> Graph:
+    import xtc.graphs.xtc.op as O
+
+    dtype = DTYPES_MAP[ftype]
+    a = O.tensor((n, h * SH + r - 1, w * SW + s - 1, c), dtype, name="A")
+    b = O.tensor((r, s, c, f), dtype, name="B")
+    with O.graph(name=name) as gb:
+        O.conv2d(a, b, stride=(SH, SW), name="O")
+    return gb.graph
+
+
+def tvm_impl(graph: Graph) -> tuple[Backend, str]:
     from xtc.backends.tvm import TVMBackend
 
     impl = TVMBackend(graph)
     return impl, "tvm"
 
 
-def tvm_relu_impl(graph: Graph) -> tuple[Backend, str]:
-    from xtc.backends.tvm import TVMBackend
-
-    impl = TVMBackend(graph)
-    return impl, "tvm"
-
-
-def jir_matmul_impl(graph: Graph) -> tuple[Backend, str]:
+def jir_impl(graph: Graph) -> tuple[Backend, str]:
     from xtc.backends.jir import JIRBackend
 
     impl = JIRBackend(graph)
     return impl, "jir"
 
 
-def mlir_matmul_impl(graph: Graph) -> tuple[Backend, str]:
+def mlir_impl(graph: Graph) -> tuple[Backend, str]:
     from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend
 
     impl = MlirGraphBackend(
@@ -128,14 +137,14 @@ def get_eval_parameters(args: NS):
     outputs = OPERATORS[args.operator]["outputs"]
     inputs_spec = [
         {
-            "shape": tuple([dims_map[x] for x in shape]),
+            "shape": tuple([eval(x, {}, dims_map) for x in shape]),
             "dtype": dtype,
         }
         for shape in inputs
     ]
     outputs_spec = [
         {
-            "shape": tuple([dims_map[x] for x in shape]),
+            "shape": tuple([eval(x, {}, dims_map) for x in shape]),
             "dtype": dtype,
         }
         for shape in outputs
@@ -522,7 +531,10 @@ def peak_time(args: NS) -> float:
     dtype = DTYPES_MAP[args.dtype]
     flops = runtime.evaluate_flops(dtype)
     assert flops != 0, f"unable to evaluate machine flops for type {dtype}"
-    flop = mulall(args.dims)
+    dims_names = OPERATORS[args.operator]["dims"]
+    dims_map = {k: v for k, v in zip(dims_names, args.dims)}
+
+    flop = mulall([d for k, d in dims_map.items() if k.lower() == k])
     time = flop / flops / args.threads
     return time
 
@@ -642,10 +654,18 @@ def get_strategy(graph: Graph, args: NS) -> Strategy:
         return strat_name(alias)
 
     name = strat_name(args.strategy)
-    cls = Strategies.from_name(name)
-    return cls(
-        graph, threads=args.threads, max_unroll=args.max_unroll, vec_size=VEC_SIZE
+    options = dict(
+        threads=args.threads,
+        max_unroll=args.max_unroll,
+        vec_size=VEC_SIZE,
     )
+    strat_args = name.split(":")
+    if len(strat_args) > 1:
+        cls = STRATEGIES_CLASSES[strat_args[0]]
+        return cls(graph, *strat_args[1:], **options)
+    else:
+        cls = Strategies.from_name(strat_args[0])
+        return cls(graph, **options)
 
 
 HOME = os.environ.get("HOME", "")
@@ -668,13 +688,34 @@ OPERATORS = {
         "operation": xtc_matmul_graph,
         "backends": {
             "mlir": {
-                "implementer": mlir_matmul_impl,
+                "implementer": mlir_impl,
             },
             "tvm": {
-                "implementer": tvm_matmul_impl,
+                "implementer": tvm_impl,
             },
             "jir": {
-                "implementer": jir_matmul_impl,
+                "implementer": jir_impl,
+            },
+        },
+        "default_strategy": "tile_oo",
+    },
+    "conv2d": {
+        "dims": ["n", "h", "w", "f", "r", "s", "c", "SH", "SW"],
+        "default_dims": [1, 112, 112, 64, 7, 7, 3, 2, 2],
+        "default_type": "f32",
+        "inputs": [
+            ["n", "h * SH + r - 1", "w * SW + s - 1", "c"],
+            ["r", "s", "c", "f"],
+        ],
+        "outputs": [["n", "h", "w", "f"]],
+        "reference_impl": None,  # defaults to graph evaluation
+        "operation": xtc_conv2d_graph,
+        "backends": {
+            "mlir": {
+                "implementer": mlir_impl,
+            },
+            "tvm": {
+                "implementer": tvm_impl,
             },
         },
         "default_strategy": "tile_oo",
@@ -689,7 +730,7 @@ OPERATORS = {
         "operation": xtc_relu_graph,
         "backends": {
             "tvm": {
-                "implementer": tvm_relu_impl,
+                "implementer": tvm_impl,
             },
         },
         "default_strategy": "tile_oo",
@@ -712,6 +753,10 @@ STRATEGIES_ALIASES = {
     "tile8d": "tile_ppwrprp",
     "tile8dv": "tile_ppwrprp_v",
     "tile8dvr": "tile_ppwrprp_vr",
+}
+
+STRATEGIES_CLASSES = {
+    "prt": BaseStrategyPRTScheme,
 }
 
 
@@ -764,7 +809,6 @@ def launch_child(argv: Sequence[str], args: NS):
 
 def main():
     default_op = "matmul"
-    default_dims = OPERATORS[default_op]["default_dims"]
     default_dtype = OPERATORS[default_op]["default_type"]
     default_jobs = max(1, multiprocessing.cpu_count() // 2)
     default_unroll = 512
@@ -786,8 +830,7 @@ def main():
     parser.add_argument(
         "--strategy",
         type=str,
-        choices=choice_strategies,
-        help="tile strategy to use, default to operator's default",
+        help=f"tile strategy to use, default to operator's default. One of {choice_strategies}",
     )
     parser.add_argument(
         "--search",
@@ -808,11 +851,7 @@ def main():
         "--data", type=str, help="data CSV file for input to data search"
     )
     parser.add_argument(
-        "--dims",
-        nargs="+",
-        type=int,
-        default=default_dims,
-        help="dimensions, default to operators's default",
+        "--dims", nargs="+", type=int, help="dimensions, default to operators's default"
     )
     parser.add_argument(
         "--huge-pages",
