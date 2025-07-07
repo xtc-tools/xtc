@@ -6,8 +6,8 @@ import sys
 from typing_extensions import override
 from typing import TextIO, TypeAlias
 from io import StringIO
-from copy import deepcopy
 
+from xtc.itf.schd.scheduler import DEFAULT_ROOT
 import xtc.backends.tvm as backend
 import xtc.itf as itf
 
@@ -74,14 +74,12 @@ class TVMScheduler(itf.schd.Scheduler):
         ]
 
     @override
-    def split(self, dim: str, segments: dict[str, int]) -> None: ...
+    def split(
+        self, dim: str, segments: dict[str, int], root: str = DEFAULT_ROOT
+    ) -> None: ...
 
     @override
-    def tile(
-        self,
-        dim: str,
-        tiles: dict[str, int],
-    ) -> None:
+    def tile(self, dim: str, tiles: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         ndims = list(tiles.keys())
         tiles_sizes = list(tiles.values())
 
@@ -99,28 +97,30 @@ class TVMScheduler(itf.schd.Scheduler):
         self._update_loops()
 
     @override
-    def interchange(self, permutation: list[str]) -> None:
+    def interchange(self, permutation: list[str], root: str = DEFAULT_ROOT) -> None:
         self.permutation = permutation
 
     @override
-    def buffer_at(self, axis: str, mtype: str | None = None) -> None:
+    def buffer_at(
+        self, axis: str, mtype: str | None = None, root: str = DEFAULT_ROOT
+    ) -> None:
         assert mtype is None or mtype == "write"
         self.write_caches.append(axis)
 
     @override
-    def vectorize(self, axes: list[str]) -> None:
+    def vectorize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         for p in axes:
             assert p in self._working_parallel_dims
         self.vectorization = axes
 
     @override
-    def parallelize(self, axes: list[str]) -> None:
+    def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         for p in axes:
             assert p in self._working_parallel_dims
         self.parallelization = axes
 
     @override
-    def unroll(self, unrolls: dict[str, int]) -> None:
+    def unroll(self, unrolls: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         self.unrolling = unrolls
 
     def _full_order(self) -> list[str]:

@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from .schedule import Schedule
 import xtc.itf
 
+DEFAULT_ROOT = "."
+
 
 class Scheduler(ABC):
     """An abstract implementation of the backend scheduler.
@@ -45,7 +47,9 @@ class Scheduler(ABC):
         ...
 
     @abstractmethod
-    def split(self, dim: str, segments: dict[str, int]) -> None:
+    def split(
+        self, dim: str, segments: dict[str, int], root: str = DEFAULT_ROOT
+    ) -> None:
         """Split a dimension into `len(segments)` segments.
 
         Each segment is characterized by a starting/cutting point,
@@ -62,7 +66,7 @@ class Scheduler(ABC):
         ...
 
     @abstractmethod
-    def tile(self, dim: str, tiles: dict[str, int]) -> None:
+    def tile(self, dim: str, tiles: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         """Apply a multi level tiling operation on a dimension.
 
         The given tile sizes is interpreter outer to inner and
@@ -75,11 +79,12 @@ class Scheduler(ABC):
         Args:
             dim: name of the dimension to tile
             tiles: dict outer to inner of axis name and tile size
+            root: the parent split (or the operator's absolute root)
         """
         ...
 
     @abstractmethod
-    def interchange(self, permutation: list[str]) -> None:
+    def interchange(self, permutation: list[str], root: str = DEFAULT_ROOT) -> None:
         """Apply interchange over all axes.
 
         The given permutation of axes names is interpreted
@@ -88,11 +93,12 @@ class Scheduler(ABC):
 
         Args:
             permutation: outer to inner axes names permutation
+            root: the parent split (or the operator's absolute root)
         """
         ...
 
     @abstractmethod
-    def vectorize(self, axes: list[str]) -> None:
+    def vectorize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         """Apply vectorizations on the given axes names.
 
         The axes names must given must all be inner axis, full
@@ -100,22 +106,24 @@ class Scheduler(ABC):
 
         Args:
             axes: axes names to vectorize
+            root: the parent split (or the operator's absolute root)
         """
         ...
 
     @abstractmethod
-    def parallelize(self, axes: list[str]) -> None:
+    def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         """Apply parallelization on the given axes names.
 
         The axes names must given must all be outer axis.
 
         Args:
             axes: axes names to parallelize
+            root: the parent split (or the operator's absolute root)
         """
         ...
 
     @abstractmethod
-    def unroll(self, unrolls: dict[str, int]) -> None:
+    def unroll(self, unrolls: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         """Apply unrolling on the given axes names.
 
         Each given axes name is unrolled with the specified unroll
@@ -123,10 +131,13 @@ class Scheduler(ABC):
 
         Args:
             unrolls: dict of axes names and unroll factor
+            root: the parent split (or the operator's absolute root)
         """
 
     @abstractmethod
-    def buffer_at(self, axis: str, mtype: str | None = None) -> None:
+    def buffer_at(
+        self, axis: str, mtype: str | None = None, root: str = DEFAULT_ROOT
+    ) -> None:
         """Apply a write bufferoization at a given level,
 
         A write buffer is created for the output under the given
@@ -136,5 +147,6 @@ class Scheduler(ABC):
         Args:
             axis: localisation of the write buffer
             mtype: buffer memory type for the allocation
+            root: the parent split (or the operator's absolute root)
         """
         ...

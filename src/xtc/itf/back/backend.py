@@ -7,7 +7,7 @@ from typing import Any
 
 from ..graph.graph import Graph
 from ..schd.scheduler import Scheduler
-from ..comp.compiler import Compiler, Module
+from ..comp.compiler import Compiler
 
 
 class Backend(ABC):

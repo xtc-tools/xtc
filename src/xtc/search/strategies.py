@@ -178,13 +178,13 @@ class Strategy_P1(BaseStrategy):
             parallel_axes += [axes_order[0]] if axes_order[0] in ["i", "j"] else []
             parallel_axes += [axes_order[1]] if axes_order[1] in ["i", "j"] else []
         unroll_axes = {axis: tiles[axis] for axis in permutations[::-1]}
-        sch.tile("i", {"i1": ti})
-        sch.tile("j", {"j1": tj})
-        sch.tile("k", {"k1": tk})
-        sch.interchange(axes_order)
-        sch.parallelize(parallel_axes)
-        sch.vectorize(vector_axes)
-        sch.unroll(unroll_axes)
+        sch.tile("i", {"i1": ti}, root=".")
+        sch.tile("j", {"j1": tj}, root=".")
+        sch.tile("k", {"k1": tk}, root=".")
+        sch.interchange(axes_order, root=".")
+        sch.parallelize(parallel_axes, root=".")
+        sch.vectorize(vector_axes, root=".")
+        sch.unroll(unroll_axes, root=".")
 
     @override
     def _filter_unroll(

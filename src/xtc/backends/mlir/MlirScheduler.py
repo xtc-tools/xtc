@@ -5,6 +5,7 @@
 from typing_extensions import override
 from typing import cast
 
+from xtc.itf.schd.scheduler import DEFAULT_ROOT
 import xtc.itf as itf
 import xtc.backends.mlir as backend
 
@@ -82,39 +83,43 @@ class MlirScheduler(itf.schd.Scheduler):
         return MlirSchedule(scheduler=self, nodes_schedules=nodes_schedules)
 
     @override
-    def split(self, dim: str, segments: dict[str, int]) -> None:
+    def split(
+        self, dim: str, segments: dict[str, int], root: str = DEFAULT_ROOT
+    ) -> None:
         assert self._scheduler is not None
         self._scheduler.split(dim, segments)
 
     @override
-    def tile(self, dim: str, tiles: dict[str, int]) -> None:
+    def tile(self, dim: str, tiles: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         assert self._scheduler is not None
         self._scheduler.tile(dim, tiles)
 
     @override
-    def interchange(self, permutation: list[str]) -> None:
+    def interchange(self, permutation: list[str], root: str = DEFAULT_ROOT) -> None:
         assert self._scheduler is not None
         self._scheduler.interchange(permutation)
 
     @override
-    def buffer_at(self, axis: str, mtype: str | None = None) -> None:
+    def buffer_at(
+        self, axis: str, mtype: str | None = None, root: str = DEFAULT_ROOT
+    ) -> None:
         assert self._scheduler is not None
         assert mtype is None or mtype == "write"
         # TODO: not implemented for now
         pass
 
     @override
-    def vectorize(self, axes: list[str]) -> None:
+    def vectorize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         assert self._scheduler is not None
         self._scheduler.vectorize(axes)
 
     @override
-    def parallelize(self, axes: list[str]) -> None:
+    def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         assert self._scheduler is not None
         self._scheduler.parallelize(axes)
 
     @override
-    def unroll(self, unrolls: dict[str, int]) -> None:
+    def unroll(self, unrolls: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         assert self._scheduler is not None
         self._scheduler.unroll(unrolls)
 

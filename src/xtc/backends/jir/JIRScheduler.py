@@ -6,6 +6,7 @@ from typing_extensions import override
 from typing import Any
 
 import xtc.itf as itf
+from xtc.itf.schd.scheduler import DEFAULT_ROOT
 import xtc.backends.jir as backend
 
 from .JIROps import JIROperation
@@ -62,9 +63,11 @@ class JIRSchedulerAdaptor:
         self._working_permutation = list(dict.fromkeys(permutation))
         self._update_axis_maps()
 
-    def split(self, dim: str, segments: dict[str, int]) -> None: ...
+    def split(
+        self, dim: str, segments: dict[str, int], root: str = DEFAULT_ROOT
+    ) -> None: ...
 
-    def tile(self, axis: str, tiles: dict[str, int]) -> None:
+    def tile(self, axis: str, tiles: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         parent_size = self.dims[axis]
         for size in tiles.values():
             assert parent_size % size == 0
@@ -75,16 +78,16 @@ class JIRSchedulerAdaptor:
         }
         self._update_loops()
 
-    def vectorize(self, axes: list[str]) -> None:
+    def vectorize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         self.vectorized = axes
 
-    def parallelize(self, axes: list[str]) -> None:
+    def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         self.parallelized = axes
 
-    def unroll(self, axes_unroll: dict[str, int]) -> None:
+    def unroll(self, axes_unroll: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         self.unrolled = axes_unroll
 
-    def interchange(self, axes_order: list[str]) -> None:
+    def interchange(self, axes_order: list[str], root: str = DEFAULT_ROOT) -> None:
         self.order = axes_order
         self._update_loops()
 
@@ -253,30 +256,34 @@ class JIRScheduler(itf.schd.Scheduler):
         return JIRSchedule(scheduler=self)
 
     @override
-    def split(self, dim: str, segments: dict[str, int]) -> None: ...
+    def split(
+        self, dim: str, segments: dict[str, int], root: str = DEFAULT_ROOT
+    ) -> None: ...
 
     @override
-    def tile(self, dim: str, tiles: dict[str, int]) -> None:
+    def tile(self, dim: str, tiles: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         self._transformer.tile(dim, tiles)
 
     @override
-    def interchange(self, permutation: list[str]) -> None:
+    def interchange(self, permutation: list[str], root: str = DEFAULT_ROOT) -> None:
         self._transformer.interchange(permutation)
 
     @override
-    def vectorize(self, axes: list[str]) -> None:
+    def vectorize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         self._transformer.vectorize(axes)
 
     @override
-    def parallelize(self, axes: list[str]) -> None:
+    def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         self._transformer.parallelize(axes)
 
     @override
-    def unroll(self, unrolls: dict[str, int]) -> None:
+    def unroll(self, unrolls: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         self._transformer.unroll(unrolls)
 
     @override
-    def buffer_at(self, axis: str, mtype: str | None = None) -> None:
+    def buffer_at(
+        self, axis: str, mtype: str | None = None, root: str = DEFAULT_ROOT
+    ) -> None:
         # TODO: not implemented
         pass
 

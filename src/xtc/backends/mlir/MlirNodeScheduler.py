@@ -4,6 +4,10 @@
 #
 from typing_extensions import override
 from dataclasses import dataclass
+from xtc.itf.schd.scheduler import DEFAULT_ROOT
+import xtc.itf as itf
+
+DEFAULT_ROOT = "."
 
 __all__ = [
     "MlirNodeScheduler",
@@ -77,16 +81,14 @@ class MlirNodeScheduler:
     def get_default_interchange(self) -> list[str]:
         return list(self.loops().keys())
 
-    def split(self, dim: str, segments: dict[str, int]) -> None:
+    def split(
+        self, dim: str, segments: dict[str, int], root: str = DEFAULT_ROOT
+    ) -> None:
         self.splits[dim] = segments
         for s in segments:
             self.tiles[s] = {}
 
-    def tile(
-        self,
-        dim: str,
-        tiles: dict[str, int],
-    ):
+    def tile(self, dim: str, tiles: dict[str, int], root: str = DEFAULT_ROOT):
         tiles_names = []
         tiles_sizes = []
         for tile_name, tile_size in tiles.items():
@@ -97,7 +99,7 @@ class MlirNodeScheduler:
         for d, s in zip(dims, sizes):
             self.tiles[dim][d] = s
 
-    def interchange(self, permutation: list[str]):
+    def interchange(self, permutation: list[str], root: str = DEFAULT_ROOT):
         assert permutation
         if self.node_name in self.permutation or self.node_name in permutation:
             root = permutation[0]
@@ -107,13 +109,12 @@ class MlirNodeScheduler:
             interchange = permutation
         self.permutation[root] = interchange
 
-    def vectorize(self, vectorization: list[str]):
-        self.vectorization = vectorization
+    def vectorize(self, axes: list[str], root: str = DEFAULT_ROOT):
+        self.vectorization = axes
 
-    def parallelize(self, parallelization: list[str]):
-        self.parallelization = parallelization
+    def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT):
+        self.parallelization = axes
 
-    def unroll(self, unrolling: dict[str, int]):
-        for dim, ufactor in unrolling.items():
-            # if not dim in self.vectorization:
+    def unroll(self, unrolls: dict[str, int], root: str = DEFAULT_ROOT):
+        for dim, ufactor in unrolls.items():
             self.unrolling[dim] = ufactor
