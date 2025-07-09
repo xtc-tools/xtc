@@ -342,8 +342,7 @@ class MlirProgramApplyTransformPass:
     def run(self) -> None:
         transform_op = [op for op in self._mlir_program.mlir_module.body.operations][-1]
         transform = isinstance(transform_op, NamedSequenceOp)
-        if not transform:
-            return
+        assert transform
         pm = PassManager(context=self._mlir_program.mlir_context)
         for opt in transform_opts:
             pm.add(opt)  # type: ignore # no attribte add?

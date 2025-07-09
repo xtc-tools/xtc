@@ -11,11 +11,6 @@ import tempfile
 import shutil
 from pathlib import Path
 
-
-from xtc.utils.tools import (
-    get_mlir_prefix,
-)
-
 from xtc.utils.ext_tools import (
     mlirtranslate_opts,
     llc_opts,
@@ -24,7 +19,6 @@ from xtc.utils.ext_tools import (
     exe_opts,
     runtime_libs,
     system_libs,
-    mlirrunner_opts,
     objdump_bin,
     objdump_arm_bin,
     cc_bin,
@@ -155,13 +149,6 @@ class MlirProgramCompiler:
         ] + mlirtranslate_opts
 
     @property
-    def cmd_run_mlir(self):
-        return [
-            f"{self._config.mlir_install_dir}/bin/mlir-cpu-runner",
-            *[f"-shared-libs={lib}" for lib in self.shared_libs],
-        ] + mlirrunner_opts
-
-    @property
     def shared_libs(self):
         return system_libs + [
             f"{self._config.mlir_install_dir}/lib/{lib}" for lib in runtime_libs
@@ -188,15 +175,6 @@ class MlirProgramCompiler:
         if self._config.color:
             disassemble_extra_opts += objdump_color_opts
         return disassemble_extra_opts
-
-    def build_run_extra_opts(self, obj_file: str) -> list[str]:
-        run_extra_opts: list[str] = []
-        if self._config.print_assembly:
-            run_extra_opts += [
-                "--dump-object-file",
-                f"--object-filename={obj_file}",
-            ]
-        return run_extra_opts
 
     def dump_ir(self, title: str):
         print(f"// -----// {title} //----- //", file=sys.stderr)
@@ -229,11 +207,6 @@ class MlirProgramCompiler:
         to_llvm_pass.run()
         if self._config.print_lowered_ir:
             self.dump_ir("IR Dump After MLIR Opt")
-
-    def mlir_compile(self) -> None:
-        self.mlir_insert_transform_pass()
-        self.mlir_apply_transform_pass()
-        self.mlir_to_llvm_pass()
 
     def disassemble(
         self,
@@ -268,24 +241,6 @@ class MlirProgramCompiler:
         else:
             result = subprocess.run(cmd, text=True)
         return result
-
-    def evaluate(self) -> str:
-        self.mlir_compile()
-
-        obj_dump_file = f"{self.dump_file}.o"
-        run_extra_opts = self.build_run_extra_opts(
-            obj_file=obj_dump_file,
-        )
-        cmd_run = self.cmd_run_mlir + run_extra_opts
-        result = self.execute_command(
-            cmd=cmd_run, input_pipe=str(self._mlir_program.mlir_module)
-        )
-        if self._config.print_assembly:
-            disassemble_process = self.disassemble(
-                obj_file=obj_dump_file,
-            )
-            assert disassemble_process.returncode == 0
-        return result.stdout
 
     def _save_temp(self, fname: str, content: Any) -> None:
         if not self._config.save_temps:
