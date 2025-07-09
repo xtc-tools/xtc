@@ -3,14 +3,14 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from .MlirBackend import (
-    MlirBackend,
+    MlirBackend,  # type: ignore
 )
 
 from .MlirCompiler import (
-    MlirCompiler,
+    MlirCompiler,  # type: ignore
 )
 
 from .MlirScheduler import (
-    MlirScheduler,
-    MlirSchedule,
+    MlirScheduler,  # type: ignore
+    MlirSchedule,  # type: ignore
 )

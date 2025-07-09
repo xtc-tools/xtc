@@ -6,7 +6,7 @@ from typing_extensions import override
 from collections.abc import Sequence, Mapping
 from typing import TypeAlias, cast
 
-from xtc.itf.graph import Graph, Node
+from xtc.itf.graph import Graph
 from xtc.itf.data import TensorType, Tensor
 
 from .node import XTCNode

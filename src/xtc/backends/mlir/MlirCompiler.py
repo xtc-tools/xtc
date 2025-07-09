@@ -11,11 +11,6 @@ import tempfile
 import shutil
 from pathlib import Path
 
-
-from xtc.utils.tools import (
-    get_mlir_prefix,
-)
-
 from xtc.utils.ext_tools import (
     mlirtranslate_opts,
     llc_opts,

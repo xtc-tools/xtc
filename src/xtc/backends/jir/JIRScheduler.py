@@ -9,8 +9,6 @@ import xtc.itf as itf
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
 import xtc.backends.jir as backend
 
-from .JIROps import JIROperation
-
 __all__ = [
     "JIRScheduler",
     "JIRSchedule",

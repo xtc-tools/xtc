@@ -5,7 +5,6 @@
 from abc import ABC, abstractmethod
 from typing_extensions import override
 from typing import Any, Type
-import numpy as np
 from xtc.utils.text import Replace
 
 from xtc.itf.graph import Operation

@@ -11,11 +11,9 @@ from xdsl.dialects.builtin import AnyMemRefType, MemRefType, f32, f64
 from xdsl.ir import Region, Block, Operation
 from xdsl.builder import ImplicitBuilder
 
-import xtc.itf as itf
 from xtc.itf.graph import Graph
 from xtc.graphs.xtc.graph import XTCGraph, XTCNode
 from xtc.graphs.xtc.data import XTCTensorType
-from xtc.graphs.xtc.expr import XTCTensorExpr
 
 from .MlirNodeBackend import MlirNodeBackend
 from .MlirBackend import MlirBackend

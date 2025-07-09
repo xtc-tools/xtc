@@ -2,5 +2,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from .executor import Executor
-from .evaluator import Evaluator
+from .executor import Executor  # type: ignore
+from .evaluator import Evaluator  # type: ignore

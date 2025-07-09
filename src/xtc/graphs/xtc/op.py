@@ -2,5 +2,5 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from .builder import graph_builder as graph
+from .builder import graph_builder as graph  # type: ignore
 from .op_factory import *

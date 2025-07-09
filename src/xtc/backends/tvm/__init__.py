@@ -3,14 +3,14 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from .TVMBackend import (
-    TVMBackend,
+    TVMBackend,  # type: ignore
 )
 
 from .TVMCompiler import (
-    TVMCompiler,
+    TVMCompiler,  # type: ignore
 )
 
 from .TVMScheduler import (
-    TVMScheduler,
-    TVMSchedule,
+    TVMScheduler,  # type: ignore
+    TVMSchedule,  # type: ignore
 )

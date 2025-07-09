@@ -5,7 +5,6 @@
 from xdsl.dialects import func as xdslfunc
 from mlir.dialects import func, builtin, arith, memref, linalg
 from mlir.ir import (
-    Attribute,
     ArrayAttr,
     DictAttr,
     UnitAttr,

@@ -14,7 +14,6 @@ from xdsl.dialects.builtin import (
     f64,
     i64,
     UnitAttr,
-    DenseIntOrFPElementsAttr,
     StringAttr,
     AffineMapAttr,
 )

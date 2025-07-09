@@ -3,6 +3,6 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from .strategy import (
-    Sample,
-    Strategy,
+    Sample,  # type: ignore
+    Strategy,  # type: ignore
 )

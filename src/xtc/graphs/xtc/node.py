@@ -5,7 +5,6 @@
 from typing_extensions import override
 from collections.abc import Sequence
 from typing import cast
-import threading
 
 from xtc.itf.graph import Node
 from xtc.itf.operator import Operator

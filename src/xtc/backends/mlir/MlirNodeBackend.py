@@ -4,7 +4,6 @@
 #
 from typing import cast, Any
 from typing_extensions import override
-import numpy as np
 
 from xdsl.ir import Operation as xdslOperation
 from xdsl.dialects.builtin import AnyMemRefType as xdslAnyMemRefType

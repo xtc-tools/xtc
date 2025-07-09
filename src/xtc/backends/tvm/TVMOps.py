@@ -3,16 +3,13 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from abc import ABC, abstractmethod
-from collections.abc import Sequence, Mapping
-from tvm.relax import TensorStructInfo
+from collections.abc import Sequence
 from typing_extensions import override
-import numpy as np
-from typing import Any, Type, cast, TypeAlias
+from typing import Any, Type, TypeAlias
 import tarfile
 import shutil
 
 from xtc.utils.math import mulall
-from xtc.graphs.xtc.expr import XTCTensorExpr  # TODO: generic
 
 from xtc.itf.graph import Operation, Graph, Node
 

@@ -3,17 +3,14 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing_extensions import override
-from typing import Any, TypeAlias, cast
-from dataclasses import dataclass
-import functools
-import operator
+from typing import Any, TypeAlias
 import threading
 
 from xtc.itf.data import Tensor, TensorType
 
-from .data import XTCTensor, XTCTensorType, XTCConstantTensorType, ShapeType, DataType
+from .data import XTCTensor, XTCTensorType, ShapeType, DataType
 from .operators import (
     XTCOperator,
     XTCOperTensor,
@@ -23,7 +20,6 @@ from .operators import (
     XTCOperPad2D,
     XTCOperReshape,
 )
-from .operation import XTCOperation
 
 __all__ = [
     "XTCExpr",

@@ -3,14 +3,14 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from .JIRBackend import (
-    JIRBackend,
+    JIRBackend,  # type: ignore
 )
 
 from .JIRCompiler import (
-    JIRCompiler,
+    JIRCompiler,  # type: ignore
 )
 
 from .JIRScheduler import (
-    JIRScheduler,
-    JIRSchedule,
+    JIRScheduler,  # type: ignore
+    JIRSchedule,  # type: ignore
 )

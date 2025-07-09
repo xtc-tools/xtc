@@ -5,7 +5,6 @@
 from typing_extensions import override
 from dataclasses import dataclass
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
-import xtc.itf as itf
 
 __all__ = [
     "MlirNodeScheduler",
