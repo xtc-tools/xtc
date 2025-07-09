@@ -42,5 +42,5 @@ print(f"Outputs: {outs}")
 # CHECK-NEXT:    - %4: relu(%3, threshold=0.1)
 # CHECK-NEXT:  
 # CHECK-NEXT:  [2x2x2x8xfloat32]
-# CHECK-NEXT:  Inputs: [Tensor(type=2x4x4x3xfloat32, data=-4.0 -3.0 -2.0 -1.0...-2.0 -1.0 0.0 1.0), Tensor(type=3x3x3x8xfloat32, data=-4.0 -3.0 -2.0 -1.0...1.0 2.0 3.0 4.0)]
-# CHECK-NEXT:  Outputs: [Tensor(type=2x2x2x8xfloat32, data=0.1 0.1 0.1 10.0...9.0 0.1 9.0 9.0)]
+# CHECK-NEXT:  Inputs: [Tensor(type=2x4x4x3xfloat32, data=-4 -3 -2 -1...-2 -1 0 1), Tensor(type=3x3x3x8xfloat32, data=-4 -3 -2 -1...1 2 3 4)]
+# CHECK-NEXT:  Outputs: [Tensor(type=2x2x2x8xfloat32, data=0.1 0.1 0.1 10...9 0.1 9 9)]

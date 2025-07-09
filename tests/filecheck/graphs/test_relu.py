@@ -35,5 +35,5 @@ print(f"Outputs: {outs}")
 # CHECK-NEXT:    - %1: relu(%0)
 # CHECK-NEXT:  
 # CHECK-NEXT:  [1x5x6xfloat32]
-# CHECK-NEXT:  Inputs: [Tensor(type=1x5x6xfloat32, data=-4.0 -3.0 -2.0 -1.0...4.0 -4.0 -3.0 -2.0)]
-# CHECK-NEXT:  Outputs: [Tensor(type=1x5x6xfloat32, data=0.0 0.0 0.0 0.0...4.0 0.0 0.0 0.0)]
+# CHECK-NEXT:  Inputs: [Tensor(type=1x5x6xfloat32, data=-4 -3 -2 -1...4 -4 -3 -2)]
+# CHECK-NEXT:  Outputs: [Tensor(type=1x5x6xfloat32, data=0 0 0 0...4 0 0 0)]

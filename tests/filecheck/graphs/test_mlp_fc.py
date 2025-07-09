@@ -74,5 +74,5 @@ print(f"Outputs: {outs}")
 # CHECK-NEXT:    - %20: reshape(%19, shape=(-1,))
 # CHECK-NEXT:  
 # CHECK-NEXT:  [10xfloat32]
-# CHECK-NEXT:  Inputs: [Tensor(type=32x32x3xfloat32, data=-4.0 -3.0 -2.0 -1.0...4.0 -4.0 -3.0 -2.0), Tensor(type=3072x512xfloat32, data=-4.0 -3.0 -2.0 -1.0...-2.0 -1.0 0.0 1.0), Tensor(type=512x256xfloat32, data=-4.0 -3.0 -2.0 -1.0...-3.0 -2.0 -1.0 0.0), Tensor(type=256x128xfloat32, data=-4.0 -3.0 -2.0 -1.0...0.0 1.0 2.0 3.0), Tensor(type=128x10xfloat32, data=-4.0 -3.0 -2.0 -1.0...3.0 4.0 -4.0 -3.0)]
-# CHECK-NEXT:  Outputs: [Tensor(type=10xfloat32, data=35636482000.0 52931383000.0 10267247000.0 -26914288000.0...-16248222000.0 1046679500.0 18341579000.0 35636470000.0)]
+# CHECK-NEXT:  Inputs: [Tensor(type=32x32x3xfloat32, data=-4 -3 -2 -1...4 -4 -3 -2), Tensor(type=3072x512xfloat32, data=-4 -3 -2 -1...-2 -1 0 1), Tensor(type=512x256xfloat32, data=-4 -3 -2 -1...-3 -2 -1 0), Tensor(type=256x128xfloat32, data=-4 -3 -2 -1...0 1 2 3), Tensor(type=128x10xfloat32, data=-4 -3 -2 -1...3 4 -4 -3)]
+# CHECK-NEXT:  Outputs: [Tensor(type=10xfloat32, data=3.56365e+10 5.29314e+10 1.02672e+10 -2.69143e+10...-1.62482e+10 1.04668e+09 1.83416e+10 3.56365e+10)]
