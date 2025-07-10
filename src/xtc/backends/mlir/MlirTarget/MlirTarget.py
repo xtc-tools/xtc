@@ -8,6 +8,9 @@ from typing import Any
 from ..MlirConfig import MlirConfig
 from ..MlirProgram import RawMlirProgram
 
+import xtc.itf as itf
+from xtc.itf.graph import Graph
+
 __all__ = ["MlirTarget"]
 
 
@@ -42,5 +45,23 @@ class MlirTarget(ABC):
         """
         Generate the code and produce the shared lib or executable for the target.
         The mlir_program represents the IR after XTC transformations.
+        """
+        ...
+
+    @abstractmethod
+    def create_module(
+        self,
+        name: str,
+        payload_name: str,
+        file_name: str,
+        file_type: str,
+        graph: Graph | None = None,
+        **kwargs: Any,
+    ) -> itf.comp.Module:
+        """
+        Create a Module instance that represents the result of a previous call to
+        generate_code_for_target.
+        It can return a derived class from Module that handle runtime specificities
+        for the target.
         """
         ...

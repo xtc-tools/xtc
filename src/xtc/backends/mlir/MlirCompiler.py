@@ -10,8 +10,6 @@ import tempfile
 import shutil
 from pathlib import Path
 
-from xtc.targets.host import HostModule
-
 import xtc.backends.mlir as backend
 import xtc.itf as itf
 
@@ -89,7 +87,7 @@ class MlirCompiler(itf.comp.Compiler):
                     "np_outputs_spec": self._backend.np_outputs_spec,
                 }
             )
-        module = HostModule(
+        module = self._target.create_module(
             Path(compiler.dump_file).name,
             self._backend.payload_name,
             f"{compiler.dump_file}.so",

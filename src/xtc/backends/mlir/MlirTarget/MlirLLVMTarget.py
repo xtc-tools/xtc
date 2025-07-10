@@ -26,6 +26,10 @@ from xtc.utils.ext_tools import (
     objdump_color_opts,
 )
 
+from xtc.targets.host import HostModule
+import xtc.itf as itf
+from xtc.itf.graph import Graph
+
 from .MlirTarget import MlirTarget
 from ..MlirConfig import MlirConfig
 from ..MlirProgram import RawMlirProgram
@@ -150,6 +154,18 @@ class MlirLLVMTarget(MlirTarget):
             Path(exe_c_file).unlink(missing_ok=True)
         if temp_dir is not None:
             shutil.rmtree(temp_dir)
+
+    @override
+    def create_module(
+        self,
+        name: str,
+        payload_name: str,
+        file_name: str,
+        file_type: str,
+        graph: Graph | None = None,
+        **kwargs: Any,
+    ) -> itf.comp.Module:
+        return HostModule(name, payload_name, file_name, file_type, graph, **kwargs)
 
     @property
     def disassemble_option(self):
