@@ -45,10 +45,12 @@ from xtc.schedules.ttile.cache_model.full_assoc_model import (
 # This Python file contains the SARCASM set-associativity model,
 # Set-Associative Rotating Cache Analytical/Simulating Model
 
-
 # ====================================================================
 
 # 1) Preprocessing - preparing the information about the problem
+
+StrideInfos = List[Tuple[int, str]]
+IterTileInfos = List[dict[str, int]]
 
 
 # [Aux function] Build the set of information about the access function,
@@ -67,7 +69,7 @@ from xtc.schedules.ttile.cache_model.full_assoc_model import (
 #      the index of a dimension by 1? (except for the last dimension)
 def build_maccess_func_coeff(
     comp: Computation, prob_sizes: dict[str, int], cache_line_size: int
-) -> dict[str, List[Tuple[int, str]]]:
+) -> dict[str, StrideInfos]:
     # STEP 1: Get the stride for each array (in word)
     d_lstride_elem = get_array_allocation_contiguous(comp, prob_sizes)
 
@@ -200,10 +202,10 @@ def build_maccess_func_coeff(
 # Same order of dim than "llstride_dimname"
 def build_bound_tiles_cacheline(
     comp: Computation,
-    llstride_dimname: List[Tuple[int, str]],
+    llstride_dimname: StrideInfos,
     d_ltilesizes: dict[str, List[int]],
     cache_line_size: int,
-) -> List[dict[str, int]]:
+) -> IterTileInfos:
     # Example of llstride_dimname: [[204304, 'n'], [1808, 'h'], [904, 'r'], [8, 'w'], [4, 's'], [1, 'c']]
 
     # Recover the dimension name from the current array access
@@ -285,69 +287,22 @@ def build_bound_tiles_cacheline(
     return ld_bound_tiles_cacheline
 
 
-# [Aux function / DEPRECATED] Preprocess the inputs to simplify the problem (and the algorithm)
-# Inputs:
-#  - llstride_dimname : Storing the stride/dim name for each array accesses
-#    Comes from "build_maccess_func_coeff" + instance it to an "arr_name"
-#  - ld_bound_tiles_cacheline : Number of iterations over a dimension
-#    Comes from "bound_bound_tiles_cacheline"
-#  - Nset : number of cache sets
-#
-# Outputs:
-#  - New llstride_dimname
-#  - New ld_bound_tiles_cacheline
-#
-# Note: due to a simplification of this function, the signature got simplified (no need for ld_bound_tiles_cacheline)
-#
-# def simplify_periodic_cs_estim(llstride_dimname, ld_bound_tiles_cacheline, Nset):
-def simplify_periodic_cs_estim(
-    llstride_dimname: List[Tuple[int, str]], Nset: int
-) -> List[Tuple[int, str]]:
-    # To ease the use of conditions
-    # llstride = [elem for (elem, _ ) in llstride_dimname]
-
-    # Modulo Nset
-    # for k in range(len(llstride_dimname)):
-    # llstride[k] = llstride[k] % Nset
-    # Coeff at 0: remove them => No! (it was useful to only consider one loop lvl, but not for layers)
-    """
-    k0max = -1
-    for k in range(len(access_func_coeff)):
-            if (access_func_coeff_stride_only[k]==0):
-                    k0max = k
-    if k0max!=(-1):
-            # Because a_{k+1} divides a_{k}, for all k
-            for l in range(k0max):
-                    assert(access_func_coeff_stride_only[l]==0)
-            n_access_func_coeff = access_func_coeff[k0max+1:]
-            n_ll_bound_tiles_cacheline = ll_bound_tiles_cacheline[k0max+1:]
-    else:
-            n_access_func_coeff = access_func_coeff
-            n_ll_bound_tiles_cacheline = ll_bound_tiles_cacheline
-    assert(len(n_access_func_coeff) == len(n_ll_bound_tiles_cacheline))
-    """
-    n_llstride_dimname = llstride_dimname
-    # n_ld_bound_tiles_cacheline = ld_bound_tiles_cacheline
-
-    # Apply the modulo
-    for k in range(len(n_llstride_dimname)):
-        (stride, name_dim) = n_llstride_dimname[k]
-        n_llstride_dimname[k] = (stride % Nset, name_dim)
-
-    # DEBUG
-    # print(f"{n_llstride_dimname=}")
-    # print(f"{n_ld_bound_tiles_cacheline=}")
-
-    return n_llstride_dimname  # (n_llstride_dimname, n_ld_bound_tiles_cacheline)
+# Note: trying to simplify the "llstride_dimname" and "ld_bound_tiles_cacheline"
+#   is NOT a good idea.
+#   Typically, applying a modulo "num_cache_set" to the stride could be viewed as a way to simplify the
+#   later computation, except that it breaks an assumption in "arrange_ld_btcl_combi_dims"
+# Likewise, having all the entries in llstride_dimname/ld_bound_tiles_cacheline is actually useful.
 
 
 # ====================================================================
 
 # 2) Detailed FootPrint (DFP) computation
 
+DFP_LvlArray = dict[str, List[int]]  # [lambda_loc] [cache set]
+
 
 # Deep copy of dl_fp (detailed footprint, which is a dict of list)
-def deep_copy_dl_fp(dl_fp: dict[str, List[int]]) -> dict[str, List[int]]:
+def deep_copy_dl_fp(dl_fp: DFP_LvlArray) -> DFP_LvlArray:
     n_dl_fp = dict()
     for k in dl_fp:
         n_dl_fp[k] = dl_fp[k].copy()
@@ -372,13 +327,13 @@ def deep_copy_dl_fp(dl_fp: dict[str, List[int]]) -> dict[str, List[int]]:
 # Output:
 #  - dl_fp : freshly repeated & rotated
 def repeat_and_rotate_dfp(
-    dl_fp: dict[str, List[int]],
+    dl_fp: DFP_LvlArray,
     d_ratio: dict[str, int],
-    last_dl_fp: dict[str, List[int]],
+    last_dl_fp: DFP_LvlArray,
     d_shift_dim: dict[str, int],
     dim_atom: str,
     Nset: int,
-) -> dict[str, List[int]]:
+) -> DFP_LvlArray:
     for lambda_loc in d_ratio.keys():
         # "lambda_loc" should be present everywhere
         l_fp = dl_fp[lambda_loc]
@@ -430,12 +385,12 @@ def repeat_and_rotate_dfp(
 # Output:
 #  - dl_fp, freshly repeated & rotated (after the merge of the branches of the current "Seq")
 def sum_with_shift(
-    dl_fp: dict[str, List[int]],
-    last_dl_fp: dict[str, List[int]],
+    dl_fp: DFP_LvlArray,
+    last_dl_fp: DFP_LvlArray,
     d_lshift: dict[str, List[int]],
     dim_seq: str,
     Nset: int,
-) -> dict[str, List[int]]:
+) -> DFP_LvlArray:
     # [Preprocessing] Match the lambda_loc of last_dl_fp to a lambda_loc from dl_fp
 
     # Recover the list of dims used in dl_fp (above the Seq atom)
@@ -520,8 +475,8 @@ def sum_with_shift(
 # - dl_fp, for this loop level and array
 # dict [lambda_loc] |---> [ list of number of cache lines accessed per cache sets]
 def dl_fp_direct_computation(
-    ll_stride_dimname: List[Tuple[int, str]],
-    ld_bound_tiles_cacheline: List[dict[str, int]],
+    ll_stride_dimname: StrideInfos,
+    ld_bound_tiles_cacheline: IterTileInfos,
     comp: Computation,
     lcont_arr_order: List[str],
     arr_name: str,
@@ -529,8 +484,8 @@ def dl_fp_direct_computation(
     num_cache_set: int,
     cache_line_size: int,
     ldim_ignore: List[str] = [],
-    starting_dl_fp: Optional[dict[str, List[int]]] = None,
-):
+    starting_dl_fp: Optional[DFP_LvlArray] = None,
+) -> DFP_LvlArray:
     # 1) Starting footprint
     # For each lambda branches...
     dl_fp = dict()
@@ -623,8 +578,8 @@ def dl_fp_direct_computation(
 # Output:
 #  - dl_fp : where the repeat/rotation of the current atom is now done
 def dl_fp_ratio_atom(
-    last_dl_fp: dict[str, List[int]],
-    llstride_dimname: List[Tuple[int, str]],
+    last_dl_fp: DFP_LvlArray,
+    llstride_dimname: StrideInfos,
     d_sizes_below: dict[
         str, int
     ],  # ld_bound_tiles_cacheline_above, ld_bound_tiles_cacheline_below,
@@ -633,7 +588,7 @@ def dl_fp_ratio_atom(
     dim_atom: str,
     d_ratio: dict[str, int],
     num_cache_set: int,
-) -> dict[str, List[int]]:
+) -> DFP_LvlArray:
     # 1) Do we have reuse along dimension "dim_atom" for this array
     #  This is checked by seeing if "dim_atom" is inside "llstride_dimname"
     #  If yes, then no computation required: dl_fp is exactly the one from the previous iteration
@@ -741,12 +696,12 @@ def dl_fp_ratio_atom(
 # Output:
 #  - dl_fp : where the repeat/rotation of the current atom is now done
 def dl_fp_seq_atom(
-    last_dl_fp: dict[str, List[int]],
-    llstride_dimname: List[Tuple[int, str]],
-    ld_bound_tiles_cacheline_below: List[dict[str, int]],
+    last_dl_fp: DFP_LvlArray,
+    llstride_dimname: StrideInfos,
+    ld_bound_tiles_cacheline_below: IterTileInfos,
     dim_atom: str,
     num_cache_set: int,
-) -> dict[str, List[int]]:
+) -> DFP_LvlArray:
     # 0) The lambda branches are getting reduced here: we need to prepare the new dl_fp
     dl_fp = dict()
 
@@ -858,10 +813,10 @@ def dl_fp_seq_atom(
 #  - ld_bound_tiles_cacheline_combi: arranged ld_bound_tiles_cacheline_combi
 #    Note: the correspondance with the dims of ll_stride_dimname must be kept.
 def arrange_ld_btcl_combi_dims(
-    ll_stride_dimname: List[Tuple[int, str]],
-    ld_bound_tiles_cacheline: List[dict[str, int]],
+    ll_stride_dimname: StrideInfos,
+    ld_bound_tiles_cacheline: IterTileInfos,
     ldims_combi: List[str],
-) -> List[dict[str, int]]:
+) -> IterTileInfos:
     # Deep copy of ld_bound_tiles_cacheline
     nld_bound_tiles_cacheline = []
     for d_lambdaloc_iter in ld_bound_tiles_cacheline:
@@ -1021,7 +976,7 @@ def periodic_extra_cacheset_estimation_lvl(
     num_cache_set: int,
     cache_line_size: int,
     b_sanity_check: bool = False,
-) -> List[dict[str, dict[str, List[int]]]]:
+) -> List[dict[str, DFP_LvlArray]]:
     # 1) Preprocessing step - gather the information about the number of iterations + shift of the arrays
     l_dims_comp = get_ldims_computation(comp)  # For lambda_loc reconstruction
     l_dims_stride = get_ldims_stride_computation(comp)
@@ -1550,7 +1505,7 @@ def periodic_extra_cacheset_estimation_lvl(
 
 
 # Pretty-printer function - For debugging
-def print_lddl_fp(lddl_fp: List[dict[str, dict[str, List[int]]]]):
+def print_lddl_fp(lddl_fp: List[dict[str, DFP_LvlArray]]):
     # lddl_fp : [loop lvl] [array_name] [lambda_branch] [cache set]
     print("lddl_fp = [[[")
     for loop_lvl in range(len(lddl_fp)):
@@ -1593,8 +1548,8 @@ def print_lddl_fp(lddl_fp: List[dict[str, dict[str, List[int]]]]):
 #  Output:
 #   - lddl_fp : with an extra entry on "full_assoc_model::total_fieldname_fp"
 def combine_dfp_exact_combi(
-    lddl_fp: List[dict[str, dict[str, List[int]]]], num_cache_set: int
-) -> List[dict[str, dict[str, List[int]]]]:
+    lddl_fp: List[dict[str, DFP_LvlArray]], num_cache_set: int
+) -> List[dict[str, DFP_LvlArray]]:
     for ddl_fp in lddl_fp:  # [Loop lvl]
         dl_fp_summed = dict()
 
@@ -1621,6 +1576,11 @@ def combine_dfp_exact_combi(
     return lddl_fp
 
 
+DFP_Slice_CacheSet = List[
+    dict[str, dict[str, int]]
+]  # [loop lvl] [lambda_branch] [array_name]
+
+
 # [Aux function] Reorder the elements of a ldl_fp in order to expose the cache sets
 #    at the outer lvl of the data structure
 #  Input:
@@ -1632,8 +1592,8 @@ def combine_dfp_exact_combi(
 #   - lldd_fp : [cache set] [loop lvl] [lambda_branch] [array_name]
 #   Note: need to be aligned with the "ldd_footprint" from the "full_assoc_model.py"
 def convert_lddl_to_lldd_fp(
-    lddl_fp: List[dict[str, dict[str, List[int]]]], num_cache_set: int
-) -> List[List[dict[str, dict[str, int]]]]:
+    lddl_fp: List[dict[str, DFP_LvlArray]], num_cache_set: int
+) -> List[DFP_Slice_CacheSet]:
     num_loop = len(lddl_fp)
     arr_keys = list(lddl_fp[0].keys())
     random_arr = arr_keys[0]
@@ -1668,7 +1628,7 @@ def convert_lddl_to_lldd_fp(
 
 
 # Pretty-printer function - For debugging
-def print_lldd_fp(lldd_fp: List[List[dict[str, dict[str, int]]]]):
+def print_lldd_fp(lldd_fp: List[DFP_Slice_CacheSet]):
     print("lldd_fp = [[[")
     for i_cs in range(len(lldd_fp)):
         print(f"* Cache Set #{i_cs}:")

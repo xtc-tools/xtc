@@ -41,6 +41,8 @@ from xtc.schedules.ttile.computation import compute_footprint
 
 # 1) Footprint computation per level of the scheme
 
+LevelFootprint = dict[str, dict[str, int]]
+
 # Used in the footprint map to store the sum of the footprint of all arrays
 total_fieldname_fp = "_Total"
 
@@ -48,11 +50,11 @@ total_fieldname_fp = "_Total"
 # [Aux function] Rectify the footprint at one level to take into account
 # the cache line (in respect to the inner dimension of arrays)
 def rectify_fp_cache_line(
-    ddfootprint: dict[str, dict[str, int]],
+    ddfootprint: LevelFootprint,
     d_arrays_accs: dict[str, Tuple[List[str], int]],
     d_lsizes: dict[str, List[int]],
     cache_line_size: int,
-) -> dict[str, dict[str, int]]:
+) -> LevelFootprint:
     # print(ddfootprint)
     # print(d_arrays_accs)
     # print(d_lsizes)
@@ -114,7 +116,7 @@ def compute_footprint_for_each_level(
     d_arrays_accs: dict[str, Tuple[List[str], int]],
     prog_dims: List[str],
     cache_line_size: int,
-) -> List[dict[str, dict[str, int]]]:
+) -> List[LevelFootprint]:
     # Check that the total_fieldname_fp is not taken
     assert total_fieldname_fp not in d_arrays_accs.keys()
 
@@ -176,7 +178,7 @@ def compute_footprint_for_each_level(
 # Pretty printer function for ldd_footprint (output of compute_footprint_for_each_level)
 def print_ldd_footprint(
     scheme: List[Atom],
-    ldd_footprint: List[dict[str, dict[str, int]]],
+    ldd_footprint: List[LevelFootprint],
     o_cache_line_size: Optional[int] = None,
 ):
     for i in range(len(ldd_footprint)):
@@ -235,7 +237,7 @@ def extend_str_lambda_loc(str_lambda_loc: str, dim: str, kbr: int, comp: Computa
 # Output:
 #   d_sat_loop_lvl: [str_lambda_branch] |---> loop_lvl (or "None")
 def find_saturation_level(
-    ldd_footprint: List[dict[str, dict[str, int]]], cachesize: int, comp: Computation
+    ldd_footprint: List[LevelFootprint], cachesize: int, comp: Computation
 ) -> dict[str, Optional[int]]:
     num_loop_level = len(ldd_footprint)
 
@@ -496,7 +498,7 @@ _debug_full_assoc = False
 # - "lnum_comms" : list of number of cache miss, each element corresponds to an entry of lcachesizes
 def full_assoc_model_with_fp(
     scheme: List[Atom],
-    ldd_footprint: List[dict[str, dict[str, int]]],
+    ldd_footprint: List[LevelFootprint],
     lcachesizes: List[int],
     cache_line_size: int,
     comp: Computation,
@@ -584,7 +586,7 @@ def full_assoc_model_with_fp(
                 "  Saturation happened - updating saturation levels with special cases"
             )
 
-        # TODO: for typing, d_sat_loop_lvl to be "de-Optional-ed"
+        # For typing, d_sat_loop_lvl to be "de-Optional-ed"
         d_sat_loop_lvl_unsat: dict[str, int] = dict()
         for str_lambda_loc, sat_loop_lvl in d_sat_loop_lvl.items():
             assert sat_loop_lvl != None
