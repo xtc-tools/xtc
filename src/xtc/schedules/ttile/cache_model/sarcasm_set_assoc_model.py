@@ -201,6 +201,12 @@ def build_maccess_func_coeff(
 #  - ld_bound_tiles_cacheline : List [for each dim of the access]
 # ( [Lambda branch] |--> Number of times we iterate on this stride)
 # Same order of dim than "llstride_dimname"
+#
+# Note: trying to simplify the "llstride_dimname" and "ld_bound_tiles_cacheline"
+#   is NOT a good idea.
+#   Typically, applying a modulo "num_cache_set" to the stride could be viewed as a way to simplify the
+#   later computation, except that it breaks an assumption in "arrange_ld_btcl_combi_dims"
+# Likewise, having all the entries in llstride_dimname/ld_bound_tiles_cacheline is actually useful.
 def build_bound_tiles_cacheline(
     comp: Computation,
     llstride_dimname: StrideInfos,
@@ -286,13 +292,6 @@ def build_bound_tiles_cacheline(
         d_innermost_dim[str_lambda_loc] = n_num_steps
 
     return ld_bound_tiles_cacheline
-
-
-# Note: trying to simplify the "llstride_dimname" and "ld_bound_tiles_cacheline"
-#   is NOT a good idea.
-#   Typically, applying a modulo "num_cache_set" to the stride could be viewed as a way to simplify the
-#   later computation, except that it breaks an assumption in "arrange_ld_btcl_combi_dims"
-# Likewise, having all the entries in llstride_dimname/ld_bound_tiles_cacheline is actually useful.
 
 
 # ====================================================================
