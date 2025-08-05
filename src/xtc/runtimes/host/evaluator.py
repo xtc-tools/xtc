@@ -3,7 +3,6 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing import Any
-import numpy as np
 import ctypes
 
 from .runtime import (
@@ -123,14 +122,11 @@ class Evaluator:
             *[str.encode("utf-8") for str in str_list]
         )
 
-    def __call__(self, *args: Any) -> np.ndarray:
+    def __call__(self, *args: Any) -> list[float]:
         args_tuples = self.cfunc.args_tuples(args)
+        values_num = 1
         if len(self.pmu_counters) > 0:
             values_num = len(self.pmu_counters)
-            values_shape = (self.repeat, values_num)
-        else:
-            values_num = 1
-            values_shape = (self.repeat,)
         results_array = (ctypes.c_double * (self.repeat * values_num))()
         if self.cfunc.is_packed:
             args_array_packed = (CArgValue * len(args_tuples))(
@@ -166,7 +162,7 @@ class Evaluator:
                 ctypes.cast(args_array, ctypes.POINTER(ctypes.c_voidp)),
                 ctypes.c_int(len(args_tuples)),
             )
-        return np.array(results_array, dtype="float64").reshape(values_shape)
+        return [float(x) for x in results_array]
 
 
 class Executor:

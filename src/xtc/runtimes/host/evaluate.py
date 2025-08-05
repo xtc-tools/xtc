@@ -49,7 +49,7 @@ def load_and_evaluate(
             pmu_counters=pmu_counters,
         )
         results = eval_func(*parameters[0], *parameters[1])
-    return results.reshape((-1,)).tolist(), 0, ""
+    return results, 0, ""
 
 
 def load_and_execute(
@@ -58,7 +58,7 @@ def load_and_execute(
     payload_name: str,
     **kwargs: Any,
 ) -> int:
-    results, code, err_msg = load_and_evaluate(
+    _, code, _ = load_and_evaluate(
         module_file,
         module_name,
         payload_name,

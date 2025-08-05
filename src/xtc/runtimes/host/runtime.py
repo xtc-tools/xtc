@@ -25,7 +25,7 @@ from xtc.runtimes.types.dlpack import DLDevice, DLDataType
 
 class _c_ascii_str:
     @staticmethod
-    def from_param(obj):
+    def from_param(obj: str | bytes):
         if isinstance(obj, str):
             obj = obj.encode("ascii")
         return ctypes.c_char_p.from_param(obj)

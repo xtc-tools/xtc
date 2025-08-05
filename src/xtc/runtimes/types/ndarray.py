@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+from typing import Any
 import ctypes
 import numpy as np
 
@@ -9,14 +10,7 @@ __all__ = [
     "NDArray",
 ]
 
-from .dlpack import (
-    DLDevice,
-    DLDeviceTypeCode,
-    DLDataType,
-    DLDataTypeCode,
-    DLTensor,
-    CNDArray,
-)
+from .dlpack import DLDevice, DLDeviceTypeCode, DLDataType, DLDataTypeCode, CNDArray
 
 import xtc.runtimes.host.runtime as runtime
 
@@ -34,9 +28,9 @@ class NDArray:
         "float32": (DLDataTypeCode.FLOAT, 32),
         "float64": (DLDataTypeCode.FLOAT, 64),
     }
-    rev_np_dtype_map = {}
+    rev_np_dtype_map: dict[tuple[int, int], str] = {}
 
-    def __init__(self, array):
+    def __init__(self, array: Any) -> None:
         if not self.rev_np_dtype_map:
             self.rev_np_dtype_map.update(
                 {v: k for k, v in NDArray.np_dtype_map.items()}
@@ -50,33 +44,34 @@ class NDArray:
         else:
             assert 0
 
-    def _from_numpy(self, nparray):
+    def _from_numpy(self, nparray: np.ndarray) -> None:
         assert nparray.flags["C_CONTIGUOUS"]
         self.handle = self._new(nparray.shape, str(nparray.dtype))
         self._copy_from(self.handle, nparray.ctypes.data_as(ctypes.c_voidp))
 
-    def _to_numpy(self):
+    def _to_numpy(self) -> np.ndarray:
         shape = self.shape
         np_dtype = self.dtype_str
         nparray = np.empty(shape=shape, dtype=np_dtype)
         self._copy_to(self.handle, nparray.ctypes.data_as(ctypes.c_voidp))
         return nparray
 
-    def _copy_to_numpy(self, out):
+    def _copy_to_numpy(self, out: np.ndarray) -> np.ndarray:
         assert out.flags["C_CONTIGUOUS"]
         assert out.dtype == self.dtype
         assert out.size == self.size
         self._copy_to(self.handle, out.ctypes.data_as(ctypes.c_voidp))
         return out
 
-    def numpy(self, out=None):
+    def numpy(self, out: np.ndarray | None = None) -> np.ndarray:
         if out is None:
             return self._to_numpy()
         else:
             return self._copy_to_numpy(out)
 
     @property
-    def dtype_str(self):
+    def dtype_str(self) -> str:
+        assert self.handle is not None
         dtype = self.handle.contents.dl_tensor.dtype
         assert dtype.lanes == 1
         dtype_tuple = (dtype.code, dtype.bits)
@@ -84,50 +79,55 @@ class NDArray:
         return self.rev_np_dtype_map[dtype_tuple]
 
     @property
-    def dtype(self):
+    def dtype(self) -> np.dtype:
         return np.dtype(self.dtype_str)
 
     @property
-    def dims(self):
+    def dims(self) -> int:
+        assert self.handle is not None
         return self.handle.contents.dl_tensor.ndim
 
     @property
-    def shape(self):
+    def shape(self) -> tuple[int, ...]:
+        assert self.handle is not None
         shape = [self.handle.contents.dl_tensor.shape[d] for d in range(self.dims)]
         return tuple(shape)
 
     @property
-    def size(self):
+    def size(self) -> int:
         size = 1
         for d in self.shape:
             size = size * d
         return size
 
     @property
-    def data(self):
+    def data(self) -> Any:
+        assert self.handle is not None
         return self.handle.contents.dl_tensor.data
 
     @classmethod
-    def _copy_from(cls, handle, data_handle):
+    def _copy_from(cls, handle: Any, data_handle: Any) -> None:
         runtime.cndarray_copy_from_data(
             handle,
             data_handle,
         )
 
     @classmethod
-    def _copy_to(cls, handle, data_handle):
+    def _copy_to(cls, handle: Any, data_handle: Any) -> None:
         runtime.cndarray_copy_to_data(
             handle,
             data_handle,
         )
 
     @classmethod
-    def _dldatatype(cls, np_dtype):
+    def _dldatatype(cls, np_dtype: str) -> DLDataType:
         assert np_dtype in cls.np_dtype_map
         return DLDataType(*cls.np_dtype_map[np_dtype], 1)
 
     @classmethod
-    def _new(cls, shape, np_dtype, device=None):
+    def _new(
+        cls, shape: tuple[int, ...], np_dtype: str, device: DLDevice | None = None
+    ) -> Any:
         if device is None:
             device = DLDevice(DLDeviceTypeCode.kDLCPU, 0)
         shape_array = (ctypes.c_int64 * len(shape))(*shape)
@@ -143,11 +143,11 @@ class NDArray:
         array_handle = ctypes.cast(handle, ctypes.POINTER(CNDArray))
         return array_handle
 
-    def __del__(self):
+    def __del__(self) -> None:
         if self.handle is not None:
             runtime.cndarray_del(self.handle)
             self.handle = None
 
     @classmethod
-    def set_alloc_alignment(cls, alignment):
+    def set_alloc_alignment(cls, alignment: int) -> None:
         runtime.cndarray_set_alloc_alignment(alignment)
