@@ -553,7 +553,7 @@ class BaseStrategyPRTScheme(BaseStrategy):
         sch.vectorize(vector_axes)
         sch.unroll(unroll_axes)
         for w_axis in self._w_axes:
-            sch.buffer_at(w_axis, "write")
+            sch.buffer_at(w_axis)
 
     def _check_divisibility_from_tiles(self, tiles: dict[str, int]) -> bool:
         divisible = all(

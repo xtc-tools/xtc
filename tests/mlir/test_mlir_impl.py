@@ -44,8 +44,8 @@ def sched_tile3wc(sch):
     sch.parallelize(["i", "j"])
     sch.unroll({"k1": 13, "i3": 4, "j3": 64})
     sch.vectorize(["j3"])
-    sch.buffer_at("j", "write")
-    sch.buffer_at("j1", "write")
+    sch.buffer_at("j")
+    sch.buffer_at("j1")
     # Expected in MLIR schedule
     return [
         "permutation={'.': ['./i', './j', './i1', './j1', './k', './i2', './j2', './k1', './i3', './j3']",

@@ -46,8 +46,8 @@ def sched_tile3wc(sch):
     sch.parallelize(["i", "j"])
     sch.unroll({"k1": 13, "i3": 4, "j3": 64})
     sch.vectorize(["j3"])
-    sch.buffer_at("j", "write")
-    sch.buffer_at("j1", "write")
+    sch.buffer_at("j")
+    sch.buffer_at("j1")
     # Expected in TVM schedule
     return [
         "sch[O].reorder(i, j, i_, j_)",
