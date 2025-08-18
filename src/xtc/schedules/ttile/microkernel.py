@@ -11,9 +11,7 @@ import math
 import xtc.schedules.ttile.scheme as scheme
 from xtc.schedules.ttile.computation import Computation, Computation_spec
 from xtc.schedules.ttile.archi import Archi
-from xtc.schedules.ttile.scheme_to_graph_xdsltransform import (
-    launch_and_measure_scheme_graph_interf,
-)
+from xtc.schedules.ttile.scheme_to_xtc import launch_and_measure_scheme_graph_interf
 
 # =====================================================================
 

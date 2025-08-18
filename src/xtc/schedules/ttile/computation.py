@@ -262,26 +262,6 @@ def get_shift_array(
 
 
 # Given a computation, return a map associating each array/tensor
-# 	to their reuse dimension (accounting small dims). These must be a subset of the list of dim
-# returned by "get_ldims_computation"
-def get_reuse_dims(comp: Computation) -> dict[str, List[str]]:
-    if comp.spec == Computation_spec.MATMULT:
-        d_reuse = dict()
-        d_reuse["A"] = ["j"]
-        d_reuse["B"] = ["i"]
-        d_reuse["C"] = ["k"]
-        return d_reuse
-    elif comp.spec == Computation_spec.CONV:
-        d_reuse = dict()
-        d_reuse["O"] = ["r", "s", "c"]
-        d_reuse["I"] = ["r", "s", "f"]  # Here because r/s are small dimensions
-        d_reuse["K"] = ["n", "h", "w"]
-        return d_reuse
-    else:
-        raise ValueError("get_reuse_dims :: unknown computation spec.")
-
-
-# Given a computation, return a map associating each array/tensor
 # 	to their reuse dimension (in the strict sense). These must be a subset of the list of dim
 # returned by "get_ldims_computation"
 def get_strict_reuse_dims(comp: Computation) -> dict[str, List[str]]:
@@ -299,6 +279,17 @@ def get_strict_reuse_dims(comp: Computation) -> dict[str, List[str]]:
         return d_reuse
     else:
         raise ValueError("get_reuse_dims :: unknown computation spec.")
+
+
+# Given a computation, return a map associating each array/tensor
+# 	to their reuse dimension (accounting small dims). These must be a subset of the list of dim
+# returned by "get_ldims_computation"
+def get_reuse_dims(comp: Computation) -> dict[str, List[str]]:
+    d_reuse = get_strict_reuse_dims(comp)
+    if comp.spec == Computation_spec.CONV:
+        # Add r/s which are small dimensions
+        d_reuse["I"] = ["r", "s", "f"]
+    return d_reuse
 
 
 # ======================================================================================
@@ -323,7 +314,8 @@ def compute_number_ops(comp: Computation, dprob_sizes: dict[str, int]) -> int:
                 num_ops = num_ops * v
             else:
                 # Stride for convolution: divides its number of iteration since they are used as steps
-                num_ops = int(num_ops / v)
+                assert num_ops % v == 0
+                num_ops = num_ops // v
         return num_ops
     else:
         raise ValueError("compute_number_ops :: unknown computation spec.")

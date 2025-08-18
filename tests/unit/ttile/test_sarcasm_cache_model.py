@@ -1,6 +1,6 @@
 
 from xtc.schedules.ttile.scheme import build_scheme_from_str, get_sizes_scheme
-from xtc.schedules.ttile.scheme_to_xdsltransform import subst_dimname_xyhw_to_hwrs_conv2D_scheme
+from xtc.schedules.ttile.scheme_to_xtc import subst_dimname_xyhw_to_hwrs_conv2D_scheme
 from xtc.schedules.ttile.computation import Computation, Computation_spec
 from xtc.schedules.ttile.computation import get_list_array_contiguous_alloc, get_default_sizes
 from xtc.schedules.ttile.cache_model.full_assoc_model import ReuseLoopStrat

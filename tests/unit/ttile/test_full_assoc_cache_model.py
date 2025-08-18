@@ -2,7 +2,7 @@
 from xtc.schedules.ttile.scheme import build_scheme_from_str
 from xtc.schedules.ttile.computation import Computation, Computation_spec
 from xtc.schedules.ttile.computation import get_array_accesses, get_ldims_computation
-from xtc.schedules.ttile.scheme_to_xdsltransform import subst_dimname_xyhw_to_hwrs_conv2D_scheme
+from xtc.schedules.ttile.scheme_to_xtc import subst_dimname_xyhw_to_hwrs_conv2D_scheme
 
 from xtc.schedules.ttile.cache_model.full_assoc_model import compute_footprint_for_each_level, ReuseLoopStrat
 from xtc.schedules.ttile.cache_model.full_assoc_model import find_saturation_level, compute_full_assoc_cache_misses
