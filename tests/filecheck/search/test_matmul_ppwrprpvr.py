@@ -1,4 +1,5 @@
 # RUN: python %s 2>&1 | filecheck %s
+# REQUIRES: module_tvm
 """
 Test strategy PPWRPRP (Ansor like tiling for all axes, buffer, vectorized and constraints) on matmul
 """

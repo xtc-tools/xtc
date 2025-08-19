@@ -1,4 +1,5 @@
 # RUN: python %s 2>&1 | filecheck %s
+# REQUIRES: module_tvm
 
 import xtc.graphs.xtc.op as O
 from xtc.backends.tvm import TVMBackend as Backend

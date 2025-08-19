@@ -7,4 +7,5 @@ mkdocs-material
 mkdocstrings-python
 mypy==1.15.0
 pytest
+pytest-xdist
 pyright==1.1.402

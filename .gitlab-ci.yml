@@ -42,15 +42,9 @@ test-xtc:
     - pip3 install -r tvm_requirements.txt
     - pip3 install -r jir_requirements.txt
     - pip list
-    - pyright
-    - mypy
     - COV=scripts/coverage/coverage_run.sh
-    - $COV lit -a tests/filecheck
-    - $COV pytest tests/unit
-    - $COV pytest tests/mlir
-    - $COV pytest tests/tvm
-    - $COV pytest tests/jir
-    - coverage combine
+    - $COV make check
+    - coverage combine >/dev/null
     - coverage report
     - mkdir -p artifacts/coverage
     - coverage xml -o artifacts/coverage/coverage.xml
