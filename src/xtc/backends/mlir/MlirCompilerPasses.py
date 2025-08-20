@@ -81,6 +81,8 @@ class MlirProgramInsertTransformPass:
                 [],
                 arg_attrs=[{"transform.readonly": UnitAttr.get()}],
             )
+        assert self._vecto_sequence is not None
+        assert self._named_sequence is not None
         with (
             InsertionPoint.at_block_begin(self._vecto_sequence.body),
             self._mlir_program.mlir_context,

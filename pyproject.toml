@@ -15,7 +15,7 @@ dev = [
     "mypy==1.15.0",
     "pytest",
     "pytest-xdist",
-    "pyright==1.1.402",
+    "pyright==1.1.403",
     "marimo==0.14.16",
 ]
 
@@ -53,9 +53,11 @@ reportArgumentType = "error"
 reportReturnType = "error"
 reportAbstractUsage = "error"
 reportUnusedExpression = false
+reportUnusedImport = "error"
+# Avoids error when modules are not installed (for instance tvm or jir)
+reportMissingImports = false
 # Those are too strict
 #reportMissingTypeArgument = "error"
-reportUnusedImport = "error"
 
 [tool.mypy]
 python_version = "3.10"
