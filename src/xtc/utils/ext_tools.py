@@ -24,7 +24,7 @@ transform_opts = [
     "transform-interpreter",
 ]
 
-lowering_opts = [
+lowering_llvm_opts = [
     "canonicalize",
     "cse",
     "sccp",
@@ -64,7 +64,34 @@ lowering_opts = [
     "sccp",
 ]
 
+lowering_std_opts = [
+    "canonicalize",
+    "cse",
+    "sccp",
+    # From complex control to the soup of basic blocks
+    "expand-strided-metadata",
+    "convert-linalg-to-loops",
+    "lower-affine",
+    "convert-vector-to-scf{full-unroll=true}",
+    "scf-forall-to-parallel",
+    "convert-scf-to-openmp",
+    "canonicalize",
+    "cse",
+    "sccp",
+    # "convert-scf-to-cf",
+    "canonicalize",
+    "cse",
+    "sccp",
+    # Memory accesses
+    "buffer-results-to-out-params",
+    "canonicalize",
+    "cse",
+    "sccp",
+]
+
 mlirtranslate_opts = ["--mlir-to-llvmir"]
+
+xtctranslate_opts = ["--mlir-to-c"]
 
 llc_opts = [
     "-O3",
@@ -72,6 +99,8 @@ llc_opts = [
 ]
 
 opt_opts = ["-O3", "--enable-unsafe-fp-math", "--fp-contract=fast"]
+
+target_cc_opts = ["-O3", "-ffast-math", "--fp-contract=fast"]
 
 cc_opts = ["-O3", "-march=native"]
 
@@ -99,6 +128,8 @@ mlirrunner_opts = [
 objdump_bin = "x86_64-linux-gnu-objdump"
 
 objdump_arm_bin = "aarch64-linux-gnu-objdump"
+
+target_cc_bin = "cc"
 
 cc_bin = "cc"
 

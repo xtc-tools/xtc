@@ -1,5 +1,4 @@
 # RUN: python %s 2>&1 | filecheck %s
-
 import xtc.graphs.xtc.op as O
 from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend as Backend
 

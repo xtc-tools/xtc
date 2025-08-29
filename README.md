@@ -88,6 +88,14 @@ It is installed automatically using the mlir_requirements.txt file.
 For manual building and installation, please follow the README at https://gitlab.inria.fr/CORSE/xtc-mlir.
 Note: The prebuilt XTC-MLIR package comes with its own version of the libLLVM.so
 
+#### MLIR Targets
+
+XTC supports multiple MLIR Targets for the code generation:
+  - llvmir (default)
+  - c
+
+To force the use of a specific target, you can set the env variable XTC_MLIR_TARGET=<mlir-target>.
+
 ### TVM backend requirements
 
 In order to use the tvm backend, install the python packages for TVM dependencies

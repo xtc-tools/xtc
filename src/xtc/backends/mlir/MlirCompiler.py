@@ -22,14 +22,18 @@ from xtc.backends.mlir.MlirCompilerPasses import (
     MlirProgramApplyTransformPass,
 )
 
-import xtc.backends.mlir.MlirTarget as mlir_target
+from xtc.backends.mlir.MlirTarget import (
+    MlirTarget,
+    get_target_from_name,
+    get_default_target,
+)
 
 
 class MlirCompiler(itf.comp.Compiler):
     def __init__(
         self,
         backend: "backend.MlirBackend",
-        target: "mlir_target.MlirTarget|None" = None,
+        target: str | None = None,
         **kwargs: Any,
     ):
         self._backend = backend
@@ -37,12 +41,9 @@ class MlirCompiler(itf.comp.Compiler):
         self.dump_file = kwargs.pop("dump_file", None)
         self._config = MlirConfig(**kwargs)
         if target is None:
-            # FIXME mypy doesn't understand that MlirLLVMTarget is derived from MlirTarget
-            self._target = cast(
-                mlir_target.MlirTarget, mlir_target.MlirLLVMTarget(self._config)
-            )
+            self._target = get_default_target()(self._config)
         else:
-            self._target = target
+            self._target = get_target_from_name(target)(self._config)
         assert self._target is not None
         self._compiler_kwargs = kwargs
 
@@ -52,7 +53,7 @@ class MlirCompiler(itf.comp.Compiler):
         return self._backend
 
     @property
-    def target(self) -> mlir_target.MlirTarget:
+    def target(self) -> MlirTarget:
         return self._target
 
     @override
@@ -109,7 +110,7 @@ class MlirProgramCompiler:
     def __init__(
         self,
         config: MlirConfig,
-        target: mlir_target.MlirTarget,
+        target: MlirTarget,
         mlir_program: RawMlirProgram,
         mlir_schedule: MlirSchedule | None = None,
         **kwargs: Any,

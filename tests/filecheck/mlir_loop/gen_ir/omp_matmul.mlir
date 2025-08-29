@@ -23,7 +23,7 @@ func.func @myfun(
 }
 // CHECK:      omp.parallel {
 // CHECK-NEXT: omp.wsloop {
-// CHECK-NEXT: omp.loop_nest (%{{.*}}) : i64 = (%{{.*}}) to (%{{.*}}) step (%{{.*}}) {
+// CHECK-NEXT: omp.loop_nest (%{{.*}}) : {{i64|index}} = (%{{.*}}) to (%{{.*}}) step (%{{.*}}) {
 // CHECK-NEXT: omp.yield
 // CHECK-NEXT: omp.terminator
 // CHECK-NEXT: omp.terminator

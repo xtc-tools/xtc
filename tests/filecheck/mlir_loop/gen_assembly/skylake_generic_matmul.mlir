@@ -1,4 +1,6 @@
 // RUN: mlir-loop --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps %s 2>&1 | filecheck %s
+// UNSUPPORTED: mlir-target=c
+// Assembly output will differ a bit when using C.
 
 func.func @myfun(
   %A: memref<256x512xf32>,

@@ -1,4 +1,6 @@
 // RUN: mlir-loop --no-alias --arch aarch64 --cpu apple-m2 --print-assembly --hide-jumps %s 2>&1 | filecheck %s
+// UNSUPPORTED: mlir-target=c
+// Missing a C cross compiler as dependancy.
 
 func.func @myfun(
   %A: memref<4x4xf32>,
