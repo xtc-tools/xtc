@@ -476,5 +476,5 @@ class XTCOperTranspose(XTCOperator):
             dims={"i": i},
             kinds=("P",),
             inps_maps=(("i",)),
-            outs_maps=(("i",)),
+            outs_maps=(("i",)),  # TODO: invalid
         )
