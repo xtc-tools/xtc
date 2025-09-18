@@ -6,6 +6,7 @@ from typing import Any
 
 from .graph import XTCGraph
 from .context import XTCGraphContext
+from .expr import XTCExpr
 
 
 class graph_builder:
@@ -25,3 +26,9 @@ class graph_builder:
     def graph(self) -> XTCGraph:
         assert self._graph is not None, "can't get graph inside builder context"
         return self._graph
+
+    def set_outputs(self, *outs: XTCExpr) -> None:
+        return XTCGraphContext.current.set_outputs(*outs)
+
+    def set_inputs(self, *inps: XTCExpr) -> None:
+        return XTCGraphContext.current.set_inputs(*inps)
