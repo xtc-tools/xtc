@@ -15,6 +15,7 @@ Though most strategies are supported for all backends for matmult.
 
 """
 
+from abc import abstractmethod
 import sys
 import os
 import argparse
@@ -33,7 +34,10 @@ from pathlib import Path
 from collections.abc import Sequence, Mapping
 from typing import Any, TypeAlias, cast
 from typing_extensions import override
+import json
+import platform
 
+from xtc.graphs.xtc.graph import XTCGraph
 from xtc.itf.back import Backend
 from xtc.itf.graph import Graph
 from xtc.itf.comp import Module
@@ -262,7 +266,8 @@ def load_and_evaluate_sample(
 
     result = (in_x, code, time, backend)
     if callbacks and "result" in callbacks:
-        callbacks["result"](result)
+        for callback in callbacks["result"]:
+            callback(result)
     return result
 
 
@@ -530,6 +535,57 @@ def peak_time(args: NS) -> float:
     return time
 
 
+class ResultCallBack:
+    @abstractmethod
+    def __call__(self, result: Sequence) -> None: ...
+
+
+class DBCallback(ResultCallBack):
+    def __init__(
+        self,
+        dbfile: str,
+        target: str,
+        threads: int,
+        strategy: str,
+    ) -> None:
+        self._dbfile = dbfile
+        self._target = target
+        self._threads = threads
+        self._version = ["v0.1"]
+        self._platform = [platform.node(), platform.system(), platform.machine()]
+        self._strategy: list[Any] | None = None
+        self._operator: list[Any] | None = None
+        strategy_signature = [strategy_name(strategy)]  # TODO: move to strategy
+        self._strategy = ["xtc.strategy", *strategy_signature]
+
+    def set_graph(self, graph: XTCGraph):
+        assert len(graph.nodes) == 1, f"Only support recording of single node graph"
+        signature = graph.outputs_nodes[0].operation.signature
+        self._operator = ["xtc.operator", *signature]
+
+    def _write_result(self, result: Sequence) -> None:
+        x, code, time, backend = result
+        if code != 0:
+            time = 0
+        compiler = ["xtc", "v0.2.dev1", self._target, self._threads, backend]
+        log = dict(
+            version=self._version,
+            platform=self._platform,
+            compiler=compiler,
+            operator=self._operator,
+            strategy=self._strategy,
+            schedule=list(x),
+            results=[int(code), [float(time)]],
+        )
+        log_json = json.dumps(log)
+        with open(self._dbfile, "a") as outf:
+            print(log_json, flush=True, file=outf)
+
+    @override
+    def __call__(self, result: Sequence) -> None:
+        self._write_result(result)
+
+
 class CSVCallback:
     def __init__(self, fname: str, peak_time: float, sample_names: list[str]) -> None:
         self._fname = fname
@@ -564,6 +620,7 @@ class CSVCallback:
         logger.debug(f"Record row: {row}")
         self._write_row(row)
 
+    @override
     def __call__(self, result: Sequence) -> None:
         self._write_result(result)
 
@@ -581,11 +638,8 @@ def search_some(strategy: Strategy, graph: Graph, args: NS):
         args.quiet,
         args.operator,
     )
-    ptime = peak_time(args)
-    sample_names = strategy.sample_names
-    result_callback = CSVCallback(args.output, ptime, sample_names)
     callbacks = {
-        "result": result_callback,
+        "result": args.result_callbacks,
         "search": search_callback,
     }
     if args.search in ["exhaustive", "random"]:
@@ -613,6 +667,8 @@ def optimize(args: NS):
     op_args = (*dims, dtype)
     graph = OPERATORS[args.operator]["operation"](*op_args, name=args.func_name)
     strategy = get_strategy(graph, args)
+    if args.db_file:
+        args.db_callback.set_graph(graph)  # TODO: fix, not really clean
     if args.test or args.opt_level in [0, 1, 2, 3]:
         schedule = args.test
         if not schedule:
@@ -625,18 +681,15 @@ def optimize(args: NS):
             args.quiet,
             args.operator,
         )
-        ptime = peak_time(args)
-        sample_names = strategy.sample_names
-        result_callback = CSVCallback(args.output, ptime, sample_names)
         callbacks = {
-            "result": result_callback,
+            "result": args.result_callbacks,
             "search": search_callback,
         }
         evaluate_sample(strategy, schedule, graph, args, callbacks=callbacks)
-        for row in result_callback._rows:
+        for row in args.csv_callback._rows:
             in_x, time, peak, backend = row[-4:]
             tqdm.write(
-                f"Schedule: {backend}: {in_x}: time: {time * 1000:.2f} msecs, peak perf: {peak * 100:.2f}%"
+                f"Schedule: {backend}: {in_x}: time: {time * 1000:.3f} msecs, peak perf: {peak * 100:.2f}%"
             )
     else:
         search_some(strategy, graph, args)
@@ -787,6 +840,21 @@ def setup_args(args: NS):
     # otherwise the import of tvm breaks the MLIR python bindings
     args.backends = sorted(args.backends)
 
+    # Setup Callbacks
+    args.peak_time = peak_time(args)
+    sample_names = []  # TODO
+    args.csv_callback = CSVCallback(args.output, args.peak_time, sample_names)
+    result_callbacks: list[ResultCallBack] = [args.csv_callback]
+    if args.db_file:
+        args.db_callback = DBCallback(
+            args.db_file,
+            "native",
+            args.threads,
+            args.strategy,
+        )
+        result_callbacks.append(args.db_callback)
+    args.result_callbacks = result_callbacks
+
 
 def launch_child(argv: Sequence[str], args: NS):
     env = {}
@@ -900,6 +968,11 @@ def main():
     parser.add_argument("--seed", type=int, default=0, help="seed")
     parser.add_argument(
         "--output", type=str, default="results.csv", help="output csv file for search"
+    )
+    parser.add_argument(
+        "--db-file",
+        type=str,
+        help="output json db, for instance: xtc-operators-db.json",
     )
     parser.add_argument(
         "--eval", type=str, choices=["eval"], default="eval", help="evaluation method"

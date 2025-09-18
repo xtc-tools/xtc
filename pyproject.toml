@@ -35,6 +35,7 @@ mlir-loop = "xtc.cli.mlir_loop:main"
 mlir-backend = "xtc.cli.mlir_backend:main"
 loop-display = "xtc.cli.display_results:main"
 loop-explore = "xtc.cli.explore:main"
+db-results = "xtc.cli.db_results:main"
 
 [build-system]
 requires = ["setuptools>=64", "wheel"]
