@@ -251,7 +251,7 @@ class XTCOperConv2D(XTCOperator):
     def forward_types(
         self, inputs_types: Sequence[TensorType]
     ) -> Sequence[XTCTensorType]:
-        # TODO: assume (HWC, RSCF) inputs and HWF output
+        # TODO: assume (NHWC, RSCF) inputs and HWF output
         assert len(inputs_types) == 2
         assert inputs_types[0].shape is not None
         assert inputs_types[1].shape is not None
@@ -261,7 +261,7 @@ class XTCOperConv2D(XTCOperator):
         weight_shape = cast(XTCTensorType, inputs_types[1]).constant_shape
         h, w, c = inp_shape[-3:]
         r, s, wc, f = weight_shape
-        assert c == wc
+        assert c == wc, f"unexpected with shapes: {inp_shape = }, {weight_shape = }"
         sh, sw = self._stride
         oh, ow = (h - r) // sh + 1, (w - s) // sw + 1
         return [
@@ -297,26 +297,22 @@ class XTCOperConv2D(XTCOperator):
 
 class XTCOperPad2D(XTCOperator):
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
-        super().__init__("pad2d", **attrs)
-        if "padding" not in attrs:
-            self._padding = (0, 0, 0, 0)
+        padding = attrs.get("padding", (0, 0, 0, 0))
+        if isinstance(padding, int):
+            padding = (padding, padding, padding, padding)
         else:
-            padding = self.attrs.padding
-            if isinstance(padding, int):
-                self._padding = (padding, padding, padding, padding)
+            assert isinstance(padding, tuple), (
+                f"padding for pad2d of wrong type, expect int or tuple: {padding}"
+            )
+            if len(padding) == 1:
+                padding = (padding[0], padding[0], padding[0], padding[0])
+            elif len(padding) == 2:
+                padding = (padding[0], padding[0], padding[1], padding[1])
             else:
-                assert isinstance(padding, tuple), (
-                    f"padding for pad2d of wrong type, expect int or tuple: {padding}"
+                assert len(padding) == 4, (
+                    f"padding for pad2d of wrong size, expected 1, 2 or 4: {padding}"
                 )
-                if len(padding) == 1:
-                    self._padding = (padding[0], padding[0], padding[0], padding[0])
-                elif len(padding) == 2:
-                    self._padding = (padding[0], padding[0], padding[1], padding[1])
-                else:
-                    assert len(padding) == 4, (
-                        f"padding for pad2d of wrong size, expected 1, 2 or 4: {padding}"
-                    )
-                    self._padding = padding
+        super().__init__("pad2d", padding=padding)
 
     @override
     def get_operation(
@@ -326,18 +322,19 @@ class XTCOperPad2D(XTCOperator):
     ) -> XTCOperation:
         inp_shape = inps_types[0].constant_shape
         assert len(inp_shape) >= 3
+        padding = self.attrs.padding
         b = functools.reduce(operator.mul, inp_shape[:-3], 1)
         oh, ow, c = (
-            inp_shape[-3] + self._padding[0] + self._padding[1],
-            inp_shape[-2] + self._padding[2] + self._padding[3],
-            inp_shape[-2],
+            inp_shape[-3] + padding[0] + padding[1],
+            inp_shape[-2] + padding[2] + padding[3],
+            inp_shape[-1],
         )
         return self._get_operation(
             inps_types,
             outs_types,
             dims={"b": b, "h": oh, "w": ow, "c": c},
             kinds=("P", "P", "P", "P"),
-            inps_maps=(("b", f"h-{self._padding[0]}", f"w-{self._padding[2]}", "c"),),
+            inps_maps=(("b", f"h-{padding[0]}", f"w-{padding[2]}", "c"),),
             outs_maps=(("b", "h", "w", "c"),),
         )
 
@@ -345,19 +342,20 @@ class XTCOperPad2D(XTCOperator):
     def forward_types(
         self, inputs_types: Sequence[TensorType]
     ) -> Sequence[XTCTensorType]:
-        # TODO: assume HWC input
+        # TODO: assume NHWC input
         assert len(inputs_types) == 1
         assert inputs_types[0].shape is not None
         assert len(inputs_types[0].shape) >= 3
         shape = cast(XTCTensorType, inputs_types[0]).constant_shape
+        padding = self.attrs.padding
         return [
             XTCTensorType(
                 shape=tuple(
                     [
-                        *inputs_types[0].shape[:-3],
-                        shape[-3] + self._padding[0] + self._padding[1],
-                        shape[-2] + self._padding[2] + self._padding[3],
-                        inputs_types[0].shape[-1],
+                        *shape[:-3],
+                        shape[-3] + padding[0] + padding[1],
+                        shape[-2] + padding[2] + padding[3],
+                        shape[-1],
                     ]
                 ),
                 dtype=inputs_types[0].dtype,
@@ -366,12 +364,10 @@ class XTCOperPad2D(XTCOperator):
 
     @override
     def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
-        inp_shape = cast(XTCTensorType, inputs[0].type).constant_shape
-        pad_2d = [
-            (self._padding[0], self._padding[1]),
-            (self._padding[2], self._padding[3]),
-        ]
-        pads = [(0, 0) for _ in range(len(inp_shape) - 3)] + pad_2d + [(0, 0)]
+        shape = cast(XTCTensorType, inputs[0].type).constant_shape
+        padding = self.attrs.padding
+        pad_2d = [(padding[0], padding[1]), (padding[2], padding[3])]
+        pads = [(0, 0) for _ in range(len(shape) - 3)] + pad_2d + [(0, 0)]
         padded = XTCTensor(data=np.pad(inputs[0].numpy(), pads))
         expected_type = self.forward_types([inp.type for inp in inputs])[0]
         assert padded.type == expected_type, (
@@ -431,3 +427,54 @@ class XTCOperReshape(XTCOperator):
             f"output type mismatch expect: {reshaped.type} != {expected_type}"
         )
         return [reshaped]
+
+
+class XTCOperTranspose(XTCOperator):
+    def __init__(self, **attrs: XTCOperatorAttr) -> None:
+        axes = attrs.get("axes", ())
+        super().__init__("transpose", axes=axes)
+
+    @override
+    def forward_types(
+        self, inputs_types: Sequence[TensorType]
+    ) -> Sequence[XTCTensorType]:
+        assert inputs_types[0].shape is not None
+        shape = cast(XTCTensorType, inputs_types[0]).constant_shape
+        if self.attrs.axes == ():
+            out_shape = shape[::-1]
+        else:
+            assert len(self.attrs.axes) == len(shape)
+            out_shape = tuple([shape[n] for n in self.attrs.axes])
+        return [
+            XTCTensorType(
+                shape=out_shape,
+                dtype=inputs_types[0].dtype,
+            ),
+        ]
+
+    @override
+    def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
+        axes = self.attrs.axes if self.attrs.axes != () else None
+        transposed = XTCTensor(inputs[0].numpy().transpose(axes))
+        expected_type = self.forward_types([inp.type for inp in inputs])[0]
+        assert transposed.type == expected_type, (
+            f"output type mismatch expect: {transposed.type} != {expected_type}"
+        )
+        return [transposed]
+
+    @override
+    def get_operation(
+        self,
+        inps_types: Sequence[XTCTensorType],
+        outs_types: Sequence[XTCTensorType],
+    ) -> XTCOperation:
+        inp_shape = inps_types[0].constant_shape
+        i = functools.reduce(operator.mul, inp_shape, 1)
+        return self._get_operation(
+            inps_types,
+            outs_types,
+            dims={"i": i},
+            kinds=("P",),
+            inps_maps=(("i",)),
+            outs_maps=(("i",)),  # TODO: invalid
+        )

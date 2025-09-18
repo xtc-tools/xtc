@@ -2,12 +2,13 @@
 
 import xtc.graphs.xtc.op as O
 
-i = O.tensor()
-k = O.tensor()
+i = O.tensor() # format NHWC
+k = O.tensor() # format OHWI
 
 with O.graph(name="conv_relu") as gb:
-    p = O.pad2d(i, padding=1)
-    c = O.conv2d(p, k, stride=(2, 2))
+    p = O.pad2d(i, padding=2)
+    t = O.transpose(k, axes=(1, 2, 3, 0))
+    c = O.conv2d(p, t, stride=(2, 2))
     O.relu(c, threshold=0.1)
 
 graph = gb.graph
@@ -16,11 +17,11 @@ print(graph)
 import xtc.graphs.xtc.ty as T
 
 inp_types = [
-    T.TensorType((2, 4, 4, 3), "float32"),
-    T.TensorType((3, 3, 3, 8), "float32"),
+    T.TensorType((2, 6, 6, 3), "float32"),
+    T.TensorType((8, 5, 5, 3), "float32"),
 ]
 out_types = graph.forward_types(inp_types)
-print(out_types)
+print(graph)
 
 from xtc.utils.numpy import np_init
 
@@ -35,12 +36,25 @@ print(f"Outputs: {outs}")
 # CHECK-NEXT:    - %0
 # CHECK-NEXT:    - %1
 # CHECK-NEXT:    outputs:
-# CHECK-NEXT:    - %4
+# CHECK-NEXT:    - %5
 # CHECK-NEXT:    nodes:
-# CHECK-NEXT:    - %2: pad2d(%0, padding=1)
-# CHECK-NEXT:    - %3: conv2d(%2, %1, stride=(2, 2))
-# CHECK-NEXT:    - %4: relu(%3, threshold=0.1)
+# CHECK-NEXT:    - %2: pad2d(%0, padding=(2, 2, 2, 2))
+# CHECK-NEXT:    - %3: transpose(%1, axes=(1, 2, 3, 0))
+# CHECK-NEXT:    - %4: conv2d(%2, %3, stride=(2, 2))
+# CHECK-NEXT:    - %5: relu(%4, threshold=0.1)
 # CHECK-NEXT:  
-# CHECK-NEXT:  [2x2x2x8xfloat32]
-# CHECK-NEXT:  Inputs: [Tensor(type=2x4x4x3xfloat32, data=-4 -3 -2 -1...-2 -1 0 1), Tensor(type=3x3x3x8xfloat32, data=-4 -3 -2 -1...1 2 3 4)]
-# CHECK-NEXT:  Outputs: [Tensor(type=2x2x2x8xfloat32, data=0.1 0.1 0.1 10...9 0.1 9 9)]
+# CHECK-NEXT:  graph:
+# CHECK-NEXT:    name: conv_relu
+# CHECK-NEXT:    inputs:
+# CHECK-NEXT:    - %0 : 2x6x6x3xfloat32
+# CHECK-NEXT:    - %1 : 8x5x5x3xfloat32
+# CHECK-NEXT:    outputs:
+# CHECK-NEXT:    - %5 : 2x3x3x8xfloat32
+# CHECK-NEXT:    nodes:
+# CHECK-NEXT:    - %2: pad2d(%0, padding=(2, 2, 2, 2)) : [2x6x6x3xfloat32] -> [2x10x10x3xfloat32]
+# CHECK-NEXT:    - %3: transpose(%1, axes=(1, 2, 3, 0)) : [8x5x5x3xfloat32] -> [5x5x3x8xfloat32]
+# CHECK-NEXT:    - %4: conv2d(%2, %3, stride=(2, 2)) : [2x10x10x3xfloat32, 5x5x3x8xfloat32] -> [2x3x3x8xfloat32]
+# CHECK-NEXT:    - %5: relu(%4, threshold=0.1) : [2x3x3x8xfloat32] -> [2x3x3x8xfloat32]
+# CHECK-NEXT:  
+# CHECK-NEXT:  Inputs: [Tensor(type=2x6x6x3xfloat32, data=-4 -3 -2 -1...1 2 3 4), Tensor(type=8x5x5x3xfloat32, data=-4 -3 -2 -1...-2 -1 0 1)]
+# CHECK-NEXT:  Outputs: [Tensor(type=2x3x3x8xfloat32, data=18 18 18 18...5 113 0.1 5)]

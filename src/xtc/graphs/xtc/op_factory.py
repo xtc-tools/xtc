@@ -14,6 +14,7 @@ from .expr import (
     XTCConv2DExpr,
     XTCPad2DExpr,
     XTCReshapeExpr,
+    XTCTransposeExpr,
 )
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "pad2d",
     "relu",
     "reshape",
+    "transpose",
     "tensor",
     "inputs",
     "outputs",
@@ -62,6 +64,13 @@ def relu(inp: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
 def reshape(inp: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
     return XTCGraphContext.append(
         XTCReshapeExpr(inp, **attrs),
+        name=name,
+    )
+
+
+def transpose(inp: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
+    return XTCGraphContext.append(
+        XTCTransposeExpr(inp, **attrs),
         name=name,
     )
 

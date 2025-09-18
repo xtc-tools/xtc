@@ -19,6 +19,7 @@ from .operators import (
     XTCOperConv2D,
     XTCOperPad2D,
     XTCOperReshape,
+    XTCOperTranspose,
 )
 
 __all__ = [
@@ -253,3 +254,8 @@ class XTCPad2DExpr(XTCOpExpr):
 class XTCReshapeExpr(XTCOpExpr):
     def __init__(self, x: XTCExpr, **attrs: Any) -> None:
         super().__init__(XTCOperReshape(**attrs), (x,))
+
+
+class XTCTransposeExpr(XTCOpExpr):
+    def __init__(self, x: XTCExpr, **attrs: Any) -> None:
+        super().__init__(XTCOperTranspose(**attrs), (x,))

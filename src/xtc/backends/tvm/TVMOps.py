@@ -26,6 +26,7 @@ import tvm.te as te
 import tvm.topi as topi
 
 TETensor: TypeAlias = Any  # Use instead of te.Tensor to avoids type errors
+TEIndexVar: TypeAlias = Any
 
 
 def get_tvm_native_target_options() -> str:
@@ -167,7 +168,10 @@ class TVMBaseExpr(ABC):
         dims = xtc_op.dims.values()
         dtype = xtc_op.inputs_types[0].dtype  # TODO: infer dtype form first input
         args = tuple([*dims, dtype])
-        attrs = xtc_op.attrs
+        attrs = dict(xtc_op.attrs)
+        attrs.update(
+            dict(inp_shape=xtc_op.inputs_types[0].shape)
+        )  # TODO: work around to pass shape
         return TVMOperation(
             TVMOperators.from_name(xtc_op.name),
             args,
@@ -574,6 +578,154 @@ class TVMOperatorConv2D(TVMOperator):
         return (dtype,)
 
 
+class TVMOperatorPad2D(TVMOperator):
+    DEFAULT_NAME = "pad2d"
+    AXES = "bhwc"
+    KINDS = "PPPP"
+
+    def __init__(
+        self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
+    ) -> None:
+        attrs = {**attrs}
+        super().__init__(args, attrs, name)
+
+    @override
+    def dims(self, kind: str = "") -> tuple[str, ...]:
+        return self._dims(kind)
+
+    @override
+    def dims_sizes(self) -> dict[str, int]:
+        return {axis: size for axis, size in zip(["b", "h", "w", "c"], self.args[:3])}
+
+    @override
+    def generate_op(
+        self, inputs: Sequence[TETensor] | None = None
+    ) -> tuple[TETensor, ...]:
+        b, h, w, c, dtype = self.args
+        hb, he, wb, we = self.attrs["padding"]
+        ha, wa = h - hb - he, w - wb - we
+        if inputs is None:
+            A = te.placeholder((b, ha, wa, c), name="A", dtype=dtype)
+        else:
+            (A,) = inputs
+        O = te.compute(
+            (b, h, w, c),
+            lambda bi, hi, wi, ci: (
+                tvm.tir.if_then_else(
+                    tvm.tir.all(
+                        hi - hb >= 0,
+                        hi - hb < ha,
+                        wi - wb >= 0,
+                        wi - wb < wa,
+                    ),
+                    A[bi, hi - hb, wi - wb, ci],
+                    0,
+                )
+            ),
+            name=self.name,
+        )
+        return A, O
+
+    @override
+    def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        b, h, w, c = self.args[:4]
+        hb, he, wb, we = self.attrs["padding"]
+        return ((b, h - hb - he, w - wb - we, c),)
+
+    @override
+    def inputs_types(self) -> tuple[str, ...]:
+        _, dtype = self.args
+        return (dtype,)
+
+    @override
+    def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        b, h, w, c, _ = self.args
+        return ((b, h, w, c),)
+
+    @override
+    def outputs_types(self) -> tuple[str, ...]:
+        _, dtype = self.args
+        return (dtype,)
+
+
+class TVMOperatorTranspose(TVMOperator):
+    DEFAULT_NAME = "transpose"
+    AXES = "i"
+    KINDS = "P"
+
+    def __init__(
+        self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
+    ) -> None:
+        attrs = {**attrs}
+        super().__init__(args, attrs, name)
+
+    @override
+    def dims(self, kind: str = "") -> tuple[str, ...]:
+        return self._dims(kind)
+
+    @override
+    def dims_sizes(self) -> dict[str, int]:
+        i, _ = self.args
+        return {"i": i}
+
+    @override
+    def generate_op(
+        self, inputs: Sequence[TETensor] | None = None
+    ) -> tuple[TETensor, ...]:
+        i, dtype = self.args
+        if inputs is None:
+            A = te.placeholder(self.attrs["inp_shape"], name="A", dtype=dtype)
+        else:
+            (A,) = inputs
+        shape = A.shape
+        axes = self.attrs["axes"]
+        if axes == ():
+            axes = list(range(len(A.shape)))[::-1]
+        assert len(axes) == len(shape)
+        out_shape = tuple([shape[n] for n in axes])
+        in_axes = {o: i for i, o in enumerate(axes)}
+
+        def transpose_i(*ivs: TEIndexVar):
+            ii = ivs[0]
+            out_indices = []
+            div = 1
+            for size in out_shape[::-1]:
+                out_indices.append(ii // div % size)
+                div *= size
+            out_indices = out_indices[::-1]
+            indices = [out_indices[in_axes[axis]] for axis in range(len(shape))]
+            return A(*indices)
+
+        O = te.compute((i,), transpose_i, name=self.name)
+        if out_shape != (i,):
+            O = topi.reshape(O, newshape=out_shape)
+        return A, O
+
+    @override
+    def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        shape = self.attrs["inp_shape"]
+        return (shape,)
+
+    @override
+    def inputs_types(self) -> tuple[str, ...]:
+        _, dtype = self.args
+        return (dtype,)
+
+    @override
+    def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        shape = self.attrs["inp_shape"]
+        axes = self.attrs["axes"]
+        if axes == ():
+            axes = list(range(len(shape)))[::-1]
+        out_shape = tuple([shape[n] for n in axes])
+        return (out_shape,)
+
+    @override
+    def outputs_types(self) -> tuple[str, ...]:
+        _, dtype = self.args
+        return (dtype,)
+
+
 class TVMOperators:
     @classmethod
     def from_name(cls, name: str) -> Type[TVMOperator]:
@@ -583,3 +735,5 @@ class TVMOperators:
     matmul = TVMOperatorMatmul
     relu = TVMOperatorRelu
     conv2d = TVMOperatorConv2D
+    pad2d = TVMOperatorPad2D
+    transpose = TVMOperatorTranspose
