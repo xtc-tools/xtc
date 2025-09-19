@@ -45,6 +45,7 @@ def test_get_descr_sched_graph_1():
   
   str_descriptor = get_descr_sched(scheme, comp, machine, True)
   expected_str = """{
+"n": {},
 "r": {},
 "s": {},
 "h": {},
@@ -74,7 +75,7 @@ def test_get_descr_sched_graph_2():
   str_descriptor = get_descr_sched(scheme, comp, machine, True)
   d_desc = eval(str_descriptor)
   
-  str_expected = "{'w[0:160]': {'w#160': {}, 'w#80': {}, 's': {}, 'w#20': {}, 'h': {}, 'r': {}, 'c': {}, 'w#10': {}, 'h#68': {}, 'h#34': {}, 'c#16': {}, 'c#2': {'unroll': 2}, 'w#5': {'unroll': 5}, 'f': {'unroll': 64}, 'f#16': {'vectorize': None}}, 'w[160:272]': {'w#112': {}, 's': {}, 'w#28': {}, 'h': {}, 'r': {}, 'c': {}, 'w#14': {}, 'h#68': {}, 'h#34': {}, 'c#16': {}, 'c#2': {'unroll': 2}, 'w#7': {'unroll': 7}, 'f': {'unroll': 64}, 'f#16': {'vectorize': None}}}"
+  str_expected = "{'n': {}, 'w[0:160]': {'w#160': {}, 'w#80': {}, 's': {}, 'w#20': {}, 'h': {}, 'r': {}, 'c': {}, 'w#10': {}, 'h#68': {}, 'h#34': {}, 'c#16': {}, 'c#2': {'unroll': 2}, 'w#5': {'unroll': 5}, 'f': {'unroll': 64}, 'f#16': {'vectorize': None}}, 'w[160:272]': {'w#112': {}, 's': {}, 'w#28': {}, 'h': {}, 'r': {}, 'c': {}, 'w#14': {}, 'h#68': {}, 'h#34': {}, 'c#16': {}, 'c#2': {'unroll': 2}, 'w#7': {'unroll': 7}, 'f': {'unroll': 64}, 'f#16': {'vectorize': None}}}"
   
   assert(str(d_desc) == str_expected)
   return
@@ -148,6 +149,7 @@ def test_build_xdsl_module_string_conv():
      attrs = {
       loop.dims = ["n","h","w","f","r","s","c"],
       loop.schedule = {
+"n",
 "r",
 "s",
 "h",
@@ -210,7 +212,7 @@ def test_launch_and_measure_scheme_matmul_2():
 # WARNING - actual execution on a machine. This was done on "laptop_guillaume_machine"
 def test_launch_and_measure_scheme_conv():
   comp = Computation(Computation_spec.CONV, 4)  # f32
-  dsizes = {"f" : 64, "c": 32, "h": 1, "w": 1, "r": 1, "s": 1, "strx": 1, "stry": 1}
+  dsizes = {"n": 1, "f" : 64, "c": 32, "h": 1, "w": 1, "r": 1, "s": 1, "strx": 1, "stry": 1}
   str_scheme = "[V (F, 16); U (F, 2); U (C, 4); T (C, 16); (T (F, 2))]"
   scheme = build_scheme_from_str(str_scheme)
   machine = laptop_guillaume_machine
@@ -321,7 +323,7 @@ def test_launch_and_measure_scheme_graph_interf_matmul_partial_parall():
 	
 	dsizes = {'i': 112, 'j': 32, 'k': 64 }
 	
-	backend = "mlir" # Note: cannot be mlir since divisibility is required
+	backend = "mlir"
 
 	res = launch_and_measure_scheme_graph_interf(comp, machine, scheme, dsizes, backend)
 	

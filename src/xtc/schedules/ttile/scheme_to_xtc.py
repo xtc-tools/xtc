@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-import os
 import tempfile
+from pathlib import Path
+import subprocess
+import logging
 
 from typing import List, Dict, Tuple, Any
 
@@ -21,6 +23,7 @@ from xtc.schedules.ttile.scheme import (
     Atom,
     AtomType,
     convert_scheme_to_str,
+    new_tile_atom,
 )
 from xtc.schedules.ttile.scheme import get_sizes_scheme
 from xtc.schedules.ttile.scheme import (
@@ -42,6 +45,8 @@ from xtc.backends.tvm import TVMBackend as TVMBackend
 from xtc.schedules.descript import descript_scheduler
 
 from xtc.utils.cpu import cpu_peak_time
+
+logger = logging.getLogger(__name__)
 
 # NOTE: Don't forget to activate the venv of XTC
 
@@ -141,6 +146,9 @@ def _get_spec_atom_ratio(
 
 # [Main function] Generate a string corresponding to the schedule descriptor, from the Ttile specification
 #
+# When the Ttile specification does not refer to all dimensions, missing dimensions are
+# completed in the initial computation dimensions order.
+#
 # Inputs:
 #  - scheme: the Ttile scheme (str)
 #  - comp: the considered computation
@@ -153,6 +161,14 @@ def get_descr_sched(
     scheme: List[Atom], comp: Computation, machine: Archi, b_is_graph_interface: bool
 ):
     ldims = get_ldims_computation(comp)
+
+    ldims_set = set(ldims)
+    scheme_set = set([atom.dim for atom in scheme if atom.dim is not None])
+    assert scheme_set.issubset(ldims_set), f"{scheme_set=} not a subset of {ldims_set=}"
+
+    # Complete scheme
+    outer_dims = [dim for dim in ldims if dim not in scheme_set]
+    scheme = scheme + [new_tile_atom(dim, 1) for dim in outer_dims[::-1]]
 
     # Dictionnary: [lambda_loc] --> string of spec (to be "eval(...)")
     d_current_str_desc = dict()
@@ -625,32 +641,37 @@ def launch_and_measure_scheme(
     else:
         raise ValueError("launch_and_measure_scheme : Unknown computation spec.")
 
-    # Write it inside a temporary file
-    with tempfile.NamedTemporaryFile(mode="w", delete_on_close=False) as finput:
-        finput.write(str_input_xdsltransf)
-        finput.close()
+    logger.debug("launch_and_measure_scheme: mlir input:\n%s", str_input_xdsltransf)
 
-        # Number of elements inside a vector
-        vector_size_in_elem = int(machine.vector_size / comp.elem_size)
+    # Number of elements inside a vector
+    vector_size_in_elem = int(machine.vector_size / comp.elem_size)
+
+    # Write it inside a temporary file
+    with tempfile.TemporaryDirectory() as dir:
+        input_path = Path(dir) / "input.mlir"
+        with open(input_path, "w") as outf:
+            outf.write(str_input_xdsltransf)
 
         # Launch mlir-loop (from xdsl-transform) on this input, with the right options
-        with tempfile.NamedTemporaryFile(mode="r", delete_on_close=False) as ftime_meas:
-            cmd_xdsl_transf = f"mlir-loop {finput.name}"
-            # cmd_xdsl_transf += f" --llvm-dir={llvm_build_installation}"
-            cmd_xdsl_transf += f" --evaluate --no-alias --init-zero --vectors-size {vector_size_in_elem} "
-            cmd_xdsl_transf += f" > {ftime_meas.name}"
+        cmd_xdsl_transf = (
+            f"mlir-loop {input_path}"
+            # f" --llvm-dir={llvm_build_installation}"
+            f" --evaluate --no-alias --init-zero --vectors-size {vector_size_in_elem}"
+        )
 
-            # DEBUG
-            # print(cmd_xdsl_transf)
-            os.system(cmd_xdsl_transf)
+        logger.debug("launch_and_measure_scheme: executing cmd: %s", cmd_xdsl_transf)
 
-            # Note: possible to subst "mlir_loop" by "mlir_loop.py" if add the correct 2 lines at the end of its script.
+        p = subprocess.run(cmd_xdsl_transf, shell=True, text=True, capture_output=True)
+        if p.returncode != 0:
+            raise RuntimeError(
+                f"unable to run command: {cmd_xdsl_transf}\n"
+                f"stdout: {p.stdout}\n"
+                f"stderr: {p.stderr}\n"
+            )
 
-            # Recover the time
-            res_measurement = dict()
-            for line in ftime_meas:
-                res_measurement["time"] = float(line)
-    # Delete both temporary files
+    # Recover the time
+    res_measurement = dict()
+    res_measurement["time"] = float(p.stdout.strip())
 
     # Get the peak_perf
     # xdsl_transform got utils.py :: cpu_peak_time(ops: int, dtype: str, threads: int = 1)
@@ -665,9 +686,11 @@ def launch_and_measure_scheme(
         )
     peak_time = cpu_peak_time(num_ops, dtype)
 
-    # DEBUG
-    # print(f"measurement = {res_measurement['time']}")
-    # print(f"{peak_time=}")
+    logger.debug(
+        "launch_and_measure_scheme: peak_time: %s, measurement: %s",
+        peak_time,
+        res_measurement,
+    )
 
     # Compute peak_perf
     peak_perf = peak_time / res_measurement["time"]
@@ -688,21 +711,14 @@ def build_schedule_from_ttile(
     impl: Backend, comp: Computation, machine: Archi, scheme: List[Atom]
 ):
     sch = impl.get_scheduler()
-
-    # ldims: the dims that appears in the scheme
-    ldims = []
-    for atom in scheme:
-        if atom.dim not in ldims:
-            ldims.append(atom.dim)
-
+    ldims = get_ldims_computation(comp)
     name_op = str(comp.spec)
-
     str_descr_sched = get_descr_sched(scheme, comp, machine, True)
     spec_schedule = eval(str_descr_sched)
 
-    # DEBUG
-    # print(f"{spec_schedule=}")
-    # print(f"{ldims=}")
+    logger.debug(
+        "build_schedule_from_ttile: ldims: %s: spec_schedule: %s", ldims, spec_schedule
+    )
 
     descript_scheduler(
         scheduler=sch, node_name=name_op, abstract_axis=ldims, spec=spec_schedule
@@ -778,8 +794,7 @@ def launch_and_measure_scheme_graph_interf(
     # Build the graph
     graph = gb.graph
 
-    # DEBUG
-    # print(graph)
+    logger.debug("launch_and_measure_scheme_graph\n%s", graph)
 
     # Backend
     if backend == "mlir":
@@ -798,27 +813,24 @@ def launch_and_measure_scheme_graph_interf(
     compiler_args: dict[str, Any] = dict()
     evaluate_args: dict[str, Any] = dict()
 
-    compiler = impl_backend.get_compiler(
-        shared_lib=True,
-        dump_file=f"compiled_file_{backend}",
-        # *compiler_args
-        # Options for debugging: print_source_ir=True,  print_transformed_ir=True
-    )
-    module = compiler.compile(sched)
-    evaluator = module.get_evaluator(
-        validate=True,
-        # pmu_counters=pmu_counters
-        # *evaluate_args
-    )
-    results, code, error = evaluator.evaluate()
+    with tempfile.TemporaryDirectory() as dir:
+        dump_file = str(Path(dir) / f"compiled_file_{backend}")
+        compiler = impl_backend.get_compiler(
+            shared_lib=True,
+            dump_file=dump_file,
+            **compiler_args,
+            # Options for debugging: print_source_ir=True,  print_transformed_ir=True
+        )
+        module = compiler.compile(sched)
+        evaluator = module.get_evaluator(
+            validate=True,
+            **evaluate_args,
+            # pmu_counters=pmu_counters
+        )
+        results, code, error = evaluator.evaluate()
 
     assert len(results) == 1
     time = results[0]
-
-    # [OLD CODE]
-    # For debugging
-    # compiler_args["print_source_ir"] = True
-    # time = impl_backend.evaluate(sched, compiler_args, evaluate_args)
 
     res_measurement = dict()
     res_measurement["time"] = float(time)
@@ -827,13 +839,22 @@ def launch_and_measure_scheme_graph_interf(
     # xdsl_transform got utils.py :: cpu_peak_time(ops: int, dtype: str, threads: int = 1)
     num_ops = compute_number_ops(comp, dsizes)
     peak_time = cpu_peak_time(num_ops, dtype)
-
-    # DEBUG
-    # print(f"measurement = {res_measurement['time']}")
-    # print(f"{peak_time=}")
+    time = res_measurement["time"]
 
     # Compute peak_perf
-    peak_perf = peak_time / res_measurement["time"]
+    peak_perf = peak_time / time
+
+    logger.debug(
+        "launch_and_measure_scheme_graph: peak_time: %.3f ms, time: %.3f ms, "
+        "num_ops: %d, dtype: %s, "
+        "peak perf: %.2f%%",
+        peak_time * 1000,
+        time * 1000,
+        num_ops,
+        dtype,
+        peak_perf * 100,
+    )
+
     res_measurement["peak_perf"] = peak_perf
 
     return res_measurement
