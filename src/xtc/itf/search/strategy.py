@@ -121,3 +121,44 @@ class Strategy(ABC):
             The selected sample
         """
         ...
+
+    @property
+    @abstractmethod
+    def sample_names(self) -> list[str]:
+        """The names of the sample variables associated with the strategy.
+
+        The order of the names must correspond to the order of the values
+        in a sample.
+
+        Returns:
+            The list of the names of the sample variables.
+        """
+        ...
+
+    @abstractmethod
+    def dict_to_sample(self, sample: dict[str, Any]) -> Sample:
+        """Generates a VecSample from a given Sample.
+
+        The variables in the VecSample are in the order given by self.sample_names.
+
+        Args:
+            sample: The Sample to convert
+
+        Returns:
+            The equivalent VecSample
+        """
+        ...
+
+    @abstractmethod
+    def sample_to_dict(self, sample: Sample) -> dict[str, int]:
+        """Generates a Sample from a given VecSample.
+
+        The variables in the VecSample must be in the order given by self.sample_names.
+
+        Args:
+            sample: The VecSample to convert
+
+        Returns:
+            The equivalent Sample
+        """
+        ...

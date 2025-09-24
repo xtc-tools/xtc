@@ -38,6 +38,7 @@ class BaseStrategy(Strategy):
     def __init__(
         self,
         graph: Graph,
+        sample_names: list[str],
         vec_size: int = 16,
         max_unroll: int = 256,
         threads: int = 1,
@@ -45,6 +46,7 @@ class BaseStrategy(Strategy):
         **kwargs: Any,
     ) -> None:
         self._graph = graph
+        self._sample_names = sample_names
         self._vec_size = vec_size
         self._max_unroll = max_unroll
         self._threads = threads
@@ -64,6 +66,11 @@ class BaseStrategy(Strategy):
     @override
     def graph(self) -> Graph:
         return self._graph
+
+    @property
+    @override
+    def sample_names(self) -> list[str]:
+        return self._sample_names
 
     @override
     def generate(self, scheduler: Scheduler, sample: Sample) -> None:
@@ -85,6 +92,14 @@ class BaseStrategy(Strategy):
         assert num > 0
         assert seed is None or seed >= 0
         return self._sample(num, seed)
+
+    @override
+    def dict_to_sample(self, sample: dict[str, Any]) -> Sample:
+        return list(sample.values())
+
+    @override
+    def sample_to_dict(self, sample: Sample) -> dict[str, int]:
+        return dict(zip(self.sample_names, sample))
 
     @abstractmethod
     def _generate(self, sch: Scheduler, in_x: list[int]) -> None: ...
@@ -188,7 +203,7 @@ class Strategy_P1(BaseStrategy):
     """
 
     def __init__(self, graph: Graph, **kwargs: Any) -> None:
-        super().__init__(graph, **kwargs)
+        super().__init__(graph, ["ti", "tj", "tk", "order"], **kwargs)
 
         # TODO: for now limited to 3 axes i, j, k (i.e. matmul)
         # no need to be matmul specific as soon as
@@ -352,7 +367,7 @@ class BaseStrategyPRTScheme(BaseStrategy):
     """
 
     def __init__(self, graph: Graph, scheme: str, **kwargs: Any) -> None:
-        super().__init__(graph, **kwargs)
+        super().__init__(graph, [], **kwargs)
         self._scheme = scheme
         self._axes = list(self._op.dims)
         self._sizes = self._constant_sizes()
@@ -370,6 +385,7 @@ class BaseStrategyPRTScheme(BaseStrategy):
         self._parallel = self._init_parallel()
         self._unrolled = self._init_unrolled()
         self._vectorized = self._init_vectorized()
+        self._sample_names = self._init_sample_names()
         assert len(self._vectorized) <= 1
 
     def _init_order_tiles(
@@ -481,6 +497,11 @@ class BaseStrategyPRTScheme(BaseStrategy):
                 break
             parallel.append(axis)
         return parallel
+
+    def _init_sample_names(self) -> list[str]:
+        x_names = [f"x{i}" for i in range(self._x_size)]
+        w_names = [f"w{i}" for i in range(len(self._w_axes))]
+        return x_names + w_names
 
     def _vector_index(self) -> int | None:
         indexes = [self._tiles_idx[axis] for axis in self._vectorized]
