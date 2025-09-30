@@ -34,6 +34,7 @@ from .MlirProgram import RawMlirProgram
 from .MlirScheduler import MlirSchedule, MlirNodeSchedule
 
 _VECTO_SEQ_NAME = "_vecto"
+_SUPER_VECTORIZE_SEQ_NAME = "_super_vectorize"
 
 
 class MlirProgramInsertTransformPass:
@@ -51,7 +52,9 @@ class MlirProgramInsertTransformPass:
         self._concluding_passes = concluding_passes
         self._always_vectorize = always_vectorize
         self._vectors_size = vectors_size
+        self._super_vectorize = self._vectors_size is not None
         self._vecto_sequence: NamedSequenceOp | None = None
+        self._super_vectorize_sequence: NamedSequenceOp | None = None
         self._named_sequence: NamedSequenceOp | None = None
         self._nodes_schedules = (
             self._mlir_schedule.schedule_impl if self._mlir_schedule is not None else []
@@ -75,7 +78,13 @@ class MlirProgramInsertTransformPass:
                 [],
                 arg_attrs=[{"transform.consumed": UnitAttr.get()}],
             )
-
+            if self._super_vectorize:
+                self._super_vectorize_sequence = NamedSequenceOp(
+                    _SUPER_VECTORIZE_SEQ_NAME,
+                    [transform.AnyOpType.get()],
+                    [transform.AnyOpType.get()],
+                    arg_attrs=[{"transform.consumed": UnitAttr.get()}],
+                )
             self._named_sequence = NamedSequenceOp(
                 "__transform_main",
                 [transform.AnyOpType.get()],
@@ -91,6 +100,20 @@ class MlirProgramInsertTransformPass:
         ):
             VectorizeOp(self._vecto_sequence.bodyTarget)
             transform.YieldOp([])
+        if self._super_vectorize:
+            assert self._super_vectorize_sequence is not None
+            with (
+                InsertionPoint.at_block_begin(self._super_vectorize_sequence.body),
+                self._mlir_program.mlir_context,
+                self._loc,
+            ):
+                result = transform.ApplyRegisteredPassOp(
+                    transform.AnyOpType.get(),
+                    self._super_vectorize_sequence.bodyTarget,
+                    pass_name="affine-super-vectorize",
+                    options=f"virtual-vector-size={self._vectors_size}",
+                )
+                transform.YieldOp([result])
         with (
             InsertionPoint.at_block_begin(self._named_sequence.body),
             self._mlir_program.mlir_context,
@@ -125,22 +148,22 @@ class MlirProgramInsertTransformPass:
             self._loc,
         ):
             handle = self._generate_tiling()
-            if self._vectors_size:
+            if self._super_vectorize:
                 handle = get_parent_op(
                     transform.AnyOpType.get(),
                     handle,
                     isolated_from_above=True,
                 )
-                affine_code = transform.ApplyRegisteredPassOp(
+                handle = transform.ApplyRegisteredPassOp(
                     transform.AnyOpType.get(),
                     handle,
                     pass_name="convert-linalg-to-affine-loops",
                 )
-                handle = transform.ApplyRegisteredPassOp(
-                    transform.AnyOpType.get(),
-                    affine_code,
-                    pass_name="affine-super-vectorize",
-                    options=f"virtual-vector-size={self._vectors_size}",
+                handle = transform.IncludeOp(
+                    results_=[transform.AnyOpType.get()],
+                    target=_SUPER_VECTORIZE_SEQ_NAME,
+                    failure_propagation_mode=2,
+                    operands_=[handle],
                 )
 
             for p in self._concluding_passes:
@@ -237,10 +260,7 @@ class MlirProgramInsertTransformPass:
                     # Annotate the resulting loop if successfully generated
                     transform.AnnotateOp(new_loop, axis_name)
 
-        if (
-            set(permutation) & set(schedule.vectorization)
-            and self._vectors_size is None
-        ):
+        if set(permutation) & set(schedule.vectorization) and not self._super_vectorize:
             transform.IncludeOp(
                 results_=[],
                 target=_VECTO_SEQ_NAME,
