@@ -26,7 +26,8 @@ def process_file(file_path: str, in_place: bool, regexp: bool, diff: bool):
     first_line = lines[0].strip()
     command = re.sub(re_prefix, "", first_line).strip()
     command = command.rsplit("|", 1)[0].strip()
-    command = command.replace("%s", file_path)
+    command = re.sub(r"%s\b", file_path, command)
+    command = re.sub(r"^not\b", "!", command)  # use ! instead of not
 
     # Execute the command
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
