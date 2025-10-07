@@ -98,7 +98,7 @@ class MlirNodeScheduler:
         self.permutation[root] = [f"{root}/{a}" for a in permutation]
 
     def vectorize(self, axes: list[str], root: str = DEFAULT_ROOT):
-        self.vectorization = [f"{root}/{a}" for a in axes]
+        self.vectorization += [f"{root}/{a}" for a in axes]
 
     def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT):
         self.parallelization = [f"{root}/{a}" for a in axes]
