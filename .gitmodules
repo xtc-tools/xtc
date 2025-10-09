@@ -1,0 +1,3 @@
+[submodule "src/sampler"]
+	path = src/sampler
+	url = git@gitlab.inria.fr:CORSE/sampler.git
