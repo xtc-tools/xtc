@@ -9,9 +9,14 @@ from collections.abc import Sequence, Mapping, Iterator, Generator
 import itertools
 import numpy as np
 
+from properties import constraints_from_str, hypergraph
+from properties import variables as sampler_variables
+from strategy import execute_dynamic, execute_static, solve_with_z3
 from xtc.itf.graph import Graph
 from xtc.itf.schd import Scheduler
+from xtc.itf.schd.scheduler import DEFAULT_ROOT
 from xtc.itf.search import Sample, Strategy
+from xtc.schedules.descript_extend import DescriptExtend
 from xtc.utils.math import (
     factors_to_sizes,
     factors_enumeration,
@@ -19,7 +24,6 @@ from xtc.utils.math import (
 from xtc.utils.algorithms import (
     sample_uniques,
 )
-
 
 __all__ = [
     "Strategies",
@@ -939,6 +943,132 @@ class Strategy_GOTO_R(Strategy_GOTO):
                 and 128 > jo > 1
             ):
                 yield x
+
+
+class Strategy_Descript(Strategy):
+    def __init__(
+        self,
+        graph: Graph,
+        spec: dict[str, dict],
+        constraints: list[str] = [],
+        vec_size: int = 16,
+        max_unroll: int = 256,
+        threads: int = 1,
+        max_parallelize: int = 1,
+        **kwargs: Any,
+    ) -> None:
+        self._graph = graph
+        self._vec_size = vec_size
+        self._max_unroll = max_unroll
+        self._threads = threads
+        # Schedule output operation
+        self._op = graph.outputs_nodes[0].operation
+        self._stats: dict[str, int] = {}
+        self._parallelize = self._threads > 1
+        self._max_parallelize = max_parallelize
+        self._vectorize = self._vec_size > 1
+        self._unroll = self._max_unroll != 0
+        # TODO: should go into some machine description
+        self._arch_vreg_num = kwargs.get("vreg_num", 32)
+        self._arch_l1_size = kwargs.get("l1_size", 32 * 1024)
+        self._arch_l2_size = kwargs.get("l2_size", 1024 * 1024)
+        self._axes = list(self._op.dims)
+        self._sizes = self._constant_sizes()
+        descript = DescriptExtend(abstract_axis=self._axes)
+        self._descript = descript
+        input_constraints = constraints
+        self._flat_schedules, self._sample_names, constraints, axes, orders = (
+            descript.flatten_schedule(node_name=DEFAULT_ROOT, spec=spec)
+        )
+        for a, v in self._sizes.items():
+            for i, s in enumerate(constraints):
+                assert isinstance(s, str)
+                constraints[i] = s.replace(f"[{a}]", str(v))
+        self._axes_names = {}
+        for a, v in axes.items():
+            self._axes_names[a] = v
+        self._orders = {}
+        order_constraints = []
+        for a, v in orders.items():
+            permutation = list(itertools.permutations(v))
+            a_holder = f"order_{a}"
+            self._orders[a_holder] = permutation
+            order_constraints.append(f"0 <= {a_holder} <= {len(permutation) - 1}")
+        constraints = constraints + input_constraints + order_constraints
+        # print(constraints)
+        constraints = constraints_from_str(constraints, silent=True)
+        # print(constraints)
+        properties, constraints = hypergraph(constraints, silent=True)
+        # print(properties, constraints)
+        methods = solve_with_z3(
+            sampler_variables.keys(), properties, constraints, silent=True
+        )
+        # print(methods)
+        enumerations = execute_static(methods, properties, constraints, silent=True)
+        # print(enumerations)
+        self._properties = properties
+        self._constraints = constraints
+        self._methods = methods
+        self._enumerations = enumerations
+
+    @property
+    @override
+    def graph(self) -> Graph:
+        return self._graph
+
+    @override
+    def generate(self, scheduler: Scheduler, sample: Sample) -> None:
+        descript = self._descript
+        flat_schedules = self._flat_schedules
+        for a, p in self._orders.items():
+            if a in sample:
+                if isinstance(sample[a], int):
+                    sample[a] = p[sample[a]]
+        flat_schedules = descript.apply_sample(
+            flat_schedules=flat_schedules, sample=sample
+        )
+        descript.apply_scheduler(flat_schedules, scheduler)
+
+    @override
+    def sample(self, num: int, seed: int | None = 0) -> Iterator[Sample]:
+        draw = execute_dynamic(
+            self._methods,
+            self._properties,
+            self._constraints,
+            self._enumerations,
+            k=num,
+            silent=True,
+        )
+        # print(list(draw.values())[0][0])
+        return iter(list(draw.values())[0])
+
+    @override
+    def exhaustive(self) -> Iterator[Sample]:
+        return self.sample(1000)
+
+    @override
+    def default_schedule(self, opt_level: int = 2) -> Sample:
+        while True:
+            for x in self.sample(1):
+                if x:
+                    return x
+
+    def _constant_sizes(self) -> Mapping[str, int]:
+        sizes = {a: v for a, v in self._op.dims.items() if isinstance(v, int)}
+        return sizes
+
+    @override
+    def dict_to_sample(self, sample: dict[str, Any]) -> Sample:
+        return sample
+
+    @override
+    def sample_to_dict(self, sample: Sample) -> dict[str, int]:
+        return sample
+
+    @property
+    @override
+    def sample_names(self) -> list[str]:
+        return self._sample_names
 
 
 class Strategies:

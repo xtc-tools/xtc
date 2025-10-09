@@ -13,6 +13,7 @@ from xdsl.ir import Operation
 
 from xtc.itf.schd.scheduler import Scheduler
 from xtc.schedules.descript import descript_scheduler
+from xtc.schedules.descript_extend import descript_extend_scheduler
 from xtc.utils.xdsl_aux import parse_xdsl_module
 from xtc.backends.mlir.MlirNodeBackend import MlirNodeBackend
 from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend
@@ -48,7 +49,8 @@ def main():
             node_name,
             always_vectorize=args.always_vectorize,
             concluding_passes=args.concluding_passes,
-            no_alias=not args.alias,
+            no_alias=args.no_alias,
+            extend=args.extend,
         )
         schedulers.append(sched)
 
@@ -116,6 +118,7 @@ def build_node_scheduler(
     always_vectorize: bool,
     concluding_passes: list[str],
     no_alias: bool,
+    extend: bool,
 ) -> Scheduler:
     backend = build_mlir_node_backend(
         op=op,
@@ -131,16 +134,68 @@ def build_node_scheduler(
     if "loop.schedule" in op.attributes:
         schedule_attribute = op.attributes.get("loop.schedule")
         assert isinstance(schedule_attribute, builtin.DictionaryAttr)
-        normal_schedule = normalize_schedule(schedule_attribute)
-        descript_scheduler(
-            scheduler=scheduler,
-            node_name=node_name,
-            abstract_axis=scheduler.backend.dims,
-            spec=normal_schedule,
-        )
+        if extend:
+            normal_schedule = normalize_extend_schedule(schedule_attribute)
+            descript_extend_scheduler(
+                scheduler=scheduler,
+                node_name=node_name,
+                abstract_axis=scheduler.backend.dims,
+                spec=normal_schedule,
+            )
+        else:
+            normal_schedule = normalize_schedule(schedule_attribute)
+            descript_scheduler(
+                scheduler=scheduler,
+                node_name=node_name,
+                abstract_axis=scheduler.backend.dims,
+                spec=normal_schedule,
+            )
         op.attributes.pop("loop.schedule", None)
 
     return scheduler
+
+
+def normalize_extend_schedule(
+    raw_schedule: builtin.DictionaryAttr,
+) -> dict[str, dict]:
+    schedule: dict[str, Any] = {}
+    for declaration_, val_ in raw_schedule.data.items():
+        assert isinstance(declaration_, str)
+        assert isinstance(val_, builtin.DictionaryAttr)
+        sub_schedule: dict[str, Any] = {}
+        for declaration, val in val_.data.items():
+            assert isinstance(declaration, str)
+            if ":" in declaration:
+                if not isinstance(val, builtin.DictionaryAttr):
+                    raise Exception(
+                        f"The schedule within a split should be a dictionnary or void but got {declaration}"
+                    )
+
+                assert isinstance(val, builtin.DictionaryAttr)
+                inner_schedule = normalize_extend_schedule(val)
+                sub_schedule[str(declaration)] = inner_schedule
+            else:
+                annotations: dict[str, int | None] = {}
+                if isinstance(val, builtin.DictionaryAttr):
+                    for instr, param in val.data.items():
+                        assert isinstance(instr, str)
+                        if isinstance(param, builtin.UnitAttr):
+                            annotations[instr] = None
+                        elif isinstance(param, builtin.IntegerAttr):
+                            annotations[instr] = param.value.data
+                        else:
+                            raise Exception(
+                                "Annotation parameter should be void or int."
+                            )
+
+                elif not isinstance(val, builtin.UnitAttr):
+                    raise Exception(
+                        f"Annotation parameter should be a dict or void but got {type(val)}"
+                    )
+
+                sub_schedule[declaration] = annotations
+            schedule[declaration_] = sub_schedule
+    return schedule
 
 
 def normalize_schedule(
@@ -327,6 +382,12 @@ def parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Print debug messages.",
+    )
+    parser.add_argument(
+        "--extend",
+        action="store_true",
+        default=False,
+        help="Use descript_extend instead of default",
     )
 
     args = parser.parse_args()
