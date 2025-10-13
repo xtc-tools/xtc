@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 def read_results_csv(fname, Xcol="X", Ycol="Y", backend=None):
     X, Y = [], []
     with open(fname, newline="") as infile:
-        reader = csv.reader(infile, delimiter=";")
+        reader = csv.reader(infile, delimiter=",")
         for idx, row in enumerate(reader):
             if idx == 0:
                 X_idx = row.index(Xcol)

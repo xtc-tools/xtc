@@ -534,12 +534,13 @@ def peak_time(args: NS) -> float:
 
 
 class CSVCallback:
-    def __init__(self, fname: str, peak_time: float) -> None:
+    def __init__(self, fname: str, peak_time: float, sample_names: list[str]) -> None:
         self._fname = fname
         self._peak_time = peak_time
         self._outf = open(fname, "w", newline="")
-        self._header = ("X", "time", "peak", "backend")
-        self._writer = csv.writer(self._outf, delimiter=";")
+        self._sample_names = sample_names
+        self._header = sample_names + ["X", "time", "peak", "backend"]
+        self._writer = csv.writer(self._outf, delimiter=",")
         self._write_header()
         self._results = []
         self._rows = []
@@ -560,7 +561,9 @@ class CSVCallback:
             logger.debug(f"Skip recording error for: {backend}: {x}")
             return
         peak = self._peak_time / time
-        row = [x, time, peak, backend]
+        s = str(x).replace(",", ";")
+        row = [s, time, peak, backend]
+        row = x + row
         logger.debug(f"Record row: {row}")
         self._write_row(row)
 
@@ -582,7 +585,8 @@ def search_some(strategy: Strategy, graph: Graph, args: NS):
         args.operator,
     )
     ptime = peak_time(args)
-    result_callback = CSVCallback(args.output, ptime)
+    sample_names = strategy.sample_names
+    result_callback = CSVCallback(args.output, ptime, sample_names)
     callbacks = {
         "result": result_callback,
         "search": search_callback,
@@ -625,14 +629,15 @@ def optimize(args: NS):
             args.operator,
         )
         ptime = peak_time(args)
-        result_callback = CSVCallback(args.output, ptime)
+        sample_names = strategy.sample_names
+        result_callback = CSVCallback(args.output, ptime, sample_names)
         callbacks = {
             "result": result_callback,
             "search": search_callback,
         }
         evaluate_sample(strategy, schedule, graph, args, callbacks=callbacks)
         for row in result_callback._rows:
-            in_x, time, peak, backend = row
+            in_x, time, peak, backend = row[-4:]
             tqdm.write(
                 f"Schedule: {backend}: {in_x}: time: {time * 1000:.2f} msecs, peak perf: {peak * 100:.2f}%"
             )
