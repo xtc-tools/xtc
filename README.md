@@ -125,11 +125,17 @@ https://gitlab.inria.fr/CORSE/jir for building JIR and dependent tools from sour
 
 ## Test Installation
 
-Validate installation by launching all tests with:
+Validate installation by launching minimal sanity tests with:
+
+    make test
+
+## Contributing
+
+For contributions to XTC, one should run the `check` target which runs all acceptance tests:
 
     make check
 
-Refer to the Makefile commands in order to launch individually `lit` tests or `pytest` tests.
+Refer to the `Makefile` targets in order to launch individually `lit` tests,  `pytest` tests or type checks.
 
 ## Exploration
 
