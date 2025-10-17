@@ -30,7 +30,7 @@ spec = {
     "R": {"i#iR": {"unroll": None}, "j#jR": {"vectorize": "j_vectorise"}},
 }
 constraint = ["iR * jR <= 56"]
-strategy = Strategy(graph, spec, constraints=constraint, max_unroll=8)
+strategy = Strategy(graph, spec, constraints=constraint)
 
 utils.print_all_opt_schedules(backend, strategy)
 utils.print_exhaustive_samples(backend, strategy, 100)

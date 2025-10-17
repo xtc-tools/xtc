@@ -951,27 +951,10 @@ class Strategy_Descript(Strategy):
         graph: Graph,
         spec: dict[str, dict],
         constraints: list[str] = [],
-        vec_size: int = 16,
-        max_unroll: int = 256,
-        threads: int = 1,
-        max_parallelize: int = 1,
-        **kwargs: Any,
     ) -> None:
         self._graph = graph
-        self._vec_size = vec_size
-        self._max_unroll = max_unroll
-        self._threads = threads
-        # Schedule output operation
         self._op = graph.outputs_nodes[0].operation
         self._stats: dict[str, int] = {}
-        self._parallelize = self._threads > 1
-        self._max_parallelize = max_parallelize
-        self._vectorize = self._vec_size > 1
-        self._unroll = self._max_unroll != 0
-        # TODO: should go into some machine description
-        self._arch_vreg_num = kwargs.get("vreg_num", 32)
-        self._arch_l1_size = kwargs.get("l1_size", 32 * 1024)
-        self._arch_l2_size = kwargs.get("l2_size", 1024 * 1024)
         self._axes = list(self._op.dims)
         self._sizes = self._constant_sizes()
         descript = DescriptExtend(abstract_axis=self._axes)
@@ -1039,7 +1022,6 @@ class Strategy_Descript(Strategy):
             k=num,
             silent=True,
         )
-        # print(list(draw.values())[0][0])
         return iter(list(draw.values())[0])
 
     @override

@@ -22,7 +22,7 @@ spec = {
         "explore_axis_order": None,
     },
 }
-strategy = Strategy(graph, spec, max_unroll=8)
+strategy = Strategy(graph, spec)
 
 utils.print_all_opt_schedules(backend, strategy)
 utils.print_exhaustive_samples(backend, strategy, 100)
