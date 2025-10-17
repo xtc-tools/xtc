@@ -67,39 +67,53 @@ class DescriptExtend(Descript):
         flat_schedules = flat_schedules.copy()
         for schedule in flat_schedules:
             for k in ["splits", "tiles"]:
-                for d, s in schedule[k].items():
-                    for d_, s_ in s.items():
-                        if isinstance(s_, str):
-                            schedule[k][d][d_] = sample[s_]
+                for dim, axes in schedule[k].items():
+                    for level, size in axes.items():
+                        if isinstance(size, str):
+                            schedule[k][dim][level] = sample[size]
             for k in ["vectorize", "parallelize"]:
-                for i, s in enumerate(schedule[k]):
-                    if isinstance(s, Tuple):
-                        s, loop = s
-                        s = sample.get(s, False)
-                        if s is None or s:
+                for i, axes in enumerate(schedule[k]):
+                    if isinstance(axes, Tuple):
+                        axes, loop = axes
+                        axes = sample.get(axes, False)
+                        if axes is None or axes:
                             schedule[k][i] = loop
                         else:
                             schedule[k].pop(i)
-            for d, s in schedule["unroll"].items():
-                if isinstance(s, str):
-                    val = sample[s]
+            for axis, size in schedule["unroll"].items():
+                if isinstance(size, str):
+                    val = sample[size]
                     if val is None:
                         for s__ in schedule["tiles"].values():
-                            for d_, s_ in s__.items():
-                                if d == d_:
-                                    val = s_
+                            for level, size in s__.items():
+                                if axis == level:
+                                    val = size
                                     break
                             if val is not None:
                                 break
-                    schedule["unroll"][d] = val
-            for d, axes in schedule["axes"].items():
-                d_holder = f"order_{d}"
+                    schedule["unroll"][axis] = val
+            for dim, packs in schedule["packs"].items():
+                for i, (flag, input, pad) in enumerate(packs):
+                    sample_flag = False
+                    if isinstance(flag, str):
+                        flag = sample.get(flag, False)
+                        sample_flag = True
+                    if not flag:
+                        schedule["packs"][dim].pop(i)
+                        continue
+                    if isinstance(input, str):
+                        input = sample.get(input, input)
+                        sample_flag = True
+                    if sample_flag:
+                        schedule["packs"][dim] = (flag, input, pad)
+            for dim, axes in schedule["axes"].items():
+                d_holder = f"order_{dim}"
                 s = sample.get(d_holder, None)
                 if s:
                     sch = {}
                     for a in s:
                         sch[a] = axes[a]
-                    schedule["axes"][d] = sch
+                    schedule["axes"][dim] = sch
         return flat_schedules
 
     def apply_scheduler(self, flat_schedules: list[SchedDict], scheduler: Scheduler):
@@ -366,8 +380,8 @@ class DescriptExtend(Descript):
             return (None, None)
 
         constraint = f"{x} < {y}"
-        if isinstance(y, int):
-            if isinstance(x, int):
+        if isinstance(x, int):
+            if isinstance(y, int):
                 if x >= y:
                     raise Exception(
                         f"""
@@ -377,10 +391,8 @@ class DescriptExtend(Descript):
                     )
                 else:
                     return (None, y - x)
-            else:
-                return (constraint, f"{y} - {x}")
-        if isinstance(x, int) and x == 0:
-            return (constraint, f"{y}")
+            if x == 0:
+                return (constraint, f"{y}")
         return (constraint, f"{y} - {x}")
 
     def annotate(
