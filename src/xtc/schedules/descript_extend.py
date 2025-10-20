@@ -5,6 +5,7 @@
 from typing import Any, Tuple
 from dataclasses import dataclass
 import re
+from networkx import constraint
 from typing_extensions import override
 
 from xtc.itf.schd.scheduler import Scheduler
@@ -106,6 +107,17 @@ class DescriptExtend(Descript):
                         sample_flag = True
                     if sample_flag:
                         schedule["packs"][dim] = (flag, input, pad)
+            for dim, buffs in schedule["buffers"].items():
+                for i, (flag, pad) in enumerate(buffs):
+                    sample_flag = False
+                    if isinstance(flag, str):
+                        flag = sample.get(flag, False)
+                        sample_flag = True
+                    if not flag:
+                        schedule["buffers"][dim].pop(i)
+                        continue
+                    if sample_flag:
+                        schedule["buffers"][dim] = (flag, pad)
             for dim, axes in schedule["axes"].items():
                 d_holder = f"order_{dim}"
                 s = sample.get(d_holder, None)
@@ -132,13 +144,16 @@ class DescriptExtend(Descript):
                     for _, input, pad in p:
                         scheduler.pack_at(s[-1], input, pad=pad)
 
+                b = schedule["buffers"].get(d, None)
+                if b:
+                    scheduler.buffer_at(s[-1])
+
             for d, s in schedule["splits"].items():
                 scheduler.split(d, s, root=root)
 
             for d, s in schedule["tiles"].items():
                 scheduler.tile(d, s, root=root)
 
-            # print(interchange)
             scheduler.interchange(interchange, root=root)
             scheduler.vectorize(schedule["vectorize"], root=root)
             scheduler.parallelize(schedule["parallelize"], root=root)
@@ -157,6 +172,7 @@ class DescriptExtend(Descript):
             "root": root,
             "fusions": {},
             "packs": {},
+            "buffers": {},
             "axis_orders": [],
             "axes": {},
             "splits": {},
@@ -184,25 +200,40 @@ class DescriptExtend(Descript):
             tree_interchange = {}
             tree_packs = []
             tree_fusion = []
+            tree_buff = []
             for declaration, val in tree_val.items():
                 if declaration == "fusion":
-                    # sched["fusions"][tree_declaration] = val
                     tree_fusion.append(val)
                     continue
                 elif declaration == "pack":
                     for val_ in val:
                         if len(val_) != 3:
                             raise Exception(f"Packing {val_} should have 3 parameters.")
-                        param, input, pack = val_
-                        tree_packs.append((param, input, pack))
+                        param, input, pad = val_
+                        tree_packs.append((param, input, pad))
                         if isinstance(param, str):
                             variables.append(param)
                             constraints.append(f"0 <= {param} <= 1")
                         if isinstance(input, str):
                             raise Exception("Packing input cannot be a variable.")
-                        if isinstance(pack, str):
-                            variables.append(pack)
-                            constraints.append(f"0 <= {pack} <= 1")
+                        if isinstance(pad, str):
+                            variables.append(pad)
+                            constraints.append(f"0 <= {pad} <= 1")
+                    continue
+                elif declaration in "buffer":
+                    for val_ in val:
+                        if len(val_) != 2:
+                            raise Exception(
+                                f"Bufferisation {val_} should have 2 parameters."
+                            )
+                        param, pad = val_
+                        tree_buff.append((param, pad))
+                        if isinstance(param, str):
+                            variables.append(param)
+                            constraints.append(f"0 <= {param} <= 1")
+                        if isinstance(pad, str):
+                            variables.append(pad)
+                            constraints.append(f"0 <= {pad} <= 1")
                     continue
                 elif declaration == "explore_axis_order":
                     sched["axis_orders"].append(tree_declaration)
@@ -316,6 +347,8 @@ class DescriptExtend(Descript):
                 sched["packs"][tree_declaration] = tree_packs
             if len(tree_fusion) > 0:
                 sched["fusions"][tree_declaration] = tree_fusion
+            if len(tree_buff) > 0:
+                sched["buffers"][tree_declaration] = tree_buff
             for v in tree_interchange.values():
                 interchange += v
 
