@@ -140,6 +140,7 @@ def build_node_scheduler(
                 scheduler=scheduler,
                 node_name=node_name,
                 abstract_axis=scheduler.backend.dims,
+                abstract_axis_sizes={a: 1 for a in scheduler.backend.dims},
                 spec=normal_schedule,
             )
         else:
