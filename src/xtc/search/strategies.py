@@ -951,14 +951,18 @@ class Strategy_Descript(Strategy):
         graph: Graph,
         spec: dict[str, dict],
         constraints: list[str] = [],
+        initialize: bool = True,
     ) -> None:
         self._graph = graph
         self._op = graph.outputs_nodes[0].operation
         self._stats: dict[str, int] = {}
         self._axes = list(self._op.dims)
         self._sizes = self._constant_sizes()
-        descript = DescriptExtend(abstract_axis=self._axes)
+        descript = DescriptExtend(
+            abstract_axis=self._axes, abstract_axis_sizes=dict(self._sizes)
+        )
         self._descript = descript
+        self._initialized = False
         input_constraints = constraints
         self._flat_schedules, self._sample_names, constraints, axes, orders = (
             descript.flatten_schedule(node_name=DEFAULT_ROOT, spec=spec)
@@ -970,29 +974,32 @@ class Strategy_Descript(Strategy):
         self._axes_names = {}
         for a, v in axes.items():
             self._axes_names[a] = v
-        self._orders = {}
-        order_constraints = []
+        self._orders: dict[str, list] = {}
+        order_constraints: list[str] = []
         for a, v in orders.items():
+            assert isinstance(v, dict)
             permutation = list(itertools.permutations(v))
             a_holder = f"order_{a}"
             self._orders[a_holder] = permutation
             order_constraints.append(f"0 <= {a_holder} <= {len(permutation) - 1}")
-        constraints = constraints + input_constraints + order_constraints
-        # print(constraints)
-        constraints = constraints_from_str(constraints, silent=True)
-        # print(constraints)
+        self._constraints = constraints + input_constraints + order_constraints
+        if initialize:
+            self._initialize()
+
+    def _initialize(self):
+        if self._initialized:
+            return
+        constraints = constraints_from_str(self._constraints, silent=True)
         properties, constraints = hypergraph(constraints, silent=True)
-        # print(properties, constraints)
         methods = solve_with_z3(
             sampler_variables.keys(), properties, constraints, silent=True
         )
-        # print(methods)
         enumerations = execute_static(methods, properties, constraints, silent=True)
-        # print(enumerations)
         self._properties = properties
         self._constraints = constraints
         self._methods = methods
         self._enumerations = enumerations
+        self._initialized = True
 
     @property
     @override
@@ -1014,6 +1021,7 @@ class Strategy_Descript(Strategy):
 
     @override
     def sample(self, num: int, seed: int | None = 0) -> Iterator[Sample]:
+        self._initialize()
         draw = execute_dynamic(
             self._methods,
             self._properties,
