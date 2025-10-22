@@ -73,15 +73,13 @@ class DescriptExtend(Descript):
             i = 0
             while i < len(all_axis_constraints):
                 sched = all_axis_constraints[i]
-                # print(all_axis_constraints, i, sched)
-                # print(sched)
                 if isinstance(sched[0], int):
                     axis_constraints.append(sched)
                     all_axis_constraints.pop(i)
                 else:
                     i += 1
-            # print(axis, axis_constraints, all_axis_constraints)
-            while len(all_axis_constraints) > 0:
+            flag_flag = True
+            while len(all_axis_constraints) > 0 and flag_flag:
                 i = 0
                 axis_constraints_acc = []
                 flag_flag = False
@@ -99,7 +97,9 @@ class DescriptExtend(Descript):
                         i += 1
                 if flag_flag:
                     axis_constraints = axis_constraints_acc
-                # print(axis, axis_constraints, all_axis_constraints)
+
+            axis_constraints += all_axis_constraints
+            axis_constraints.reverse()
             for constraint in axis_constraints:
                 constraint.reverse()
                 constraint_str = ""
@@ -113,25 +113,8 @@ class DescriptExtend(Descript):
                 if var_flag:
                     constraints.insert(0, constraint_str)
 
-            #         flag = False
-            #         for constraint in axis_constraints:
-            #             if sched[0] == constraint[-1]:
-            #                 axis_constraints_acc.append(constraint + sched[1:])
-            #                 flag = True
-            #             else:
-            #                 axis_constraints_acc.append(constraint)
-            #         axis_constraints = axis_constraints_acc
-            #         if flag:
-            #             all_axis_constraints.pop(i)
-            #             i = 0
-            #         else:
-            #             i += 1
-            #     print(all_axis_constraints, i)
-            # print(axis, axis_constraints)
-
         variables = list(dict.fromkeys(variables))
         constraints = list(dict.fromkeys(constraints))
-        # print(constraints)
         return (flat_schedules, variables, constraints, axes, orders)
 
     def apply_sample(
@@ -262,7 +245,6 @@ class DescriptExtend(Descript):
             axes_sizes: dict[str, int | str] = tile_sizes
         else:
             axes_sizes = {a: v for a, v in self.abstract_axis_sizes.items()}
-        # print(axes_sizes)
         sched_sizes = {}
         for a, v in axes_sizes.items():
             sched["sizes"][a] = []
@@ -317,7 +299,7 @@ class DescriptExtend(Descript):
                     sched["axis_orders"].append(tree_declaration)
                     continue
                 elif ":" in declaration:
-                    axis_name, x, y = self.parse_split_declaration(declaration)
+                    axis_name, x, y, z = self.parse_split_declaration(declaration)
                     self._check_axis_existence(axis_name)
 
                     # The only declaration where y (the cut) is None is the
@@ -329,8 +311,8 @@ class DescriptExtend(Descript):
                     if x is None:
                         x = cut
 
-                    # print(declaration, axis_name, cut, x, y)
-                    lam, inner_size = self._extended_check_splitting_intervals(
+                    # assert isinstance(x, int)
+                    inner_size = self._extended_check_splitting_intervals(
                         declaration, axis_name, cut, x, y
                     )
                     current_size = axes_sizes[axis_name]
@@ -347,17 +329,30 @@ class DescriptExtend(Descript):
                         tree_interchange[axis_name].append(new_dim_name)
                     else:
                         tree_interchange[axis_name] = [new_dim_name]
-                    inner_size = (
-                        inner_size if inner_size else eval(f"{current_size} - {x}")
-                    )
-                    axes_sizes[axis_name] = inner_size
-                    # sched["sizes"][axis_name].append(inner_size)
 
-                    if lam:
-                        if isinstance(y, str):
-                            variables.append(y)
-                        constraints.append(lam)
-                        # constraints.append(f"1 || {y} || {current_size}")
+                    inner_size = None
+                    if y is None:
+                        y = current_size
+                    if isinstance(x, int):
+                        if x == 0:
+                            inner_size = y
+                        elif isinstance(y, int):
+                            inner_size = y - x
+
+                    if inner_size is None:
+                        inner_size = root[1:] + new_dim_name
+                        inner_size = (
+                            inner_size.replace("/", "")
+                            .replace("[", "_")
+                            .replace("]", "_")
+                        )
+                        if isinstance(x, str):
+                            constraints.append(f"{x} < {y}")
+                            # constraints.append(f"1 || {x} || {y}")
+                            # sched_sizes[axis_name].append(x)
+                        constraints.append(f"{inner_size} + {x} == {y}")
+
+                    axes_sizes[axis_name] = inner_size
 
                     # Fetch the schedule associated with the new dimension
                     next_schedule = val
@@ -370,10 +365,6 @@ class DescriptExtend(Descript):
                     )
                     axes_sizes[axis_name] = current_size
 
-                    # for a, v in inner_scheds[0]["sizes"].items():
-                    #     if a != axis_name:
-                    #         inner_scheds[0]["sizes"][a] = {}
-                    #         sched["sizes"][a] += v
                     recursive_scheds += inner_scheds
                     continue
                 elif "#" in declaration:
@@ -385,9 +376,6 @@ class DescriptExtend(Descript):
                     else:
                         loop_size = tile_size
                         variables.append(tile_size)
-                        # constraints.append(
-                        #     f"1 || {tile_size} || {axes_sizes[axis_name]}"
-                        # )
                     if not loop_size:
                         raise Exception(
                             f"Invalid tile size: '{tile_size}' in {declaration}"
@@ -453,7 +441,6 @@ class DescriptExtend(Descript):
         sched["interchange"] = interchange
         sched["variables"] = variables + sched["variables"]
         sched["constraints"] = constraints + sched["constraints"]
-        # print(sched_sizes, sched["sizes"])
         for a in self.abstract_axis:
             flag = True
             for sched_ in sched["sizes"][a]:
@@ -462,7 +449,6 @@ class DescriptExtend(Descript):
                     break
             if flag:
                 sched["sizes"][a] = [sched_sizes[a]] + sched["sizes"][a]
-        # print(sched["sizes"])
         return [sched] + recursive_scheds
 
     def _extended_check_splitting_intervals(
@@ -472,7 +458,7 @@ class DescriptExtend(Descript):
         cut: int | str | None,
         x: int | str | None,
         y: int | str | None,
-    ) -> Tuple[str | None, int | str | None]:
+    ) -> int | str | None:
         if cut is None:
             raise Exception(
                 f"""
@@ -506,11 +492,10 @@ class DescriptExtend(Descript):
                     ({cut} and {x} on axis {axis_name})
                     """
                 )
-
+        assert x == cut
         if y is None:
-            return (None, None)
+            return None
 
-        # constraint = f"{x} < {y}"
         if isinstance(x, int):
             if isinstance(y, int):
                 if x >= y:
@@ -521,14 +506,10 @@ class DescriptExtend(Descript):
                         """
                     )
                 else:
-                    return (None, y - x)
-        raise Exception(f"""
-        Arguments for the split must be ints for now.
-        ({x} or {y} on axis {axis_name})
-        """)
-        #     if x == 0:
-        #         return (constraint, f"{y}")
-        # return (constraint, f"{y} - {x}")
+                    return y - x
+            if x == 0:
+                return y
+        return None
 
     def annotate(
         self,
@@ -585,10 +566,16 @@ class DescriptExtend(Descript):
     def parse_split_declaration(
         self,
         declaration: str,
-    ) -> Tuple[str, int | str | None, int | str | None]:
+    ) -> Tuple[str, int | str | None, int | str | None, int | str | None]:
         pattern = r"^(.*)\[(?:(-\w+|\w*)?):(?:(-\w+|\w*)?)\]$"
         match = re.match(pattern, declaration)
         if not match:
+            pattern = r"^(.*)\[:(\w*):]"
+            match = re.match(pattern, declaration)
+            if match:
+                prefix, z = match.group()
+                z = int(z) if z.isnumeric() else z
+                return prefix, None, None, z
             raise Exception(f"Wrong format {declaration}")
 
         prefix, x_str, y_str = match.groups()
@@ -596,4 +583,4 @@ class DescriptExtend(Descript):
         y = int(y_str) if y_str.isnumeric() else y_str
         x = x if x else None
         y = y if y else None
-        return prefix, x, y
+        return prefix, x, y, None
