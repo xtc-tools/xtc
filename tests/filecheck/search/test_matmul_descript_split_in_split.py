@@ -1,4 +1,4 @@
-# RUN: python %s 2>&1 | filecheck %s
+# RUN: python -O %s 2>&1 | filecheck %s
 """
 Test splits on matmul
 """
@@ -14,19 +14,24 @@ spec = {
         "k": {},
         "i": {},
     },
-    "L3": {"i#iL3": {}},
-    "L2": {
-        "i#7": {},
+    "L3": {
+        "i#iL2": {},
     },
-    "L1": {
+    "L2": {
         "j#jDDR": {},
-        "i[:5]": {
+        "i[:6]": {
+            "L1": {"i#3": {}},
             "R": {
-                "i#iR1": {"unroll": None},
-                "j#jR1": {"vectorize": None},
+                "i[:2]": {
+                    "RR": {
+                        "i#iR1": {"unroll": None},
+                        "j#jR1": {"vectorize": None},
+                    }
+                },
+                "i[2:]": {"RR": {"i#iR3": {}, "j#jR3": {}}},
             },
         },
-        "i[5:]": {
+        "i[6:]": {
             "R": {
                 "i#iR2": {"unroll": None},
                 "j#jR2": {"vectorize": None},
@@ -38,4 +43,4 @@ strategy = Strategy(graph, spec, initialize=False)
 
 print(strategy._constraints)
 
-# CHECK: ['1 || jR1 || jDDR || 32', '1 || jR3 || jDDR || 32', '1 || jR2 || jDDR || 32', '1 || iL2 || 21', '1 || iR1 || 2', '1 || iR3 || 1', '1 || iR2 || i_1_', 'i_1_ + 6 == iL2']
+# CHECK: ['1 || jR2 || jDDR || 32', '1 || jR1 || jDDR || 32', '1 || iR2 || 2', '1 || iR1 || 5', '7 || iL3 || 21']
