@@ -261,6 +261,7 @@ class DescriptExtend(Descript):
             tree_packs = []
             tree_fusion = []
             tree_buff = []
+            last_split = None
             for declaration, val in tree_val.items():
                 if declaration == "fusion":
                     tree_fusion.append(val)
@@ -306,51 +307,73 @@ class DescriptExtend(Descript):
                     # last one, so it cannot be the previous one.
                     cut = previous_cut[axis_name]
 
-                    # When x (the starting point of the slice), is not
-                    # specified, it is the previous cut
-                    if x is None:
-                        x = cut
-
-                    # assert isinstance(x, int)
-                    inner_size = self._extended_check_splitting_intervals(
-                        declaration, axis_name, cut, x, y
-                    )
                     current_size = axes_sizes[axis_name]
                     # Update the previous cut
-                    previous_cut[axis_name] = y
                     # Save the cutting points of the new dimensions
                     if axis_name not in sched["splits"]:
                         sched["splits"][axis_name] = {}
                     new_dim_index = len(sched["splits"][axis_name])
                     new_dim_name = f"{axis_name}[{new_dim_index}]"
                     new_axes_root_name = f"{root}/{new_dim_name}"
-                    sched["splits"][axis_name][new_dim_name] = x
                     if axis_name in tree_interchange:
                         tree_interchange[axis_name].append(new_dim_name)
                     else:
                         tree_interchange[axis_name] = [new_dim_name]
 
-                    inner_size = None
-                    if y is None:
-                        y = current_size
-                    if isinstance(x, int):
-                        if x == 0:
-                            inner_size = y
-                        elif isinstance(y, int):
-                            inner_size = y - x
+                    if z is None:
+                        previous_cut[axis_name] = y
+                        sched["splits"][axis_name][new_dim_name] = x
+                        # When x (the starting point of the slice), is not
+                        # specified, it is the previous cut
+                        if x is None:
+                            x = cut
 
-                    if inner_size is None:
-                        inner_size = root[1:] + new_dim_name
-                        inner_size = (
-                            inner_size.replace("/", "")
-                            .replace("[", "_")
-                            .replace("]", "_")
+                        # assert isinstance(x, int)
+                        inner_size = self._extended_check_splitting_intervals(
+                            declaration, axis_name, cut, x, y
                         )
-                        if isinstance(x, str):
-                            constraints.append(f"{x} < {y}")
-                            # constraints.append(f"1 || {x} || {y}")
-                            # sched_sizes[axis_name].append(x)
-                        constraints.append(f"{inner_size} + {x} == {y}")
+                        inner_size = None
+                        if y is None:
+                            y = current_size
+                        if isinstance(x, int):
+                            if x == 0:
+                                inner_size = y
+                            elif isinstance(y, int):
+                                inner_size = y - x
+
+                        if inner_size is None:
+                            inner_size = root[1:] + new_dim_name
+                            inner_size = (
+                                inner_size.replace("/", "")
+                                .replace("[", "_")
+                                .replace("]", "_")
+                            )
+                            if isinstance(x, str):
+                                constraints.append(f"{x} < {y}")
+                                # constraints.append(f"1 || {x} || {y}")
+                                # sched_sizes[axis_name].append(x)
+                            constraints.append(f"{inner_size} + {x} == {y}")
+                    else:
+                        inner_size = z
+                        x = cut
+                        y = current_size
+                        if isinstance(z, int) and isinstance(x, int):
+                            previous_cut[axis_name] = x + z
+                            if not isinstance(y, int):
+                                constraints.append(f"{z + x} <= {y}")
+                        else:
+                            new_cut = root[1:] + new_dim_name
+                            new_cut = (
+                                new_cut.replace("/", "")
+                                .replace("[", "_")
+                                .replace("]", "_")
+                            )
+                            previous_cut[axis_name] = new_cut
+                            if last_split is not None:
+                                a, b = last_split
+                                constraints.append(f"{a} <= {b}")
+                            last_split = (new_cut, y)
+                            constraints.append(f"{z} + {x} == {new_cut}")
 
                     axes_sizes[axis_name] = inner_size
 
@@ -428,12 +451,21 @@ class DescriptExtend(Descript):
             for v in tree_interchange.values():
                 interchange += v
 
-        # Check if the last cut of each axis is either 0 or None.
-        # None correspond to "until the end of the loop". 0 is the
-        # default value, if it has 0 then it means the axis isn't splitted.
-        # Any other value means the split is let in a partial state.
+            # Check if the last cut of each axis is either 0 or None.
+            # None correspond to "until the end of the loop". 0 is the
+            # default value, if it has 0 then it means the axis isn't splitted.
+            # Any other value means the split is let in a partial state.
+            if last_split is not None:
+                a, b = last_split
+                if isinstance(a, int):
+                    constraints.append(f"{b} in {{{a}}}")
+                elif isinstance(b, int):
+                    constraints.append(f"{a} in {{{b}}}")
+                else:
+                    constraints.append(f"{b} == {a}")
+                last_split = None
         for axis, cut in previous_cut.items():
-            if cut is not None and cut != 0:
+            if cut is not None and isinstance(cut, int) and cut != 0:
                 raise Exception(
                     f"Splitting on axis {axis} should end but stops at {cut}"
                 )
@@ -570,13 +602,13 @@ class DescriptExtend(Descript):
         pattern = r"^(.*)\[(?:(-\w+|\w*)?):(?:(-\w+|\w*)?)\]$"
         match = re.match(pattern, declaration)
         if not match:
-            pattern = r"^(.*)\[:(\w*):]"
+            pattern = r"^(.*)\[:(\w*):\]$"
             match = re.match(pattern, declaration)
-            if match:
-                prefix, z = match.group()
-                z = int(z) if z.isnumeric() else z
-                return prefix, None, None, z
-            raise Exception(f"Wrong format {declaration}")
+            if not match:
+                raise Exception(f"Wrong format {declaration}")
+            prefix, z = match.groups()
+            z = int(z) if z.isnumeric() else z
+            return prefix, None, None, z
 
         prefix, x_str, y_str = match.groups()
         x = int(x_str) if x_str.isnumeric() else x_str
