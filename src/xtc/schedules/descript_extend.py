@@ -303,6 +303,22 @@ class DescriptExtend(Descript):
                 elif declaration == "explore_axis_order":
                     sched["axis_orders"].append(tree_declaration)
                     continue
+                elif declaration in self.abstract_matrix:
+                    matrix_index = self.abstract_matrix.index(declaration)
+                    param = val.get("bufferize", False)
+                    pad = val.get("pad", False)
+                    if param is None or param:
+                        if matrix_index == len(self.abstract_matrix) - 1:
+                            tree_buff.append((param, pad))
+                        else:
+                            tree_packs.append((param, matrix_index, pad))
+                        if isinstance(param, str):
+                            variables.append(param)
+                            constraints.append(f"0 <= {param} <= 1")
+                        if isinstance(pad, str):
+                            variables.append(pad)
+                            constraints.append(f"0 <= {pad} <= 1")
+                    continue
                 elif ":" in declaration:
                     axis_name, x, y, z = self.parse_split_declaration(declaration)
                     self._check_axis_existence(axis_name)
