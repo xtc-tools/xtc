@@ -18,10 +18,13 @@ def descript_extend_scheduler(
     abstract_axis: list[str],
     abstract_axis_sizes: dict[str, int],
     spec: dict[str, dict],
+    abstract_matrix: list[str] = [],
     sample: dict[str, Any] = {},
 ):
     descript = DescriptExtend(
-        abstract_axis=abstract_axis, abstract_axis_sizes=abstract_axis_sizes
+        abstract_axis=abstract_axis,
+        abstract_axis_sizes=abstract_axis_sizes,
+        abstract_matrix=abstract_matrix,
     )
     descript.apply(node_name=node_name, spec=spec, scheduler=scheduler, sample=sample)
 
@@ -29,6 +32,7 @@ def descript_extend_scheduler(
 @dataclass(frozen=True)
 class DescriptExtend(Descript):
     abstract_axis_sizes: dict[str, int]
+    abstract_matrix: list[str] = []
 
     @override
     def apply(
@@ -276,7 +280,7 @@ class DescriptExtend(Descript):
                             variables.append(param)
                             constraints.append(f"0 <= {param} <= 1")
                         if isinstance(input, str):
-                            raise Exception("Packing input cannot be a variable.")
+                            input = self.abstract_matrix.index(input)
                         if isinstance(pad, str):
                             variables.append(pad)
                             constraints.append(f"0 <= {pad} <= 1")
