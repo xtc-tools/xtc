@@ -63,6 +63,8 @@ runtime_libs = [
     f"libmlir_async_runtime.{get_shlib_extension()}",
 ]
 
+cuda_runtime_lib = "libmlir_cuda_runtime.so"
+
 system_libs = [get_library_path("omp")]
 
 dump_file = "/tmp/dump"

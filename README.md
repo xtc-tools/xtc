@@ -126,6 +126,7 @@ Exposed backends:
 XTC also supports multiple MLIR Targets for the code generation:
   - llvmir (default)
   - c
+  - nvgpu (requires mlir packages built for nvptx and cuda runtime enabled)
 
 To force the use of a specific target, you can set the env variable XTC_MLIR_TARGET=<mlir-target>.
 

@@ -16,6 +16,10 @@ def get_target_from_name(name: str) -> type[MlirTarget]:
         from .MlirCTarget import MlirCTarget
 
         return MlirCTarget
+    elif name == "nvgpu":
+        from .MlirNVGPUTarget import MlirNVGPUTarget
+
+        return MlirNVGPUTarget
     else:
         raise NameError(f"'{name}' is not a known target")
 

@@ -40,7 +40,14 @@ class HostEvaluator(itf.exec.Evaluator):
         self._reference_impl = kwargs.get(
             "reference_impl", self._module._reference_impl
         )
+        self._register_buffer_fn = kwargs.get("register_buffer_fn", None)
+        self._unregister_buffer_fn = kwargs.get("unregister_buffer_fn", None)
         self._pmu_counters = kwargs.get("pmu_counters", [])
+        self._runtime = kwargs.get("runtime", None)
+        if self._runtime is None:
+            import xtc.runtimes.host.runtime as host_runtime
+
+            self._runtime = host_runtime
         assert self._module.file_type == "shlib", "only support shlib for evaluation"
 
     @override
@@ -76,7 +83,12 @@ class HostEvaluator(itf.exec.Evaluator):
             ]
             self._reference_impl(*ref_inputs, *ref_outputs)
 
+        if self._register_buffer_fn is not None:
+            for buffer in parameters[0] + parameters[1]:
+                self._register_buffer_fn(buffer)
+
         results = load_and_evaluate(
+            runtime=self._runtime,
             module_file=self._module.file_name,
             module_name=self._module.name,
             payload_name=self._module.payload_name,
@@ -89,6 +101,10 @@ class HostEvaluator(itf.exec.Evaluator):
             number=self._number,
             pmu_counters=self._pmu_counters,
         )
+
+        if self._unregister_buffer_fn is not None:
+            for buffer in parameters[0] + parameters[1]:
+                self._unregister_buffer_fn(buffer)
 
         if self._parameters is not None:
             _, outputs = self._parameters
