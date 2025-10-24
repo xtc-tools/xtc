@@ -21,13 +21,13 @@ spec = {
     "L1": {
         "j#jDDR": {},
         "i[:5]": {
-            "R": {
+            "R1": {
                 "i#iR1": {"unroll": None},
                 "j#jR1": {"vectorize": None},
             },
         },
         "i[5:]": {
-            "R": {
+            "R2": {
                 "i#iR2": {"unroll": None},
                 "j#jR2": {"vectorize": None},
             },

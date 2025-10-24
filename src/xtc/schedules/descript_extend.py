@@ -5,6 +5,7 @@
 from typing import Any, Tuple
 from dataclasses import dataclass
 import re
+import strictyaml
 from typing_extensions import override
 
 from xtc.itf.schd.scheduler import Scheduler
@@ -32,17 +33,21 @@ def descript_extend_scheduler(
 @dataclass(frozen=True)
 class DescriptExtend(Descript):
     abstract_axis_sizes: dict[str, int]
-    abstract_matrix: list[str] = []
+    abstract_matrix: list[str]
 
     @override
     def apply(
         self,
         node_name: str,
-        spec: dict[str, dict],
+        spec: dict[str, dict] | str,
         scheduler: Scheduler,
         sample: dict[str, Any] = {},
     ):
-        flat_schedules = self._flatten_schedule(root=node_name, spec=spec, head=[])
+        if isinstance(spec, str):
+            dict_spec = self.parse_yaml(spec)
+        else:
+            dict_spec = spec
+        flat_schedules = self._flatten_schedule(root=node_name, spec=dict_spec, head=[])
         variables = set()
         constraints = set()
         for schedule in flat_schedules:
@@ -52,8 +57,83 @@ class DescriptExtend(Descript):
         flat_schedules = self.apply_sample(flat_schedules, sample)
         self.apply_scheduler(flat_schedules, scheduler)
 
-    def flatten_schedule(self, node_name: str, spec: dict[str, dict]):
-        flat_schedules = self._flatten_schedule(root=node_name, spec=spec, head=[])
+    def parse_yaml(self, spec: str) -> dict[str, dict]:
+        dspec = strictyaml.load(spec).data
+        assert isinstance(dspec, dict)
+        return self._parse_yaml(dspec)
+
+    def _parse_yaml(self, spec: dict[str, dict]) -> dict[str, dict]:
+        out_dict = {}
+        for level, d_level in spec.items():
+            level_dict = {}
+            for a, v in d_level.items():
+                if a == "explore":
+                    assert isinstance(v, str)
+                    if v == "":
+                        tmp = None
+                    else:
+                        try:
+                            tmp = eval(v)
+                        except NameError:
+                            tmp = v
+                    level_dict["explore_axis_order"] = tmp
+                elif a in self.abstract_matrix:
+                    assert isinstance(v, str)
+                    level_dict[a] = self._split_yaml(v)
+                else:
+                    if isinstance(v, str):
+                        d = self._split_yaml(v)
+                    else:
+                        assert isinstance(v, dict)
+                        d = v
+                    size = d.get("size", None)
+                    if size:
+                        # if d.get("split", None):
+                        #     raise Exception(f"""
+                        #         Axis cannot be tiled and split.
+                        #         (Axis {a} at level {level}.)
+                        #         """)
+                        d.pop("size")
+                        a = f"{a}#{size}"
+                    # split = d.get("split", None)
+                    # if split:
+                    #     if isinstance(split, str):
+                    #         d_split = self._split_yaml(split)
+                    #     else:
+                    #         d_split = split
+                    #     for sub_level, sub_range in d_split.items():
+                    #         sub_dict = self._parse_yaml({sub_level : d[sub_level]})
+                    #         level_dict[a + sub_range] = sub_dict
+                    #     continue
+                    if ":" in a:
+                        level_dict[a] = self._parse_yaml(d)
+                        continue
+                    level_dict[a] = {}
+                    for axis_arg, arg_val in d.items():
+                        level_dict[a][axis_arg] = arg_val
+                out_dict[level] = level_dict
+        return out_dict
+
+    def _split_yaml(self, s: str) -> dict[str, Any]:
+        d = {}
+        for s in s.split():
+            if "=" not in s:
+                d[s] = None
+            else:
+                x, y = s.split("=")
+                try:
+                    tmp = eval(y)
+                except (NameError, SyntaxError):
+                    tmp = y
+                d[x] = tmp
+        return d
+
+    def flatten_schedule(self, node_name: str, spec: dict[str, dict] | str):
+        if isinstance(spec, str):
+            dict_spec = self.parse_yaml(spec)
+        else:
+            dict_spec = spec
+        flat_schedules = self._flatten_schedule(root=node_name, spec=dict_spec, head=[])
         variables = []
         constraints = []
         axes = {}

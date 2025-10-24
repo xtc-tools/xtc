@@ -949,7 +949,7 @@ class Strategy_Descript(Strategy):
     def __init__(
         self,
         graph: Graph,
-        spec: dict[str, dict],
+        spec: dict[str, dict] | str,
         constraints: list[str] = [],
         initialize: bool = True,
     ) -> None:
@@ -959,7 +959,9 @@ class Strategy_Descript(Strategy):
         self._axes = list(self._op.dims)
         self._sizes = self._constant_sizes()
         descript = DescriptExtend(
-            abstract_axis=self._axes, abstract_axis_sizes=dict(self._sizes)
+            abstract_axis=self._axes,
+            abstract_axis_sizes=dict(self._sizes),
+            abstract_matrix=["A", "B", "C"],
         )
         self._descript = descript
         self._initialized = False

@@ -10,3 +10,4 @@ pyyaml
 scikit-learn
 networkx
 sympy
+strictyaml
