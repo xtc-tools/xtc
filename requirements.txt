@@ -9,4 +9,5 @@ xdsl~=0.50.0
 pyyaml
 networkx
 sympy
+strictyaml
 xdsl~=0.26.0
