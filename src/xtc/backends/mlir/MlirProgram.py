@@ -3,7 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from xdsl.dialects import func as xdslfunc
-from mlir.dialects import func, builtin
+from mlir.dialects import func
 from mlir.ir import (
     ArrayAttr,
     Diagnostic,
@@ -12,6 +12,7 @@ from mlir.ir import (
     Context,
     Location,
     InsertionPoint,
+    Module,
 )
 
 
@@ -21,7 +22,7 @@ class RawMlirProgram:
         self.ctx.attach_diagnostic_handler(self._diagnostic_handler)
         self.ctx.emit_error_diagnostics = True  # type: ignore
         self.loc = Location.unknown(self.ctx)
-        self.module = builtin.ModuleOp.parse(source, context=self.ctx)
+        self.module = Module.parse(source, context=self.ctx)
 
     @property
     def mlir_context(self):

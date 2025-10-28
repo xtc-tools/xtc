@@ -382,7 +382,7 @@ class MlirProgramApplyTransformPass:
         pm = PassManager(context=self._mlir_program.mlir_context)
         for opt in transform_opts:
             pm.add(opt)  # type: ignore # no attribte add?
-        pm.run(self._mlir_program.mlir_module)
+        pm.run(self._mlir_program.mlir_module.operation)
 
         while True:
             transform_op = [
@@ -405,7 +405,7 @@ class MlirProgramToLLVMDialectPass:
         pm = PassManager(context=self._mlir_program.mlir_context)
         for opt in lowering_llvm_opts:
             pm.add(opt)  # type: ignore # no attribte add?
-        pm.run(self._mlir_program.mlir_module)
+        pm.run(self._mlir_program.mlir_module.operation)
 
 
 class MlirProgramToStdDialectsPass:
@@ -419,4 +419,4 @@ class MlirProgramToStdDialectsPass:
         pm = PassManager(context=self._mlir_program.mlir_context)
         for opt in lowering_std_opts:
             pm.add(opt)  # type: ignore # no attribte add?
-        pm.run(self._mlir_program.mlir_module)
+        pm.run(self._mlir_program.mlir_module.operation)
