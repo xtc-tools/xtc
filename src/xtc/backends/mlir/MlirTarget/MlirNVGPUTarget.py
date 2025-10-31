@@ -32,6 +32,7 @@ from xtc.itf.graph import Graph
 
 from mlir.dialects import func
 from mlir.ir import UnitAttr
+from mlir.passmanager import PassManager
 
 from .MlirTarget import MlirTarget
 from ..MlirConfig import MlirConfig
@@ -48,6 +49,9 @@ class MlirNVGPUTarget(MlirTarget):
 
     def __init__(self, config: MlirConfig):
         super().__init__(config)
+        self._available_gpus = self._query_available_gpus()
+        self._selected_gpu = self._select_gpu()
+        self._ptx = self._query_ptx_version()
 
     @override
     def name(self) -> str:
@@ -55,7 +59,7 @@ class MlirNVGPUTarget(MlirTarget):
 
     @override
     def arch(self) -> str:
-        return "nvgpu"
+        return "sm_" + "".join(self._selected_gpu["compute_cap"].split("."))
 
     @override
     def generate_code_for_target(
@@ -90,8 +94,15 @@ class MlirNVGPUTarget(MlirTarget):
         mlir_atrn_dump_file = f"{dump_base}.after_trn.mlir"
         mlir_llvm_dump_file = f"{dump_base}.llvm.mlir"
 
+        if self._config.debug:
+            print(
+                f"> Selected GPU: {self._selected_gpu['name']} (Compute Capability: {self._selected_gpu['compute_cap']})"
+            )
+            print(f"> Arch: {self.arch()}")
+            print(f"> PTX Version: {self._ptx}")
+
         # Lower to llvm dialect and nvptx
-        self._mlir_to_llvm_and_nvptx_pass(mlir_program)
+        self._mlir_to_llvm_and_nvptx_pass(mlir_program, self.arch(), self._ptx)
 
         # Do the rest
         save_temp(mlir_llvm_dump_file, mlir_program.mlir_module)
@@ -157,6 +168,158 @@ class MlirNVGPUTarget(MlirTarget):
         if temp_dir is not None:
             shutil.rmtree(temp_dir)
 
+    def _query_available_gpus(self) -> list[dict[str, str]]:
+        """
+        Query available NVIDIA GPUs using `nvidia-smi`.
+
+        Returns:
+            list[dict[str, str]]: List of dictionaries, each with 'name' key for GPU model.
+            If no GPUs are found or errors occur, the returned list will contain a single dict
+            with a 'name' key describing the error.
+        """
+        try:
+            # Execute nvidia-smi to get the GPU names.
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,compute_cap",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                gpu_infos = [
+                    line.strip().split(",")
+                    for line in result.stdout.strip().split("\n")
+                    if line.strip()
+                ]
+                if gpu_infos:
+                    return [
+                        {
+                            "name": fields[0].strip(),
+                            "compute_cap": fields[1].strip()
+                            if len(fields) > 1
+                            else "Unknown",
+                        }
+                        for fields in gpu_infos
+                    ]
+                else:
+                    return [
+                        {
+                            "name": "GPU detected but name unavailable",
+                            "compute_cap": "Unknown",
+                        }
+                    ]
+            else:
+                return [
+                    {
+                        "name": f"nvidia-smi failed with return code {result.returncode}: {result.stderr.strip()}"
+                    }
+                ]
+        except FileNotFoundError:
+            return [
+                {
+                    "name": "nvidia-smi command not found - NVIDIA drivers may not be installed"
+                }
+            ]
+        except subprocess.TimeoutExpired:
+            return [{"name": "nvidia-smi command timed out"}]
+        except Exception as e:
+            return [{"name": f"Error running nvidia-smi: {str(e)}"}]
+
+    def _select_gpu(self) -> dict[str, str]:
+        """
+        Select the best GPU based on the available GPUs.
+        """
+        # Assert that CUDA_VISIBLE_DEVICES and config.selected_device are not both set at the same time
+        cuda_visible_devices_env = os.getenv("CUDA_VISIBLE_DEVICES", None)
+        config_selected_device = self._config.selected_device
+        if cuda_visible_devices_env is not None and config_selected_device is not None:
+            raise AssertionError(
+                "Both CUDA_VISIBLE_DEVICES environment variable and config.selected_device are set; "
+                "please set only one to specify the GPU."
+            )
+        device_index = None
+        if config_selected_device is not None:
+            device_index = config_selected_device
+        else:
+            cuda_visible_devices = os.getenv("CUDA_VISIBLE_DEVICES", None)
+            if cuda_visible_devices is not None:
+                try:
+                    device_index = int(cuda_visible_devices)
+                except ValueError:
+                    raise ValueError(
+                        f"Invalid CUDA_VISIBLE_DEVICES value: {cuda_visible_devices}"
+                    )
+            else:
+                device_index = 0
+                os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+        if not (0 <= device_index < len(self._available_gpus)):
+            raise ValueError(f"Selected device index is out of range: {device_index}")
+
+        # Force use of the same enumeration order than nvidia-smi to get available GPUs
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+        return self._available_gpus[device_index]
+
+    def _query_ptx_version(self) -> str:
+        """
+        Query the PTX version of the selected GPU.
+        """
+        try:
+            compiled_cmd = subprocess.run(
+                [
+                    "nvcc",
+                    "-c",
+                    "-arch=" + self.arch(),
+                    "-x",
+                    "cu",
+                    "-ptx",
+                    "-o",
+                    "-",
+                    "-",
+                ],
+                input='extern "C" __global__ void k(){}\n',
+                stdout=subprocess.PIPE,
+                text=True,
+                timeout=10,
+            )
+            result = subprocess.run(
+                ["grep", "-m1", "^\\.version"],
+                input=compiled_cmd.stdout,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                ptx_version = result.stdout.strip()
+                if not ptx_version.startswith(".version"):
+                    raise ValueError(f"Failed to query PTX version: {ptx_version}")
+                arch_ptx = "".join(self._selected_gpu["compute_cap"].split("."))
+                cc_ptx = "".join(ptx_version.split(" ")[1].strip().split("."))
+                # FIXME seems to not work for ptx version above 80
+                if int(arch_ptx) > 80 and int(cc_ptx) > 80:
+                    return "80"
+                # Take the minimum between compiler ptx and compute capability of the device
+                if int(arch_ptx) < int(cc_ptx):
+                    return arch_ptx
+                else:
+                    return cc_ptx
+            else:
+                raise ValueError(
+                    f"Failed to query PTX version: {result.stderr.strip()}"
+                )
+        except FileNotFoundError:
+            raise ValueError(
+                "nvcc command not found - NVIDIA drivers may not be installed"
+            )
+        except subprocess.TimeoutExpired:
+            raise ValueError("nvcc command timed out")
+        except Exception as e:
+            raise ValueError(f"Error running nvcc: {str(e)}")
+
     @override
     def create_module(
         self,
@@ -197,11 +360,13 @@ class MlirNVGPUTarget(MlirTarget):
                 if isinstance(op, func.FuncOp):
                     op.attributes["llvm.emit_c_interface"] = UnitAttr.get()
 
-    def _mlir_to_llvm_and_nvptx_pass(self, mlir_program: RawMlirProgram):
-        to_llvm_pass = MlirProgramToNVGPUPass(
+    def _mlir_to_llvm_and_nvptx_pass(
+        self, mlir_program: RawMlirProgram, sm_arch: str, ptx_version: str
+    ):
+        to_llvm_pass = MlirProgramToLLVMDialectPass(
             mlir_program=mlir_program,
         )
-        to_llvm_pass.run()
+        to_llvm_pass.run(sm_arch, ptx_version)
         if self._config.print_lowered_ir:
             self.dump_ir(mlir_program, "IR Dump After MLIR Opt")
 
@@ -286,6 +451,7 @@ class MlirNVGPUTarget(MlirTarget):
             result = subprocess.run(cmd, text=True)
         return result
 
+
 class MlirProgramToLLVMDialectPass:
     def __init__(
         self,
@@ -293,7 +459,7 @@ class MlirProgramToLLVMDialectPass:
     ) -> None:
         self._mlir_program = mlir_program
 
-    def _lowering_pipeline(self) -> list[str]:
+    def _lowering_pipeline(self, sm_arch: str, ptx_version: str) -> list[str]:
         return [
             "canonicalize",
             "cse",
@@ -312,11 +478,15 @@ class MlirProgramToLLVMDialectPass:
             "sccp",
             "buffer-results-to-out-params",
             "convert-func-to-llvm{use-bare-ptr-memref-call-conv=true}",
-            "gpu-lower-to-nvvm-pipeline{cubin-chip=sm_80 cubin-features=+ptx75 opt-level=3}",
+            "gpu-lower-to-nvvm-pipeline{cubin-chip="
+            + sm_arch
+            + " cubin-features=+ptx"
+            + "".join(ptx_version.split("."))
+            + " opt-level=3}",
         ]
 
-    def run(self) -> None:
+    def run(self, sm_arch: str, ptx_version: str) -> None:
         pm = PassManager(context=self._mlir_program.mlir_context)
-        for opt in self._lowering_pipeline():
+        for opt in self._lowering_pipeline(sm_arch, ptx_version):
             pm.add(opt)  # type: ignore # no attribte add?
         pm.run(self._mlir_program.mlir_module.operation)
