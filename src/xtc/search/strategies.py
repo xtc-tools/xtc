@@ -991,14 +991,17 @@ class Strategy_Descript(Strategy):
     def _initialize(self):
         if self._initialized:
             return
+        max_enum = max(self._sizes.values())
         constraints = constraints_from_str(self._constraints, silent=True)
-        properties, constraints = hypergraph(constraints, silent=True)
+        properties, constraints = hypergraph(
+            constraints, max_enum=max_enum, silent=True
+        )
         methods = solve_with_z3(
             sampler_variables.keys(), properties, constraints, silent=True
         )
         enumerations = execute_static(methods, properties, constraints, silent=True)
         self._properties = properties
-        self._constraints = constraints
+        self._z3_constraints = constraints
         self._methods = methods
         self._enumerations = enumerations
         self._initialized = True
@@ -1023,16 +1026,26 @@ class Strategy_Descript(Strategy):
 
     @override
     def sample(self, num: int, seed: int | None = 0) -> Iterator[Sample]:
+        samples = sample_uniques(self._sample_once_tuple, num)
+        for x in samples:
+            yield dict(zip(self.sample_names, x))
+
+    def sample_once(self, num: int) -> Iterator[Sample]:
         self._initialize()
         draw = execute_dynamic(
             self._methods,
             self._properties,
-            self._constraints,
+            self._z3_constraints,
             self._enumerations,
             k=num,
             silent=True,
         )
-        return iter(list(draw.values())[0])
+        return draw
+
+    def _sample_once_tuple(self, num: int) -> Iterator[tuple]:
+        draw = self.sample_once(num)
+        for d in draw:
+            yield tuple(d.values())
 
     @override
     def exhaustive(self) -> Iterator[Sample]:

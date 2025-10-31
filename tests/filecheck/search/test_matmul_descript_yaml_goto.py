@@ -1,4 +1,4 @@
-# RUN: python %s 2>&1 | filecheck %s
+# RUN: python -O %s 2>&1 | filecheck %s
 """
 Test strategy Goto on matmul
 """
@@ -29,8 +29,10 @@ R:
     j: size=jR vectorize=jV
 """
 constraint = ["iR * jR <= 56"]
-strategy = Strategy(graph, spec, constraints=constraint, initialize=False)
+strategy = Strategy(graph, spec, constraints=constraint)
 
 print(strategy._constraints)
+print(len(list(strategy.sample(100))))
 
-# CHECK: ['1 || k_unroll || kL1 || 12', '1 || jR || jL3 || 32', '1 || iR || iL2 || 21', '0 <= pack_B <= 1', '0 <= pack_A <= 1', '0 <= j_parallel <= 1', '0 <= j_vectorise <= 1', 'iR * jR <= 56', '0 <= order_DDR <= 1']
+# CHECK: ['1 || kU || kL1 || 12', '1 || jR || jL3 || 32', '1 || iR || iL2 || 21', '0 <= pack_A <= 1', '0 <= pack_B <= 1', '0 <= j_par <= 1', '0 <= jV <= 1', 'iR * jR <= 56', '0 <= order_DDR <= 1']
+#CHECK-NEXT: 100
