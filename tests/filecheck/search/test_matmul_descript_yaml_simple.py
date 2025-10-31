@@ -1,4 +1,4 @@
-# RUN: python %s 2>&1 | filecheck %s
+# RUN: python -O %s 2>&1 | filecheck %s
 """
 Test strategy Goto on matmul
 """
@@ -19,8 +19,10 @@ L2:
 L1:
     j#j2:
 """
-strategy = Strategy(graph, spec, initialize=False)
+strategy = Strategy(graph, spec)
 
 print(strategy._constraints)
+print(len(list(strategy.sample(100))))
 
 # CHECK: ['1 || j2 || j1 || 32', '1 || i1 || 21']
+# CHECK-NEXT: 84

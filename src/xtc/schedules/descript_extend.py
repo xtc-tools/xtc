@@ -449,7 +449,7 @@ class DescriptExtend(Descript):
                                 .replace("]", "_")
                             )
                             if isinstance(x, str):
-                                constraints.append(f"{x} < {y}")
+                                constraints.append(f"{x} <= {y}")
                                 # constraints.append(f"1 || {x} || {y}")
                                 # sched_sizes[axis_name].append(x)
                             constraints.append(f"{inner_size} + {x} == {y}")
@@ -461,6 +461,10 @@ class DescriptExtend(Descript):
                             previous_cut[axis_name] = x + z
                             if not isinstance(y, int):
                                 constraints.append(f"{z + x} <= {y}")
+                        elif isinstance(x, int) and x == 0:
+                            previous_cut[axis_name] = z
+                            if not isinstance(y, int):
+                                constraints.append(f"{z} <= {y}")
                         else:
                             new_cut = root[1:] + new_dim_name
                             new_cut = (
@@ -562,7 +566,11 @@ class DescriptExtend(Descript):
                 elif isinstance(b, int):
                     constraints.append(f"{a} in {{{b}}}")
                 else:
-                    constraints.append(f"{b} == {a}")
+                    for i in range(len(constraints)):
+                        c = constraints[i]
+                        constraints[i] = c.replace(a, b)
+                        # constraints.remove(c) c.replace()
+                    # constraints.append(f"{b} == {a}")
                 last_split = None
         for axis, cut in previous_cut.items():
             if cut is not None and isinstance(cut, int) and cut != 0:
