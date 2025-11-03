@@ -10,6 +10,7 @@ import tarfile
 import shutil
 
 from xtc.utils.math import mulall
+from xtc.utils.host_tools import target_triple
 
 from xtc.itf.graph import Operation, Graph, Node
 
@@ -38,15 +39,14 @@ def get_tvm_native_target_options() -> str:
     info = get_cpu_info()
     arch = info["arch_string_raw"]
     flags = info["flags"]
-    cpu, attrs, triple = "", "", ""
+    triple = target_triple(arch)
+    cpu, attrs = "", ""
     if arch == "x86_64":
-        triple = "x86_64-linux-gnu"
         if "avx512f" in flags:
             cpu = "skylake-avx512"
         elif "avx2" in flags:
             cpu = "core-avx2"
     elif arch == "aarch64":
-        triple = "aarch64-linux-gnu"
         if "asimd" in flags:
             cpu = "cortex-a72"
             attrs = "+neon"

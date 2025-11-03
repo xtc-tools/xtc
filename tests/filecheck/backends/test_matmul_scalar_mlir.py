@@ -13,7 +13,7 @@ with O.graph(name="matmul") as gb:
 graph = gb.graph
 print(graph)
 
-impl = Backend(graph, always_vectorize=False, no_alias=True)
+impl = Backend(graph)
 
 sch = impl.get_scheduler()
 sch.tile("i", {"i1": 2})

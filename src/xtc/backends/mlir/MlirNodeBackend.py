@@ -23,8 +23,8 @@ class MlirNodeBackend(MlirBackend):
         payload_name: str = "f",
         concluding_passes: list[str] = [],
         loop_stamps: list[str] = [],
-        always_vectorize: bool = True,
-        no_alias: bool = False,
+        always_vectorize: bool = False,
+        no_alias: bool = True,
         id: str | None = None,
     ):
         self._graph = None

@@ -27,4 +27,4 @@ def matmul_impl(i, j, k, dtype, name):
     with O.graph(name=name) as gb:
         O.matmul(a, b, name="C")
 
-    return MlirGraphBackend(gb.graph, always_vectorize=False, no_alias=True)
+    return MlirGraphBackend(gb.graph)

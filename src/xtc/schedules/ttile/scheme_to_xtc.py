@@ -806,11 +806,11 @@ def launch_and_measure_scheme_graph_interf(
     if backend == "mlir":
         from xtc.backends.mlir import Backend as MlirBackend
 
-        impl_backend = MlirBackend(graph, always_vectorize=True, no_alias=True)
+        impl_backend = MlirBackend(graph)
     elif backend == "tvm":
         from xtc.backends.tvm import Backend as TVMBackend
 
-        impl_backend = TVMBackend(graph, always_vectorize=True, no_alias=True)
+        impl_backend = TVMBackend(graph)
     else:
         raise ValueError(f"Unrecognized backend: {backend}")
 

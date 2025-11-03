@@ -14,7 +14,7 @@ with O.graph(name="matmul_relu") as gb:
 graph = gb.graph
 print(graph)
 
-impl = Backend(graph, always_vectorize=False, no_alias=True)
+impl = Backend(graph)
 
 sch = impl.get_scheduler(nodes=["matmul"])
 sch.tile("i", {"i1": 2})

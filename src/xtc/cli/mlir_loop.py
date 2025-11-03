@@ -48,7 +48,7 @@ def main():
             node_name,
             always_vectorize=args.always_vectorize,
             concluding_passes=args.concluding_passes,
-            no_alias=args.no_alias,
+            no_alias=not args.alias,
         )
         schedulers.append(sched)
 
@@ -57,7 +57,7 @@ def main():
         xdsl_func=myfunc,
         nodes=[sched.backend for sched in schedulers],
         concluding_passes=args.concluding_passes,
-        no_alias=args.no_alias,
+        no_alias=not args.alias,
     )
     graph_scheduler = graph_backend.get_scheduler(nodes_schedulers=schedulers)
     final_schedule = graph_scheduler.schedule()
@@ -76,7 +76,6 @@ def main():
 
         compiler_args = {
             "mlir_install_dir": args.llvm_dir,
-            "to_disassemble": graph_backend.payload_name,
             "print_source_ir": print_source,
             "print_transformed_ir": args.print_transformed_ir,
             "print_lowered_ir": args.print_lowered_ir,
@@ -216,7 +215,10 @@ def get_string_list_attribute(op: Operation, attr_name: str) -> list[str]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Blabla.")
+    parser = argparse.ArgumentParser(
+        description="Generate code from MLIR kernel.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument(
         "filename",
         metavar="F",
@@ -250,7 +252,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--always-vectorize",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=False,
         help="Vectorize even if no vectorization dimension has been specified..",
     )
     parser.add_argument(
@@ -261,34 +264,37 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--print-source-ir",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=False,
         help="Print the source IR.",
     )
     parser.add_argument(
-        "--no-alias", action="store_true", help="All tensors are considered alias-free."
+        "--alias",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Tensors are not considered alias-free.",
     )
     parser.add_argument(
         "--print-transformed-ir",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=False,
         help="Print the IR after application of the transform dialect.",
     )
     parser.add_argument(
         "--print-lowered-ir",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=False,
         help="Print the IR at LLVM level.",
     )
     parser.add_argument(
         "--print-assembly",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=False,
         help="Print the generated assembly.",
     )
     parser.add_argument(
         "--evaluate",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=False,
         help="Evaluate the generated code.",
     )
@@ -300,18 +306,27 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--init-zero",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=False,
         help="Init the output with zeros before measurement.",
     )
-    parser.add_argument("--color", action="store_true", help="Allow colors.")
+    parser.add_argument(
+        "--color",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow colors.",
+    )
     parser.add_argument(
         "--hide-jumps",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=False,
         help="Hide assembly visualization of control flow.",
     )
     parser.add_argument(
-        "--debug", action="store_true", default=False, help="Print debug messages."
+        "--debug",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Print debug messages.",
     )
 
     args = parser.parse_args()

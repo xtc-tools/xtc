@@ -1,4 +1,4 @@
-// RUN: mlir-loop --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps %s 2>&1 | filecheck %s
+// RUN: mlir-loop --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps %s 2>&1 | grep -v '\(nop\|ret\)' | filecheck %s
 // UNSUPPORTED: mlir-target=c
 // Assembly output will differ a bit when using C.
 
@@ -23,7 +23,9 @@ func.func @myfun(
     outs(%C : memref<8x8xf32>)
   return
 }
-// CHECK:       <myfun>:
+// CHECK:       Disassembly of section .text:
+// CHECK-NEXT:  
+// CHECK-NEXT:  <myfun>:
 // CHECK-NEXT:  	vmovups 0xe0(%rsi),%ymm0
 // CHECK-NEXT:  	vmovups 0xc0(%rsi),%ymm1
 // CHECK-NEXT:  	vmovups 0xa0(%rsi),%ymm2
@@ -168,5 +170,4 @@ func.func @myfun(
 // CHECK-NEXT:  	vbroadcastss 0xfc(%rdi),%ymm1
 // CHECK-NEXT:  	vfmadd213ps %ymm2,%ymm0,%ymm1
 // CHECK-NEXT:  	vmovups %ymm1,0xe0(%rdx)
-// CHECK-NEXT:  	vzeroupper
-// CHECK-NEXT:  	ret
+// CHECK-NEXT:  	vzeroupper 

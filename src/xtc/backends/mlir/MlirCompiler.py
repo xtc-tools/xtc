@@ -38,8 +38,9 @@ class MlirCompiler(itf.comp.Compiler):
         **kwargs: Any,
     ):
         self._backend = backend
-        kwargs["bare_ptr"] = True  # Not supported for now
         self.dump_file = kwargs.pop("dump_file", None)
+        kwargs["bare_ptr"] = True  # Not supported for now
+        kwargs["to_disassemble"] = kwargs.get("to_disassemble", backend.payload_name)
         self._config = MlirConfig(**kwargs)
         if target is None:
             self._target = get_default_target()(self._config)

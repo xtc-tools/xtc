@@ -1,4 +1,4 @@
-// RUN: mlir-loop --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps %s 2>&1 | filecheck %s
+// RUN: mlir-loop --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps %s 2>&1 | grep -v '\(nop\|ret\)' | filecheck %s
 // UNSUPPORTED: mlir-target=c
 // Assembly output will differ a bit when using C.
 
@@ -28,14 +28,14 @@ func.func @myfun(
     outs(%C : memref<258x256xf32>)
   return
 }
-// CHECK:       <myfun>:
+// CHECK:       Disassembly of section .text:
+// CHECK-NEXT:  
+// CHECK-NEXT:  <myfun>:
 // CHECK-NEXT:  	push   %rbx
 // CHECK-NEXT:  	xor    %ecx,%ecx
 // CHECK-NEXT:  	mov    %rsi,%rax
-// CHECK-NEXT:  	cs nopw 0x0(%rax,%rax,1)
 // CHECK-NEXT:  	vmovss (%rdi,%rcx,4),%xmm0
 // CHECK-NEXT:  	mov    $0xffffffffffffffff,%r8
-// CHECK-NEXT:  	nopl   0x0(%rax)
 // CHECK-NEXT:  	vmulss 0x4(%rax,%r8,4),%xmm0,%xmm1
 // CHECK-NEXT:  	vaddss 0x4(%rdx,%r8,4),%xmm1,%xmm1
 // CHECK-NEXT:  	vmovss %xmm1,0x4(%rdx,%r8,4)
@@ -48,7 +48,6 @@ func.func @myfun(
 // CHECK-NEXT:  	jb     <myfun+0x10>
 // CHECK-NEXT:  	xor    %ecx,%ecx
 // CHECK-NEXT:  	mov    %rsi,%rax
-// CHECK-NEXT:  	nopl   0x0(%rax)
 // CHECK-NEXT:  	vmovss 0x800(%rdi,%rcx,4),%xmm0
 // CHECK-NEXT:  	mov    $0xffffffffffffffff,%r8
 // CHECK-NEXT:  	vmulss 0x4(%rax,%r8,4),%xmm0,%xmm1
@@ -79,7 +78,6 @@ func.func @myfun(
 // CHECK-NEXT:  	vmovups 0x860(%rdx,%r10,1),%ymm7
 // CHECK-NEXT:  	mov    $0xfffffffffffffff8,%r11
 // CHECK-NEXT:  	mov    %rax,%rbx
-// CHECK-NEXT:  	data16
 // CHECK-NEXT:  	vbroadcastss 0x4(%rdi,%r11,4),%ymm8
 // CHECK-NEXT:  	vfmadd231ps -0x1b20(%rbx),%ymm8,%ymm0
 // CHECK-NEXT:  	vfmadd231ps -0x1b40(%rbx),%ymm8,%ymm1
@@ -174,7 +172,6 @@ func.func @myfun(
 // CHECK-NEXT:  	vmovups 0x960(%rdx,%r10,1),%ymm7
 // CHECK-NEXT:  	mov    $0xfffffffffffffff8,%r11
 // CHECK-NEXT:  	mov    %rcx,%rbx
-// CHECK-NEXT:  	nopl   (%rax)
 // CHECK-NEXT:  	vbroadcastss 0x4(%rdi,%r11,4),%ymm8
 // CHECK-NEXT:  	vfmadd231ps -0x1b20(%rbx),%ymm8,%ymm0
 // CHECK-NEXT:  	vfmadd231ps -0x1b40(%rbx),%ymm8,%ymm1
@@ -269,7 +266,6 @@ func.func @myfun(
 // CHECK-NEXT:  	vmovups 0xa60(%rdx,%r10,1),%ymm7
 // CHECK-NEXT:  	mov    $0xfffffffffffffff8,%r11
 // CHECK-NEXT:  	mov    %r8,%rbx
-// CHECK-NEXT:  	nopl   (%rax)
 // CHECK-NEXT:  	vbroadcastss 0x4(%rdi,%r11,4),%ymm8
 // CHECK-NEXT:  	vfmadd231ps -0x1b20(%rbx),%ymm8,%ymm0
 // CHECK-NEXT:  	vfmadd231ps -0x1b40(%rbx),%ymm8,%ymm1
@@ -364,7 +360,6 @@ func.func @myfun(
 // CHECK-NEXT:  	vmovups 0xb60(%rdx,%r10,1),%ymm7
 // CHECK-NEXT:  	mov    $0xfffffffffffffff8,%r11
 // CHECK-NEXT:  	mov    %rsi,%rbx
-// CHECK-NEXT:  	nopl   (%rax)
 // CHECK-NEXT:  	vbroadcastss 0x4(%rdi,%r11,4),%ymm8
 // CHECK-NEXT:  	vfmadd231ps -0x1b20(%rbx),%ymm8,%ymm0
 // CHECK-NEXT:  	vfmadd231ps -0x1b40(%rbx),%ymm8,%ymm1
@@ -455,4 +450,3 @@ func.func @myfun(
 // CHECK-NEXT:  	jb     <myfun+0xd0>
 // CHECK-NEXT:  	pop    %rbx
 // CHECK-NEXT:  	vzeroupper 
-// CHECK-NEXT:  	ret

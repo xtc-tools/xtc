@@ -11,6 +11,8 @@ import tempfile
 import shutil
 from pathlib import Path
 
+from xtc.utils.host_tools import disassemble
+
 from xtc.utils.ext_tools import (
     get_shlib_extension,
     mlirtranslate_opts,
@@ -20,11 +22,7 @@ from xtc.utils.ext_tools import (
     exe_opts,
     runtime_libs,
     system_libs,
-    objdump_bin,
-    objdump_arm_bin,
     cc_bin,
-    objdump_opts,
-    objdump_color_opts,
 )
 
 from xtc.targets.host import HostModule
@@ -112,8 +110,14 @@ class MlirLLVMTarget(MlirTarget):
         assert bc_process.returncode == 0
 
         if self._config.print_assembly:
-            disassemble_process = self.disassemble(obj_file=obj_dump_file)
-            assert disassemble_process.returncode == 0
+            disassembly = disassemble(
+                obj_dump_file,
+                function=self._config.to_disassemble,
+                arch=self._config.arch,
+                color=self._config.color,
+                visualize_jumps=self._config.visualize_jumps,
+            )
+            print(disassembly, file=sys.stderr)
 
         payload_objs = [obj_dump_file, *self.shared_libs]
         payload_path = [*self.shared_path]
@@ -167,24 +171,6 @@ class MlirLLVMTarget(MlirTarget):
         **kwargs: Any,
     ) -> itf.comp.Module:
         return HostModule(name, payload_name, file_name, file_type, graph, **kwargs)
-
-    @property
-    def disassemble_option(self):
-        if not self._config.to_disassemble:
-            return "--disassemble"
-        else:
-            return f"--disassemble={self._config.to_disassemble}"
-
-    def build_disassemble_extra_opts(
-        self,
-        obj_file: str,
-    ) -> list[str]:
-        disassemble_extra_opts = [obj_file]
-        if self._config.visualize_jumps:
-            disassemble_extra_opts += ["--visualize-jumps"]
-        if self._config.color:
-            disassemble_extra_opts += objdump_color_opts
-        return disassemble_extra_opts
 
     def dump_ir(self, mlir_program: RawMlirProgram, title: str):
         print(f"// -----// {title} //----- //", file=sys.stderr)
@@ -242,17 +228,6 @@ class MlirLLVMTarget(MlirTarget):
         os.makedirs(self._config.save_temps_dir, exist_ok=True)
         with open(f"{self._config.save_temps_dir}/{fname}", "w") as outf:
             outf.write(str(content))
-
-    def disassemble(
-        self,
-        obj_file: str,
-    ) -> subprocess.CompletedProcess:
-        disassemble_extra_opts = self.build_disassemble_extra_opts(obj_file=obj_file)
-        symbol = [f"{self.disassemble_option}"]
-        objdump = objdump_arm_bin if self._config.arch == "aarch64" else objdump_bin
-        disassemble_cmd = [objdump] + objdump_opts + symbol + disassemble_extra_opts
-        dis_process = self.execute_command(cmd=disassemble_cmd, pipe_stdoutput=False)
-        return dis_process
 
     def execute_command(
         self,

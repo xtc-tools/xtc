@@ -99,27 +99,23 @@ def xtc_conv2d_graph(
 
 
 def tvm_impl(graph: Graph) -> tuple[Backend, str]:
-    from xtc.backends.tvm import TVMBackend
+    from xtc.backends.tvm import Backend
 
-    impl = TVMBackend(graph)
+    impl = Backend(graph)
     return impl, "tvm"
 
 
 def jir_impl(graph: Graph) -> tuple[Backend, str]:
-    from xtc.backends.jir import JIRBackend
+    from xtc.backends.jir import Backend
 
-    impl = JIRBackend(graph)
+    impl = Backend(graph)
     return impl, "jir"
 
 
 def mlir_impl(graph: Graph) -> tuple[Backend, str]:
-    from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend
+    from xtc.backends.mlir import Backend
 
-    impl = MlirGraphBackend(
-        graph,
-        no_alias=True,
-        always_vectorize=False,
-    )
+    impl = Backend(graph)
     return impl, "mlir"
 
 
@@ -813,7 +809,7 @@ def main():
     default_unroll = 512
     choice_strategies = list(Strategies.names()) + list(STRATEGIES_ALIASES.keys())
     parser = argparse.ArgumentParser(
-        description="Autotune Matmult",
+        description="Autotune Operator",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(

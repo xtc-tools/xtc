@@ -14,7 +14,7 @@ with O.graph(name="conv2d_nhwc_mini") as gb:
 graph = gb.graph
 print(graph)
 
-impl = Backend(graph, always_vectorize=False, no_alias=True)
+impl = Backend(graph)
 
 sch = impl.get_scheduler()
 sched = sch.schedule()

@@ -137,20 +137,6 @@ mlirrunner_opts = [
     "--O3",
 ]
 
-objdump_bin = "x86_64-linux-gnu-objdump"
-
-objdump_arm_bin = "aarch64-linux-gnu-objdump"
-
 target_cc_bin = "cc"
 
 cc_bin = "cc"
-
-objdump_opts = [
-    "-dr",
-    "--no-addresses",
-    "--no-show-raw-insn",
-]
-
-objdump_color_opts = [
-    "--disassembler-color=on",
-]

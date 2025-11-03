@@ -26,8 +26,8 @@ class MlirGraphBackend(MlirBackend):
         xdsl_func: xdslFuncOp | Graph,
         nodes: list[MlirNodeBackend] | None = None,
         concluding_passes: list[str] = [],
-        always_vectorize: bool = True,
-        no_alias: bool = False,
+        always_vectorize: bool = False,
+        no_alias: bool = True,
     ):
         if isinstance(xdsl_func, XTCGraph):
             assert nodes is None

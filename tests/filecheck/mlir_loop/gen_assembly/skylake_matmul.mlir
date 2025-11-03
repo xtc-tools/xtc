@@ -1,4 +1,4 @@
-// RUN: mlir-loop --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps %s 2>&1 | filecheck %s
+// RUN: mlir-loop --no-alias --arch x86-64 --cpu skylake --print-assembly --hide-jumps %s 2>&1 | grep -v '\(nop\|ret\)' | filecheck %s
 // UNSUPPORTED: mlir-target=c
 // Assembly output will differ a bit when using C.
 
@@ -23,7 +23,9 @@ func.func @myfun(
     outs(%C : memref<256x256xf32>)
   return
 }
-// CHECK:       <myfun>:
+// CHECK:       Disassembly of section .text:
+// CHECK-NEXT:  
+// CHECK-NEXT:  <myfun>:
 // CHECK-NEXT:  	push   %rbx
 // CHECK-NEXT:  	lea    0x1c00(%rsi),%rax
 // CHECK-NEXT:  	add    $0x1c,%rdi
@@ -31,7 +33,6 @@ func.func @myfun(
 // CHECK-NEXT:  	lea    0x1e00(%rsi),%r8
 // CHECK-NEXT:  	add    $0x1f00,%rsi
 // CHECK-NEXT:  	xor    %r9d,%r9d
-// CHECK-NEXT:  	data16
 // CHECK-NEXT:  	mov    %r9,%r10
 // CHECK-NEXT:  	shl    $0xa,%r10
 // CHECK-NEXT:  	vmovups 0xe0(%rdx,%r10,1),%ymm0
@@ -44,7 +45,6 @@ func.func @myfun(
 // CHECK-NEXT:  	vmovups 0x60(%rdx,%r10,1),%ymm7
 // CHECK-NEXT:  	mov    $0xfffffffffffffff8,%r11
 // CHECK-NEXT:  	mov    %rax,%rbx
-// CHECK-NEXT:  	data16
 // CHECK-NEXT:  	vbroadcastss 0x4(%rdi,%r11,4),%ymm8
 // CHECK-NEXT:  	vfmadd231ps -0x1b20(%rbx),%ymm8,%ymm0
 // CHECK-NEXT:  	vfmadd231ps -0x1b40(%rbx),%ymm8,%ymm1
@@ -233,7 +233,6 @@ func.func @myfun(
 // CHECK-NEXT:  	vmovups 0x260(%rdx,%r10,1),%ymm7
 // CHECK-NEXT:  	mov    $0xfffffffffffffff8,%r11
 // CHECK-NEXT:  	mov    %r8,%rbx
-// CHECK-NEXT:  	nopl   (%rax)
 // CHECK-NEXT:  	vbroadcastss 0x4(%rdi,%r11,4),%ymm8
 // CHECK-NEXT:  	vfmadd231ps -0x1b20(%rbx),%ymm8,%ymm0
 // CHECK-NEXT:  	vfmadd231ps -0x1b40(%rbx),%ymm8,%ymm1
@@ -328,7 +327,6 @@ func.func @myfun(
 // CHECK-NEXT:  	vmovups 0x360(%rdx,%r10,1),%ymm7
 // CHECK-NEXT:  	mov    $0xfffffffffffffff8,%r11
 // CHECK-NEXT:  	mov    %rsi,%rbx
-// CHECK-NEXT:  	nopl   (%rax)
 // CHECK-NEXT:  	vbroadcastss 0x4(%rdi,%r11,4),%ymm8
 // CHECK-NEXT:  	vfmadd231ps -0x1b20(%rbx),%ymm8,%ymm0
 // CHECK-NEXT:  	vfmadd231ps -0x1b40(%rbx),%ymm8,%ymm1
@@ -419,4 +417,3 @@ func.func @myfun(
 // CHECK-NEXT:  	jb     <myfun+0x30>
 // CHECK-NEXT:  	pop    %rbx
 // CHECK-NEXT:  	vzeroupper 
-// CHECK-NEXT:  	ret

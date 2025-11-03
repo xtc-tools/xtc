@@ -14,20 +14,12 @@ from xtc.targets.host import HostModule
 import xtc.backends.tvm as backend
 import xtc.itf as itf
 
+from xtc.utils.host_tools import disassemble
+
 from .TVMOps import TVMBaseExpr
 
 __all__ = [
     "TVMCompiler",
-]
-
-
-objdump_bin = "objdump"
-
-objdump_opts = ["-d", "--no-addresses", "--no-show-raw-insn", "--visualize-jumps"]
-
-objdump_color_opts = [
-    "--visualize-jumps=color",
-    "--disassembler-color=on",
 ]
 
 
@@ -111,13 +103,13 @@ class TVMCompiler(itf.comp.Compiler):
                 soname = f"{tdir}/built.so"
                 fname = f"{packed_func_name}_compute_"
                 built.export_library(soname)
-                cmd_disassembler = (
-                    [objdump_bin] + [soname] + objdump_opts + [f"--disassemble={fname}"]
+                disassembly = disassemble(
+                    soname,
+                    function=fname,
+                    section=".text",
+                    color=self.color,
                 )
-                if self.color:
-                    cmd_disassembler += objdump_color_opts
-                print("Running", " ".join(cmd_disassembler))
-                subprocess.run(cmd_disassembler, text=True)
+                print(disassembly, flush=True)
         built.export_library(f"{packed_lib_path}.so")
         if self.bare_ptr:
             wrapper = PackedOperatorWrapper(
