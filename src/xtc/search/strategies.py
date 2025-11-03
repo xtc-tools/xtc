@@ -838,6 +838,105 @@ class Strategy_PPWRPRPvr(Strategy_PPWRPRP):
         return samples
 
 
+class Strategy_GOTO(BaseStrategy):
+    """Strategy for Goto tiling with vectorisation.
+
+    Each tiling parameter is free when exploring exhausive samples.
+    """
+
+    def __init__(self, graph: Graph, **kwargs: Any) -> None:
+        super().__init__(
+            graph,
+            ["iL2", "iR", "jL3", "jR", "kL1", "unroll_k", "pack_B", "pack_A"],
+            **kwargs,
+        )
+
+    @override
+    def _generate(self, sch: Scheduler, in_x: list[int]) -> None:
+        # TODO: ref above, only support matmult like
+        assert len(self._constant_sizes()) == 3
+        iL2, iR, jL3, jR, kR1, unroll_k, pack_B, pack_A = in_x[:8]
+        axes_order = ["j", "k", "i", "j1", "i1", "k1", "i2", "j2"]
+        vector_axes = ["j2"]
+        parallel_axes = []
+        unroll_axes = {"i2": iR, "k1": unroll_k}
+        if self._threads > 1:
+            parallel_axes.append("j")
+        if pack_B:
+            sch.pack_at("k", 1, pad=True)
+        if pack_A:
+            sch.pack_at("i", 0, pad=True)
+        sch.tile("i", {"i1": iR * iL2, "i2": iR}, root=".")
+        sch.tile("j", {"j1": jR * jL3, "j2": jR}, root=".")
+        sch.tile("k", {"k1": kR1}, root=".")
+        sch.interchange(axes_order, root=".")
+        sch.parallelize(parallel_axes, root=".")
+        sch.vectorize(vector_axes, root=".")
+        sch.unroll(unroll_axes, root=".")
+
+    @override
+    def _independents(self) -> list[list[list[int]]]:
+        # TODO: ref above, only support matmult like
+        assert len(self._constant_sizes()) == 3
+        i, j, k = self._constant_sizes().values()
+        tiles_i = factors_enumeration(i, 2)
+        tiles_j = factors_enumeration(j, 2)
+        tiles_k = factors_enumeration(k, 2)
+        boolean = [[0], [1]]
+        return [tiles_i, tiles_j, tiles_k, boolean, boolean]
+
+    @override
+    def _filter(self, samples: Iterator[VecSample]) -> Iterator[VecSample]:
+        v_index = 3
+        indexes = [1, 3, 5]
+        samples = self._filter_unroll(indexes, v_index, samples, stat="filtered")
+        return samples
+
+    @override
+    def _default_schedule(self, opt_level: int) -> list[int]:
+        # TODO: ref above, only support matmult like
+        assert len(self._constant_sizes()) == 3
+        i, j, k = i, j, k = self._constant_sizes().values()
+        schedule = [1, 1, 1, 1, 1, 0, 0, 0]
+        if opt_level >= 3:
+            jtile = self._vec_size
+            itile = 2  # TODO: IPC?
+            ktile = 1
+            idiv = i >= itile and i % itile == 0
+            jdiv = j >= jtile and j % jtile == 0
+            kdiv = k >= ktile and k % ktile == 0
+            if idiv and jdiv and kdiv:
+                schedule = [1, itile, 1, jtile, ktile, 2, 1, 1]
+        return schedule
+
+
+class Strategy_GOTO_R(Strategy_GOTO):
+    """
+    Goto Strategy with a reduced search space.
+    """
+
+    @override
+    def __init__(self, graph: Graph, **kwargs: Any) -> None:
+        super().__init__(graph, **kwargs)
+
+    @override
+    def _filter(self, samples: Iterator[VecSample]) -> Iterator[VecSample]:
+        samples = super()._filter(samples)
+        # Only keep tiles samples with pertinent tiles sizes and small unrolls on k
+        reg_size = self._vec_size * self._arch_vreg_num
+        for x in samples:
+            io, ii, jo, ji, _, unroll_k = x[:6]
+            reg_tile = ii * ji
+            if (
+                reg_tile < reg_size // 2
+                and ii < 4
+                and unroll_k < 4
+                and 128 > io > 1
+                and 128 > jo > 1
+            ):
+                yield x
+
+
 class Strategies:
     @classmethod
     def names(cls) -> Sequence[str]:
@@ -860,4 +959,6 @@ class Strategies:
         "tile_ppwrprp": Strategy_PPWRPRP,
         "tile_ppwrprp_v": Strategy_PPWRPRPv,
         "tile_ppwrprp_vr": Strategy_PPWRPRPvr,
+        "tile_goto": Strategy_GOTO,
+        "tile_goto_r": Strategy_GOTO_R,
     }
