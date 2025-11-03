@@ -66,6 +66,8 @@ class DescriptExtend(Descript):
         out_dict = {}
         for level, d_level in spec.items():
             level_dict = {}
+            if not isinstance(d_level, dict):
+                continue
             for a, v in d_level.items():
                 if a == "explore":
                     assert isinstance(v, str)
@@ -88,23 +90,8 @@ class DescriptExtend(Descript):
                         d = v
                     size = d.get("size", None)
                     if size:
-                        # if d.get("split", None):
-                        #     raise Exception(f"""
-                        #         Axis cannot be tiled and split.
-                        #         (Axis {a} at level {level}.)
-                        #         """)
                         d.pop("size")
                         a = f"{a}#{size}"
-                    # split = d.get("split", None)
-                    # if split:
-                    #     if isinstance(split, str):
-                    #         d_split = self._split_yaml(split)
-                    #     else:
-                    #         d_split = split
-                    #     for sub_level, sub_range in d_split.items():
-                    #         sub_dict = self._parse_yaml({sub_level : d[sub_level]})
-                    #         level_dict[a + sub_range] = sub_dict
-                    #     continue
                     if ":" in a:
                         level_dict[a] = self._parse_yaml(d)
                         continue
@@ -358,12 +345,12 @@ class DescriptExtend(Descript):
                         tree_packs.append((param, input, pad))
                         if isinstance(param, str):
                             variables.append(param)
-                            constraints.append(f"0 <= {param} <= 1")
+                            constraints.append(f"{param} in {{0, 1}}")
                         if isinstance(input, str):
                             input = self.abstract_matrix.index(input)
                         if isinstance(pad, str):
                             variables.append(pad)
-                            constraints.append(f"0 <= {pad} <= 1")
+                            constraints.append(f"{pad} in {{0, 1}}")
                     continue
                 elif declaration in "buffer":
                     for val_ in val:
@@ -375,10 +362,10 @@ class DescriptExtend(Descript):
                         tree_buff.append((param, pad))
                         if isinstance(param, str):
                             variables.append(param)
-                            constraints.append(f"0 <= {param} <= 1")
+                            constraints.append(f"{param} in {{0, 1}}")
                         if isinstance(pad, str):
                             variables.append(pad)
-                            constraints.append(f"0 <= {pad} <= 1")
+                            constraints.append(f"{pad} in {{0, 1}}")
                     continue
                 elif declaration == "explore_axis_order":
                     sched["axis_orders"].append(tree_declaration)
@@ -394,10 +381,10 @@ class DescriptExtend(Descript):
                             tree_packs.append((param, matrix_index, pad))
                         if isinstance(param, str):
                             variables.append(param)
-                            constraints.append(f"0 <= {param} <= 1")
+                            constraints.append(f"{param} in {{0, 1}}")
                         if isinstance(pad, str):
                             variables.append(pad)
-                            constraints.append(f"0 <= {pad} <= 1")
+                            constraints.append(f"{pad} in {{0, 1}}")
                     continue
                 elif ":" in declaration:
                     axis_name, x, y, z = self.parse_split_declaration(declaration)
@@ -555,23 +542,20 @@ class DescriptExtend(Descript):
             for v in tree_interchange.values():
                 interchange += v
 
-            # Check if the last cut of each axis is either 0 or None.
-            # None correspond to "until the end of the loop". 0 is the
-            # default value, if it has 0 then it means the axis isn't splitted.
-            # Any other value means the split is let in a partial state.
             if last_split is not None:
                 a, b = last_split
-                if isinstance(a, int):
-                    constraints.append(f"{b} in {{{a}}}")
-                elif isinstance(b, int):
-                    constraints.append(f"{a} in {{{b}}}")
-                else:
-                    for i in range(len(constraints)):
-                        c = constraints[i]
-                        constraints[i] = c.replace(a, b)
-                        # constraints.remove(c) c.replace()
-                    # constraints.append(f"{b} == {a}")
+                if isinstance(a, int) and not isinstance(b, int):
+                    a, b = b, a
+                a, b = str(a), str(b)
+                for i in range(len(constraints)):
+                    c = constraints[i]
+                    constraints[i] = c.replace(a, b)
                 last_split = None
+
+        # Check if the last cut of each axis is either 0 or None.
+        # None correspond to "until the end of the loop". 0 is the
+        # default value, if it has 0 then it means the axis isn't splitted.
+        # Any other value means the split is let in a partial state.
         for axis, cut in previous_cut.items():
             if cut is not None and isinstance(cut, int) and cut != 0:
                 raise Exception(
@@ -676,7 +660,7 @@ class DescriptExtend(Descript):
                 case "vectorize":
                     if isinstance(param, str):
                         sched["variables"].append(param)
-                        sched["constraints"].append(f"0 <= {param} <= 1")
+                        sched["constraints"].append(f"{param} in {{0, 1}}")
                         sched["vectorize"].append((param, loop_name))
                         continue
                     if param is None:
@@ -689,7 +673,7 @@ class DescriptExtend(Descript):
                 case "parallelize":
                     if isinstance(param, str):
                         sched["variables"].append(param)
-                        sched["constraints"].append(f"0 <= {param} <= 1")
+                        sched["constraints"].append(f"{param} in {{0, 1}}")
                         sched["parallelize"].append((param, loop_name))
                         continue
                     if param is None:
