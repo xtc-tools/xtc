@@ -2,9 +2,13 @@
 
 import xtc.graphs.xtc.op as O
 from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend as Backend
+from xtc.artifacts import get_operation
 
-# Resnet18_01 size
-N, H, W, F, R, S, C, SH, SW, dtype = 1, 224, 224, 64, 7, 7, 3, 2, 2, "float32"
+op = get_operation("conv2d", "ResNet18_01")
+N, H, W, F, R, S, C = [op["dims"][k] for k in ["n", "h", "w", "f", "r", "s", "c"]]
+SH, SW = [op["params"][k] for k in ["SH", "SW"]]
+dtype = "float32"
+
 a = O.tensor((N, H + R - 1, W + S - 1, C), dtype)
 b = O.tensor((R, S, C, F), dtype)
 

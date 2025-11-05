@@ -47,6 +47,7 @@ from xtc.utils.numpy import (
 from xtc.utils.math import mulall
 from xtc.runtimes.types.ndarray import NDArray
 import xtc.runtimes.host.runtime as runtime
+from xtc.artifacts import get_operation, list_operations
 
 logger = logging.getLogger(__name__)
 
@@ -755,6 +756,19 @@ STRATEGIES_CLASSES = {
 }
 
 
+def get_operation_dims(operator: str, name: str) -> list[int]:
+    op = get_operation(operator, name)
+    dims = [*op["dims"].values(), *op["params"].values()]
+    return dims
+
+
+def list_operations_dims(operator: str):
+    ops = list_operations(operator)
+    for _, name in ops:
+        op = get_operation(operator, name)
+        print(f"{name}: {op['dims']}, {op['params']}")
+
+
 def setup_args(args: NS):
     global THREADS
     global MAX_UNROLL
@@ -818,6 +832,14 @@ def main():
         choices=list(OPERATORS.keys()),
         default=default_op,
         help="operator to optimize",
+    )
+    parser.add_argument(
+        "--op-name", type=str, help="operation name to optimize from the registry"
+    )
+    parser.add_argument(
+        "--ops-list",
+        action="store_true",
+        help="print available operations names for the given operator",
     )
     parser.add_argument(
         "--func-name", type=str, help="function name to generate, default to operator"
@@ -964,6 +986,12 @@ def main():
         args.dims = OPERATORS[args.operator]["default_dims"]
     if not args.dtype:
         args.dtype = OPERATORS[args.operator]["default_type"]
+    if args.op_name:
+        args.dims = get_operation_dims(args.operator, args.op_name)
+
+    if args.ops_list:
+        list_operations_dims(args.operator)
+        raise SystemExit()
 
     for backend in args.backends:
         assert backend in OPERATORS[args.operator]["backends"], (
