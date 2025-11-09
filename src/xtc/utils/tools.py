@@ -80,3 +80,25 @@ def get_geist_prefix(prefix: Path | str | None = None):
     if not cgeist.exists():
         raise RuntimeError(f"could not find cgeist at: {cgeist}")
     return prefix
+
+
+def get_cuda_prefix(prefix: Path | str | None = None):
+    """
+    Tentatively return the cuda installation dir
+    Raise on error.
+    Defined in order as:
+    - passed prefix if not None
+    - env var CUDA_INSTALL_DIR
+    - /usr/local/cuda
+    """
+    if prefix is None:
+        prefix_var = os.environ.get("CUDA_INSTALL_DIR")
+        if prefix_var:
+            prefix = Path(prefix_var)
+        else:
+            prefix = Path("/usr/local/cuda")
+    else:
+        prefix = Path(prefix)
+    if not prefix.exists():
+        raise RuntimeError(f"could not find CUDA installation dir at: {prefix}")
+    return prefix

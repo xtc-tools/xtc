@@ -11,7 +11,7 @@
 
 #if RUNTIME_DEBUG
 #include <stdio.h>
-#define RUNTIME_LOG(fmt, ...) fprintf(stderr, fmt, __VA_ARGS__)
+#define RUNTIME_LOG(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 #else
 #define RUNTIME_LOG(fmt, ...) ((void)0)
 #endif

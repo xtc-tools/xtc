@@ -3,6 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing import Any
+from types import ModuleType
 import numpy as np
 import numpy.typing
 from pathlib import Path
@@ -14,6 +15,7 @@ from .evaluator import Executor, Evaluator
 
 
 def load_and_evaluate(
+    runtime: ModuleType,
     module_file: str,
     module_name: str,
     payload_name: str,
@@ -43,6 +45,7 @@ def load_and_evaluate(
                     return [], 1, "Error in validation: outputs differ"
         eval_func = Evaluator(
             func,
+            runtime,
             repeat=repeat,
             min_repeat_ms=min_repeat_ms,
             number=number,
@@ -53,12 +56,14 @@ def load_and_evaluate(
 
 
 def load_and_execute(
+    runtime: ModuleType,
     module_file: str,
     module_name: str,
     payload_name: str,
     **kwargs: Any,
 ) -> int:
     _, code, _ = load_and_evaluate(
+        runtime,
         module_file,
         module_name,
         payload_name,

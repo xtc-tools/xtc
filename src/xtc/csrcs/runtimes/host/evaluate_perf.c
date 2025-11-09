@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "perf_event.h"
 
 extern double fclock(void); /* from fclock.c */

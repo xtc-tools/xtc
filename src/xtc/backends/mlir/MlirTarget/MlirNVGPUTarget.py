@@ -20,12 +20,9 @@ from xtc.utils.ext_tools import (
     runtime_libs,
     cuda_runtime_lib,
     system_libs,
-    objdump_bin,
-    objdump_arm_bin,
     cc_bin,
-    objdump_opts,
-    objdump_color_opts,
 )
+from xtc.utils.tools import get_cuda_prefix
 from xtc.targets.gpu import GPUModule
 import xtc.itf as itf
 from xtc.itf.graph import Graph
@@ -89,9 +86,6 @@ class MlirNVGPUTarget(MlirTarget):
         exe_c_file = f"{dump_tmp_file}.main.c"
         so_dump_file = f"{dump_file}.so"
         exe_dump_file = f"{dump_file}.out"
-        src_ir_dump_file = f"{dump_base}.mlir"
-        mlir_btrn_dump_file = f"{dump_base}.before_trn.mlir"
-        mlir_atrn_dump_file = f"{dump_base}.after_trn.mlir"
         mlir_llvm_dump_file = f"{dump_base}.llvm.mlir"
 
         if self._config.debug:
@@ -122,10 +116,6 @@ class MlirNVGPUTarget(MlirTarget):
         llc_cmd = self.cmd_llc + opt_pic + [bc_dump_file, "-o", obj_dump_file]
         bc_process = self.execute_command(cmd=llc_cmd)
         assert bc_process.returncode == 0
-
-        if self._config.print_assembly:
-            disassemble_process = self.disassemble(obj_file=obj_dump_file)
-            assert disassemble_process.returncode == 0
 
         payload_objs = [obj_dump_file, *self.shared_libs]
         payload_path = [*self.shared_path]
@@ -268,10 +258,11 @@ class MlirNVGPUTarget(MlirTarget):
         """
         Query the PTX version of the selected GPU.
         """
+        cuda_install_dir = get_cuda_prefix()
         try:
             compiled_cmd = subprocess.run(
                 [
-                    "nvcc",
+                    f"{cuda_install_dir}/bin/nvcc",
                     "-c",
                     "-arch=" + self.arch(),
                     "-x",
@@ -339,17 +330,6 @@ class MlirNVGPUTarget(MlirTarget):
         else:
             return f"--disassemble={self._config.to_disassemble}"
 
-    def build_disassemble_extra_opts(
-        self,
-        obj_file: str,
-    ) -> list[str]:
-        disassemble_extra_opts = [obj_file]
-        if self._config.visualize_jumps:
-            disassemble_extra_opts += ["--visualize-jumps"]
-        if self._config.color:
-            disassemble_extra_opts += objdump_color_opts
-        return disassemble_extra_opts
-
     def dump_ir(self, mlir_program: RawMlirProgram, title: str):
         print(f"// -----// {title} //----- //", file=sys.stderr)
         print(str(mlir_program.mlir_module), file=sys.stderr)
@@ -416,17 +396,6 @@ class MlirNVGPUTarget(MlirTarget):
         os.makedirs(self._config.save_temps_dir, exist_ok=True)
         with open(f"{self._config.save_temps_dir}/{fname}", "w") as outf:
             outf.write(str(content))
-
-    def disassemble(
-        self,
-        obj_file: str,
-    ) -> subprocess.CompletedProcess:
-        disassemble_extra_opts = self.build_disassemble_extra_opts(obj_file=obj_file)
-        symbol = [f"{self.disassemble_option}"]
-        objdump = objdump_arm_bin if self._config.arch == "aarch64" else objdump_bin
-        disassemble_cmd = [objdump] + objdump_opts + symbol + disassemble_extra_opts
-        dis_process = self.execute_command(cmd=disassemble_cmd, pipe_stdoutput=False)
-        return dis_process
 
     def execute_command(
         self,

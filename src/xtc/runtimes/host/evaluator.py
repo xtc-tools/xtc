@@ -3,12 +3,10 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing import Any
+from types import ModuleType
 import ctypes
 
-from .runtime import (
-    evaluate_perf,
-    evaluate_packed_perf,
-)
+from xtc.runtimes.host.runtime import RuntimeType
 
 __all__ = [
     "Evaluator",
@@ -103,6 +101,7 @@ class Evaluator:
     def __init__(
         self,
         f: Any,
+        runtime: ModuleType,
         repeat: int = 1,
         number: int = 1,
         min_repeat_ms: int = 0,
@@ -115,6 +114,7 @@ class Evaluator:
         self.number = number
         self.min_repeat_ms = min_repeat_ms
         self.pmu_counters = pmu_counters
+        self.runtime = runtime
         self.cfunc = CFunc(f)
 
     def _str_list_to_c(self, str_list: list[str]) -> Any:
@@ -127,6 +127,13 @@ class Evaluator:
         values_num = 1
         if len(self.pmu_counters) > 0:
             values_num = len(self.pmu_counters)
+            if (
+                any(counter.startswith("gpu.") for counter in self.pmu_counters)
+                and self.runtime.type() != RuntimeType.GPU
+            ):
+                raise ValueError(
+                    "GPU PMU counters are not requested but target is not a GPU."
+                )
         results_array = (ctypes.c_double * (self.repeat * values_num))()
         if self.cfunc.is_packed:
             args_array_packed = (CArgValue * len(args_tuples))(
@@ -135,7 +142,7 @@ class Evaluator:
             args_codes_packed = (CArgCode * len(args_tuples))(
                 *[arg[1] for arg in args_tuples]
             )
-            evaluate_packed_perf(
+            self.runtime.evaluate_packed_perf(
                 ctypes.cast(results_array, ctypes.POINTER(ctypes.c_double)),
                 ctypes.c_int(len(self.pmu_counters)),
                 self._str_list_to_c(self.pmu_counters),
@@ -151,7 +158,7 @@ class Evaluator:
             args_array = (ctypes.c_voidp * len(args_tuples))(
                 *[arg[0] for arg in args_tuples]
             )
-            evaluate_perf(
+            self.runtime.evaluate_perf(
                 ctypes.cast(results_array, ctypes.POINTER(ctypes.c_double)),
                 ctypes.c_int(len(self.pmu_counters)),
                 self._str_list_to_c(self.pmu_counters),
