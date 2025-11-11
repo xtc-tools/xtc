@@ -1,5 +1,5 @@
 // RUN: mlir-loop --no-alias --arch x86-64 --cpu tigerlake --print-assembly --hide-jumps %s 2>&1 | grep -v '\(nop\|ret\)' | filecheck %s
-// UNSUPPORTED: mlir-target=c
+// REQUIRES: mlir-target=llvmir
 // Assembly output will differ a bit when using C.
 
 func.func @myfun(

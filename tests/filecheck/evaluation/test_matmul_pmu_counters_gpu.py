@@ -1,4 +1,5 @@
 # RUN: python %s 2>&1 | filecheck %s
+# REQUIRES: mlir-target=nvgpu
 
 import xtc.graphs.xtc.op as O
 from xtc.backends.mlir import Backend
@@ -18,7 +19,6 @@ impl = Backend(graph)
 sch = impl.get_scheduler()
 sch.tile("i", {"i1": 2})
 sch.tile("j", {"j1": 16})
-#sch.interchange(["k", "i", "j", "i1", "j1"])
 #sch.vectorize(["j1"]) Not supported yet for GPUs
 sch.unroll({"i1": 2})
 sch.parallelize(["i"])

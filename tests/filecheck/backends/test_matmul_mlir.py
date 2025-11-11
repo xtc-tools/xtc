@@ -1,4 +1,6 @@
 # RUN: python %s 2>&1 | filecheck %s
+# UNSUPPORTED: mlir-target=nvgpu
+
 import xtc.graphs.xtc.op as O
 from xtc.backends.mlir import Backend
 

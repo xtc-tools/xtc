@@ -1,5 +1,5 @@
 // RUN: mlir-loop --no-alias --arch aarch64 --cpu cortex-a72 --print-assembly --hide-jumps %s 2>&1 | filecheck %s
-// UNSUPPORTED: mlir-target=c
+// REQUIRES: mlir-target=llvmir
 // Missing a C cross compiler as dependancy.
 
 func.func @myfun(

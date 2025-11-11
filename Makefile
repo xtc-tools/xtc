@@ -7,6 +7,7 @@ help:
 	@echo "    make check-type    # run all type checks tests"
 	@echo "    make check-lit     # run all lit checks for binary target"
 	@echo "    make check-lit-c   # run all lit checks for C target"
+	@echo "    make check-lit-nvgpu # run all lit checks for NVGPU target"
 	@echo "    make check-pytest  # run all pytest tests"
 	@echo "    make check-banwords # run banned words checks"
 	@echo "  make format          # apply formatting (warning: change files in place)"
@@ -52,6 +53,9 @@ check-lit:
 check-lit-c:
 	env XTC_MLIR_TARGET=c lit -v tests/filecheck/backends tests/filecheck/mlir_loop
 
+check-lit-nvgpu:
+	env XTC_MLIR_TARGET=nvgpu lit -v tests/filecheck/backends tests/filecheck/mlir_loop tests/filecheck/evaluation
+
 check-pytest:
 	scripts/pytest/run_pytest.sh -v
 
@@ -64,5 +68,5 @@ format-license:
 claude:
 	scripts/llms/init_claude.py README.md "Links" "System requirements" "AI assistants" > CLAUDE.md
 
-.PHONY: help test check check-lit-all check-lit check-lit-c check-pytest check-type check-pyright check-mypy check-format check-format-ruff check-license check-banwords format format-ruff format-license
+.PHONY: help test check check-lit-all check-lit check-lit-c check-lit-nvpgu check-pytest check-type check-pyright check-mypy check-format check-format-ruff check-license check-banwords format format-ruff format-license
 .SUFFIXES:
