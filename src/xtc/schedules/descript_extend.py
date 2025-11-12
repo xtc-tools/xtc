@@ -3,6 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing import Any, Tuple
+from copy import deepcopy
 from dataclasses import dataclass
 import re
 import strictyaml
@@ -191,7 +192,7 @@ class DescriptExtend(Descript):
     def apply_sample(
         self, flat_schedules: list[SchedDict], sample: dict[str, Any]
     ) -> list[SchedDict]:
-        flat_schedules = flat_schedules.copy()
+        flat_schedules = deepcopy(flat_schedules)
         for schedule in flat_schedules:
             for k in ["splits", "tiles"]:
                 for dim, axes in schedule[k].items():
