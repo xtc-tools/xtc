@@ -983,7 +983,7 @@ class Strategy_Descript(Strategy):
             permutation = list(itertools.permutations(v))
             a_holder = f"order_{a}"
             self._orders[a_holder] = permutation
-            order_constraints.append(f"0 <= {a_holder} <= {len(permutation) - 1}")
+            order_constraints.append(f"{a_holder} in {set(range(len(permutation)))}")
         self._constraints = constraints + input_constraints + order_constraints
         if initialize:
             self._initialize()
@@ -1045,7 +1045,7 @@ class Strategy_Descript(Strategy):
     def _sample_once_tuple(self, num: int) -> Iterator[tuple]:
         draw = self.sample_once(num)
         for d in draw:
-            yield tuple(d.values())
+            yield tuple([d[x] for x in self.sample_names])
 
     @override
     def exhaustive(self) -> Iterator[Sample]:
