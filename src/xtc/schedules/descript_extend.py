@@ -173,17 +173,22 @@ class DescriptExtend(Descript):
             axis_constraints += all_axis_constraints
             axis_constraints.reverse()
             for constraint in axis_constraints:
-                constraint.reverse()
-                constraint_str = ""
-                var_flag = False
-                if isinstance(constraint[0], str):
-                    constraint_str = "1 || "
-                for size in constraint[:-1]:
-                    var_flag = var_flag or isinstance(size, str)
-                    constraint_str += f"{size} || "
-                constraint_str += str(constraint[-1])
-                if var_flag:
-                    constraints.insert(0, constraint_str)
+                if constraint[0] == 1:
+                    for size in constraint[1:]:
+                        if isinstance(size, str):
+                            constraints.append(f"{size} in {{1}}")
+                else:
+                    constraint.reverse()
+                    constraint_str = ""
+                    var_flag = False
+                    if isinstance(constraint[0], str):
+                        constraint_str = "1 || "
+                    for size in constraint[:-1]:
+                        var_flag = var_flag or isinstance(size, str)
+                        constraint_str += f"{size} || "
+                    constraint_str += str(constraint[-1])
+                    if var_flag:
+                        constraints.insert(0, constraint_str)
 
         variables = list(dict.fromkeys(variables))
         constraints = list(dict.fromkeys(constraints))
@@ -436,6 +441,7 @@ class DescriptExtend(Descript):
                                 .replace("[", "_")
                                 .replace("]", "_")
                             )
+                            constraints.append(f"{inner_size} <= {y}")
                             if isinstance(x, str):
                                 constraints.append(f"{x} <= {y}")
                                 # constraints.append(f"1 || {x} || {y}")
