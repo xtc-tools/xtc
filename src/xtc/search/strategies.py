@@ -951,6 +951,7 @@ class Strategy_Descript(Strategy):
         graph: Graph,
         spec: dict[str, dict] | str,
         constraints: list[str] = [],
+        partial_tiles: bool = False,
         initialize: bool = True,
     ) -> None:
         self._graph = graph
@@ -962,6 +963,7 @@ class Strategy_Descript(Strategy):
             abstract_axis=self._axes,
             abstract_axis_sizes=dict(self._sizes),
             abstract_matrix=["A", "B", "C"],
+            partial_tiles=partial_tiles,
         )
         self._descript = descript
         self._initialized = False
