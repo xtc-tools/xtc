@@ -11,7 +11,12 @@ import numpy as np
 
 from properties import constraints_from_str, hypergraph
 from properties import variables as sampler_variables
-from strategy import execute_dynamic, execute_static, solve_with_z3
+from strategy import (
+    execute_dynamic,
+    execute_static,
+    solve_with_z3,
+    pretty_print_methods,
+)
 from xtc.itf.graph import Graph
 from xtc.itf.schd import Scheduler
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
@@ -993,7 +998,7 @@ class Strategy_Descript(Strategy):
     def _initialize(self):
         if self._initialized:
             return
-        max_enum = max(self._sizes.values())
+        max_enum = int(1 + np.log2(max(self._sizes.values())))
         constraints = constraints_from_str(self._constraints, silent=True)
         properties, constraints = hypergraph(
             constraints, max_enum=max_enum, silent=True
@@ -1043,6 +1048,12 @@ class Strategy_Descript(Strategy):
             silent=True,
         )
         return draw
+
+    def pretty_print_methods(self, tab: str = "\t"):
+        self._initialize()
+        pretty_print_methods(
+            self._methods, self._properties, self._constraints, tab=tab
+        )
 
     def _sample_once_tuple(self, num: int) -> Iterator[tuple]:
         draw = self.sample_once(num)
