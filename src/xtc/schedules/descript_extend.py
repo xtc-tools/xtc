@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import re
 import strictyaml
 from typing_extensions import override
+from copy import deepcopy
 
 from xtc.itf.schd.scheduler import Scheduler
 
@@ -301,6 +302,7 @@ class DescriptExtend(Descript):
         spec: dict[str, dict],
         head: list[str],
         tile_sizes: dict[str, int | str] | None = None,
+        sched_sizes: dict[str, list] | None = None,
     ) -> list[SchedDict]:
         recursive_scheds: list[SchedDict] = []
         sched: SchedDict = {
@@ -324,12 +326,15 @@ class DescriptExtend(Descript):
             axes_sizes: dict[str, int | str] = tile_sizes
         else:
             axes_sizes = {a: v for a, v in self.abstract_axis_sizes.items()}
+        if sched_sizes is None:
+            sched_sizes = {}
+            for a, v in axes_sizes.items():
+                sched_sizes[a] = [str(v)]
         sizes: dict[str, int | str | None] = {}
         previous_cut: dict[str, int | str | None] = {a: 0 for a in self.abstract_axis}
         interchange: list[str] = head
         constraints: list[str] = []
         variables: list[str] = []
-        default_leq = "<=" if self.partial_tiles else "||"
         # Processing the schedule
         for tree_declaration, tree_val in spec.items():
             assert isinstance(tree_val, dict)
@@ -480,6 +485,7 @@ class DescriptExtend(Descript):
                         root=new_axes_root_name,
                         tile_sizes=axes_sizes.copy(),
                         head=[axis_name],
+                        sched_sizes=deepcopy(sched_sizes),
                     )
                     axes_sizes[axis_name] = current_size
 
@@ -506,8 +512,19 @@ class DescriptExtend(Descript):
                             raise Exception(
                                 f"Tile {declaration} cannot be partial and full"
                             )
-                        leq = "||" if full else "<=" if partial else default_leq
-                        constraints.append(f"{loop_size} {leq} {axes_sizes[axis_name]}")
+                        if partial or (not full and self.partial_tiles):
+                            constraints.append(
+                                f"{loop_size} <= {axes_sizes[axis_name]}"
+                            )
+                        else:
+                            s = (
+                                ", ".join(sched_sizes[axis_name])
+                                if len(sched_sizes[axis_name]) > 1
+                                else sched_sizes[axis_name][0]
+                            )
+                            s = f"{loop_size} || {{{s}}}"
+                            constraints.append(s)
+                    sched_sizes[axis_name].insert(0, str(loop_size))
                     axes_sizes[axis_name] = loop_size
                     tile_num = len(sched["tiles"][axis_name])
                     loop_name = f"{axis_name}{tile_num}"
