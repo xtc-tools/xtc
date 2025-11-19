@@ -24,12 +24,14 @@ def descript_extend_scheduler(
     abstract_matrix: list[str] = [],
     sample: dict[str, Any] = {},
     partial_tiles: bool = False,
+    partial_unrolls: bool = False,
 ):
     descript = DescriptExtend(
         abstract_axis=abstract_axis,
         abstract_axis_sizes=abstract_axis_sizes,
         abstract_matrix=abstract_matrix,
         partial_tiles=partial_tiles,
+        partial_unrolls=partial_unrolls,
     )
     descript.apply(node_name=node_name, spec=spec, scheduler=scheduler, sample=sample)
 
@@ -39,6 +41,7 @@ class DescriptExtend(Descript):
     abstract_axis_sizes: dict[str, int]
     abstract_matrix: list[str]
     partial_tiles: bool = False
+    partial_unrolls: bool = False
 
     @override
     def apply(
@@ -673,7 +676,8 @@ class DescriptExtend(Descript):
                         ufactor = param
                         if isinstance(param, str):
                             sched["variables"].append(param)
-                            constraints.append(f"{ufactor} || {sizes[loop_name]}")
+                            leq = "<=" if self.partial_unrolls else "||"
+                            constraints.append(f"{ufactor} {leq} {sizes[loop_name]}")
                     sched["unroll"][loop_name] = ufactor
 
                 case "vectorize":
