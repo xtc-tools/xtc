@@ -6,33 +6,61 @@ Test strategy Goto on matmul
 import utils
 from xtc.search.strategies import Strategy_Descript as Strategy
 
+import xtc.graphs.xtc.op as O
+
 graph = utils.get_graph_matmul()
-backend = utils.get_backend(graph)
+I, J, K, dtype = 1024, 1024, 1024, "float32"
+
+a = O.tensor((I, K), dtype)
+b = O.tensor((K, J), dtype)
+
+with O.graph(name="matmul") as gb:
+    O.matmul(a, b)
+graph = gb.graph
+backend = utils.get_backend(graph, "tvm")
+
 spec = """
-DDRj:
+Memory:
     j:
-        parallelize: j_par
-DDR:
     k:
-    i:
-    explore: True
-    A: bufferize=pack_A pad
-    B: bufferize=pack_B pad
 L3:
-    j: size=jL3
+    B: bufferize
+    i:
 L2:
-    i: size=iL2
+    A: bufferize
+    j#nc:
+    i#mc:
 L1:
-    k: size=kL1 unroll=kU
-R:
-    i: size=iR unroll
-    j: size=jR vectorize=jV
+    k#kc: unroll=kr
+Register:
+    i#mr: unroll full
+    j#nr: vectorize full
 """
-constraint = ["iR * jR <= 56"]
-strategy = Strategy(graph, spec, constraints=constraint)
+
+nb_registers = 32
+nb_fma = 2
+fma_latency = 4
+ilp = nb_fma*fma_latency
+vector_size = 16
+elt_size = 4
+reorder_buffer = 256
+nb_words_L1 = 32*1024//elt_size
+nb_words_L2 = 1024*1024//elt_size
+nb_words_L3 = 36*1024*1024//elt_size
+
+constraints = [
+f"1 + nvr + nvr * mr <= {nb_registers}",
+f"nr == {vector_size} * nvr",
+f"nvr * mr >= {ilp}",
+f"nvr * mr * kr <= {reorder_buffer}",
+f"kc * nr <= {nb_words_L1}",
+f"kc * mc <= {nb_words_L2}",
+f"kc * nc <= {nb_words_L3}",
+]
+strategy = Strategy(graph, spec, constraints=constraints, partial_tiles=False, partial_unrolls=False, initialize=False)
 
 print(strategy._constraints)
 print(len(list(strategy.sample(100))))
 
-# CHECK: ['1 || kU || kL1 || 12', '1 || jR || jL3 || 32', '1 || iR || iL2 || 21', '0 <= pack_A <= 1', '0 <= pack_B <= 1', '0 <= j_par <= 1', '0 <= jV <= 1', 'iR * jR <= 56', '0 <= order_DDR <= 1']
+# CHECK: ['nc || {1024}', 'mc || {1024}', 'kc || {1024}', 'kr || kc', 'mr || {mc, 1024}', 'nr || {nc, 1024}', '1 + nvr + nvr * mr <= 32', 'nr == 16 * nvr', 'nvr * mr >= 8', 'nvr * mr * kr <= 256', 'kc * nr <= 8192', 'kc * mc <= 262144', 'kc * nc <= 9437184']
 #CHECK-NEXT: 100
