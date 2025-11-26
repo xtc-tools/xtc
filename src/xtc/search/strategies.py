@@ -9,8 +9,7 @@ from collections.abc import Sequence, Mapping, Iterator, Generator
 import itertools
 import numpy as np
 
-from properties import constraints_from_str, hypergraph
-from properties import variables as sampler_variables
+from properties import constraints_from_str, hypergraph, Context
 from strategy import (
     execute_dynamic,
     execute_static,
@@ -1001,14 +1000,18 @@ class Strategy_Descript(Strategy):
         if self._initialized:
             return
         max_enum = int(1 + np.log2(max(self._sizes.values())))
-        constraints = constraints_from_str(self._constraints, silent=True)
+        context = Context()
+        constraints, self.constrants = constraints_from_str(
+            self._constraints, silent=True, context=context
+        )
         properties, constraints = hypergraph(
-            constraints, max_enum=max_enum, silent=True
+            constraints, max_enum=max_enum, silent=True, context=context
         )
         methods = solve_with_z3(
-            sampler_variables.keys(), properties, constraints, silent=True
+            context.variables.keys(), properties, constraints, silent=True
         )
         enumerations = execute_static(methods, properties, constraints, silent=True)
+        self._context = context
         self._properties = properties
         self._z3_constraints = constraints
         self._methods = methods
