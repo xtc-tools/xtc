@@ -8,7 +8,6 @@ from dataclasses import dataclass
 import re
 import strictyaml
 from typing_extensions import override
-from copy import deepcopy
 
 from xtc.itf.schd.scheduler import Scheduler
 
