@@ -39,6 +39,9 @@ def get_mlir_prefix(prefix: Path | str | None = None):
         raise RuntimeError(f"could not find MLIR prefix at: {prefix}")
     mlir_opt = prefix / "bin" / "mlir-opt"
     if not mlir_opt.exists():
+        prefix = prefix.parents[2].resolve()
+    mlir_opt2 = prefix / "bin" / "mlir-opt"
+    if not mlir_opt2.exists():
         raise RuntimeError(f"could not find mlir-opt at: {mlir_opt}")
     return prefix
 
