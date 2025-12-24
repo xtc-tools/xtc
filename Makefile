@@ -8,12 +8,13 @@ help:
 	@echo "    make check-lit     # run all lit checks for binary target"
 	@echo "    make check-lit-c   # run all lit checks for C target"
 	@echo "    make check-pytest  # run all pytest tests"
+	@echo "    make check-banwords # run banned words checks"
 	@echo
 
 test:
 	pytest tests/pytest/unit tests/pytest/mlir tests/pytest/tvm tests/pytest/jir
 
-check: check-format check-type check-lit-all check-pytest
+check: check-format check-banwords check-type check-lit-all check-pytest
 
 check-format: check-format-ruff check-license
 
@@ -22,6 +23,9 @@ check-format-ruff:
 
 check-license:
 	scripts/licensing/licensing.py --check
+
+check-banwords:
+	scripts/banwords/banwords.py --check
 
 check-type: check-pyright check-mypy
 
@@ -44,5 +48,5 @@ check-lit-c:
 check-pytest:
 	scripts/pytest/run_pytest.sh -v
 
-.PHONY: help test check check-lit-all check-lit check-lit-c check-pytest check-type check-pyright check-mypy check-format check-format-ruff check-license
+.PHONY: help test check check-lit-all check-lit check-lit-c check-pytest check-type check-pyright check-mypy check-format check-format-ruff check-license check-banwords
 .SUFFIXES:
