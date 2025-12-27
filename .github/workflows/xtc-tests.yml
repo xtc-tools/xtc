@@ -1,0 +1,32 @@
+name: XTC Tests
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Display Python version
+        run: |
+          python -c "import sys; print(sys.version)"
+          pip list
+      - name: Install package
+        run: |
+          pip install -e .[dev]
+      - name: Install TVM dependencies
+        run: |
+          pip install -r tvm_requirements.txt
+      - name: Install MLIR dependencies
+        run: |
+          pip install -r mlir_requirements.txt
+      - name: List packages
+        run: |
+          pip list
