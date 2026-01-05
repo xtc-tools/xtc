@@ -9,6 +9,10 @@ jobs:
         python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v5
+      - name: Install Distro Packages
+        # Note: package cache with awalsh128/cache-apt-pkgs-action does not work correctly, use standard install.
+        run: |
+          sudo apt install -y build-essential libomp5 binutils-aarch64-linux-gnu binutils-x86-64-linux-gnu libpfm4-dev
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
@@ -18,7 +22,7 @@ jobs:
         run: |
           python -c "import sys; print(sys.version)"
           pip list
-      - name: Install package
+      - name: Install XTC Package in dev mode
         run: |
           pip install -e .[dev]
       - name: Install TVM dependencies
@@ -27,6 +31,9 @@ jobs:
       - name: Install MLIR dependencies
         run: |
           pip install -r mlir_requirements.txt
-      - name: List packages
+      - name: List Python Packages
         run: |
           pip list
+      - name: Run Checks
+        run: |
+          make check

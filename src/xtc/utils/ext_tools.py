@@ -10,7 +10,9 @@ import platform
 
 def get_library_path(libname: str) -> str:
     libfile = ctypes.util.find_library(libname)
-    assert libfile
+    assert libfile, (
+        f"ctypes.util.find_library: can't find library: {libname}, please install corresponding package"
+    )
 
     if platform.system() == "Darwin":
         return libfile
