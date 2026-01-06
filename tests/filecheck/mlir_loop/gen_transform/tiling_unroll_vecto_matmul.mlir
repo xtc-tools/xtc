@@ -43,8 +43,10 @@ func.func @myfun(
 // CHECK-NEXT:      transform.annotate %loops_5 "__node0__/I0" : !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_7 "__node0__/K0" : !transform.any_op
-// CHECK-NEXT:      %1 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_6) : (!transform.any_op) -> ()
+// CHECK-NEXT:      transform.loop.unroll %loops_7 {factor = 8 : i64} : !transform.any_op
+// CHECK-NEXT:      transform.loop.unroll %loops_5 {factor = 1 : i64} : !transform.any_op
+// CHECK-NEXT:      %1 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.apply_patterns to %1 {
 // CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
 // CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
@@ -53,10 +55,6 @@ func.func @myfun(
 // CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
 // CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 // CHECK-NEXT:      } : !transform.any_op
-// CHECK-NEXT:      %2 = transform.structured.match attributes {"__node0__/K0"} in %1 : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      transform.loop.unroll %loops_7 {factor = 8 : i64} : !transform.any_op
-// CHECK-NEXT:      %3 = transform.structured.match attributes {"__node0__/I0"} in %1 : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      transform.loop.unroll %loops_5 {factor = 1 : i64} : !transform.any_op
 // CHECK-NEXT:      transform.yield 
 // CHECK-NEXT:    }
 // CHECK-NEXT:  }

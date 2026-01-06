@@ -34,15 +34,11 @@ func.func @matmul(%A: memref<256x512xf64>, %B: memref<512x256xf64>, %C: memref<2
 // CHECK-NEXT:      transform.annotate %loops_1 "__node0__/k[0]/k" : !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %tiled_linalg_op_0 tile_sizes [0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_3 "__node0__/k[0]/j" : !transform.any_op
-// CHECK-NEXT:      %3 = transform.get_parent_op %loops_1 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %2#1 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_5 "__node0__/k[1]/k" : !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_7 "__node0__/k[1]/j" : !transform.any_op
-// CHECK-NEXT:      %4 = transform.get_parent_op %loops_5 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      %5 = transform.structured.match attributes {"__node0__/k[1]/j"} in %4 : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.loop.unroll %loops_7 {factor = 256 : i64} : !transform.any_op
-// CHECK-NEXT:      %6 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.yield 
 // CHECK-NEXT:    }
 // CHECK-NEXT:  }

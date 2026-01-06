@@ -40,6 +40,12 @@ _SUPER_VECTORIZE_SEQ_NAME = "_super_vectorize"
 
 
 @dataclass
+class SchedulingState:
+    all_loops: dict[str, OpResult]
+    handle: OpResult
+
+
+@dataclass
 class SplitState:
     # Explicit, flattened split maps
     all_splits_by_loop: dict[str, int]
@@ -49,8 +55,10 @@ class SplitState:
     prev_split_size: dict[str, int]
     # For each loop to split, store the previous (done) cutting point
     next_split_size: dict[str, int]
+    #
+    root: str
 
-    def __init__(self, splits: dict[str, dict[str, int]]):
+    def __init__(self, splits: dict[str, dict[str, int]], root: str):
         self.all_splits_by_loop: dict[str, int] = {
             loop: cut
             for sub_splits in splits.values()
@@ -65,9 +73,16 @@ class SplitState:
             loops_to_split[i]: self.all_splits_by_loop[loops_to_split[i + 1]]
             for i in range(len(loops_to_split) - 1)
         }
+        self.root = root
 
     def chunk_size(self, loop_name: str) -> int:
         return self.next_split_size[loop_name] - self.prev_split_size[loop_name]
+
+    def must_be_splitted(self, loop_name: str) -> bool:
+        return loop_name in self.next_split_size
+
+    def if_last_chunk(self, loop_name: str) -> bool:
+        return loop_name in self.loop_dim_by_split and loop_name != self.root
 
     def move_forward(self, loop_name: str):
         offset = self.chunk_size(loop_name)
@@ -162,7 +177,7 @@ class MlirProgramInsertTransformPass:
             else:
                 transform.YieldOp([])
 
-    def _generate_tiling(self) -> OpResult:
+    def _generate_scheduling(self) -> OpResult:
         assert self._named_sequence is not None
         handle = None
         for schedule in self._nodes_schedules:
@@ -172,9 +187,14 @@ class MlirProgramInsertTransformPass:
                 op_attrs={schedule.node_ident: UnitAttr.get()},
             )
             if schedule.permutation:
-                handle = self._generate_node_tiling(
-                    handle=handle, schedule=schedule, root=list(schedule.permutation)[0]
+                scheduling_state = self._generate_node_scheduling(
+                    schedule=schedule,
+                    root=list(schedule.permutation)[0],
+                    handle=handle,
                 )
+                if schedule.vectorization or self._always_vectorize:
+                    self._post_vectorize(scheduling_state)
+                handle = scheduling_state.handle
         assert handle, "At least 1 operation should have been processed"
         return handle
 
@@ -185,7 +205,7 @@ class MlirProgramInsertTransformPass:
             self._mlir_program.mlir_context,
             self._loc,
         ):
-            handle = self._generate_tiling()
+            handle = self._generate_scheduling()
             if self._super_vectorize:
                 handle = get_parent_op(
                     transform.AnyOpType.get(),
@@ -210,126 +230,52 @@ class MlirProgramInsertTransformPass:
                 )
             transform.YieldOp([])
 
-    def _generate_node_tiling(
+    def _generate_node_scheduling(
         self,
-        handle: OpResult,
         schedule: MlirNodeSchedule,
         root: str,
-        state: SplitState | None = None,
-    ) -> OpResult:
+        handle: OpResult,
+    ) -> SchedulingState:
+        sched_state = SchedulingState({}, handle)
+        split_state = SplitState(schedule.splits, root)
         tiles_sizes_by_loops = self._generate_tiling_insns(schedule)
-
-        if state is None:
-            state = SplitState(schedule.splits)
-
-        # Materialize loops
-        all_loops: dict[str, OpResult] = {}
-        current_handle = handle
         permutation = schedule.permutation[root]
+        if not permutation:
+            return sched_state
+
+        # Materialize the loops
         for loop_name in permutation:
-            #
-            if loop_name in state.next_split_size:
-                dim_to_split = state.loop_dim_by_split[loop_name]
-                split_handle = structured.SplitOp(
-                    target=current_handle,
-                    dimension=schedule.dims.index(dim_to_split),
-                    chunk_sizes=state.chunk_size(loop_name),
-                )
-                split_command = SplitHandleOp(
-                    results_=[transform.AnyOpType.get(), transform.AnyOpType.get()],
-                    handle=split_handle,
-                )
-                left_loop_op = self._generate_node_tiling(
-                    handle=split_command.results[0],
-                    schedule=schedule,
-                    root=loop_name,
-                    state=state,
-                )
-                all_loops[loop_name] = left_loop_op
-                current_handle = split_command.results[1]
-                state.move_forward(loop_name)
+            # Manage the splits
+            if split_state.must_be_splitted(loop_name):
+                self._split_section(loop_name, split_state, sched_state, schedule)
                 continue
-            # Catch the last chunk of the loop
-            elif loop_name in state.loop_dim_by_split and loop_name != root:
-                right_loop_op = self._generate_node_tiling(
-                    handle=current_handle,
-                    schedule=schedule,
-                    root=loop_name,
-                    state=state,
+            elif split_state.if_last_chunk(loop_name):
+                self._recursive_scheduling(
+                    schedule=schedule, root=loop_name, sched_state=sched_state
                 )
-                all_loops[loop_name] = right_loop_op
-                current_handle = right_loop_op
                 continue
 
+            # Manage the strip-mining
             if loop_name in schedule.vectorization:
-                continue
-
-            # Generate the tiling itself
+                self._vectorize(sched_state)
+                break
             elif loop_name in tiles_sizes_by_loops:
-                tiling_vector = tiles_sizes_by_loops[loop_name]
-                if loop_name in schedule.parallelization:
-                    tiling_command = TileUsingForallOp(
-                        current_handle, tile_sizes=tiling_vector
-                    )
-                else:
-                    tiling_command = TileUsingForOp(current_handle, sizes=tiling_vector)
-                # Extract the results
-                current_handle = tiling_command.results[0]
-                if len(tiling_command.results) == 2:
-                    new_loop = tiling_command.results[-1]
-                    all_loops[loop_name] = new_loop
-                    # Annotate the resulting loop if successfully generated
-                    transform.AnnotateOp(new_loop, loop_name)
-
-        # The resulting operation is either the outermost loop or
-        # the initial (not tiled) handle
-        if all_loops:
-            handle_after_tiling = next(iter(all_loops.values()))
-        else:
-            handle_after_tiling = handle
-
-        parent_op = get_parent_op(
-            transform.AnyOpType.get(),
-            handle_after_tiling,
-            isolated_from_above=True,
-        )
-
-        if (
-            set(permutation) & set(schedule.vectorization)
-            and self._vectors_size is None
-        ):
-            transform.IncludeOp(
-                results_=[],
-                target=_VECTO_SEQ_NAME,
-                failure_propagation_mode=2,
-                operands_=[current_handle],
-            )
-
-        if schedule.vectorization or self._always_vectorize:
-            with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
-                vector.ApplyVectorReductionToContractPatternsOp()
-                vector.ApplyTransferPermutationPatternsOp()
-            with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
-                vector.ApplyLowerOuterProductPatternsOp()
-                vector.ApplyLowerContractionPatternsOp()
-
-        # TODO: LLVM metadata instead of transform unroll may
-        # ultimately put less pressure on opt/llc front-end
-        # https://llvm.org/docs/LangRef.html#llvm-loop
-        for dim_name in reversed(permutation):
-            if (
-                dim_name in schedule.unrolling
-                and not dim_name in schedule.vectorization
-            ):
-                assert self._named_sequence is not None
-                handle = structured_match(
-                    results_=transform.AnyOpType.get(),
-                    target=parent_op,
-                    op_attrs={dim_name: UnitAttr.get()},
+                self._strip_mine(
+                    loop_name=loop_name,
+                    tiling_vector=tiles_sizes_by_loops[loop_name],
+                    schedule=schedule,
+                    sched_state=sched_state,
                 )
-                loop_unroll(all_loops[dim_name], schedule.unrolling[dim_name])
 
-        return handle_after_tiling
+        # For now on, the focus is on the outermost loop
+        if sched_state.all_loops:
+            sched_state.handle = next(iter(sched_state.all_loops.values()))
+
+        # Unrolling
+        if schedule.unrolling:
+            self._unroll(permutation, schedule, sched_state)
+
+        return sched_state
 
     def _generate_tiling_insns(
         self, schedule: MlirNodeSchedule
@@ -371,6 +317,108 @@ class MlirProgramInsertTransformPass:
             previous_root = loc_root
 
         return tiles_sizes_by_loops
+
+    def _split_section(
+        self,
+        loop_name: str,
+        split_state: SplitState,
+        sched_state: SchedulingState,
+        schedule: MlirNodeSchedule,
+    ):
+        dim_to_split = split_state.loop_dim_by_split[loop_name]
+        split_handle = structured.SplitOp(
+            target=sched_state.handle,
+            dimension=schedule.dims.index(dim_to_split),
+            chunk_sizes=split_state.chunk_size(loop_name),
+        )
+        split_command = SplitHandleOp(
+            results_=[transform.AnyOpType.get(), transform.AnyOpType.get()],
+            handle=split_handle,
+        )
+        sched_state.handle = split_command.results[0]
+        self._recursive_scheduling(
+            schedule=schedule, root=loop_name, sched_state=sched_state
+        )
+        sched_state.handle = split_command.results[1]
+        split_state.move_forward(loop_name)
+
+    def _recursive_scheduling(
+        self, schedule: MlirNodeSchedule, root: str, sched_state: SchedulingState
+    ):
+        inner_sched_state = self._generate_node_scheduling(
+            schedule=schedule, root=root, handle=sched_state.handle
+        )
+        sched_state.all_loops.update(inner_sched_state.all_loops)
+        sched_state.handle = inner_sched_state.handle
+
+    def _strip_mine(
+        self,
+        loop_name: str,
+        tiling_vector: list[int],
+        schedule: MlirNodeSchedule,
+        sched_state: SchedulingState,
+    ) -> OpResult:
+        if loop_name in schedule.parallelization:
+            tiling_command = TileUsingForallOp(
+                sched_state.handle, tile_sizes=tiling_vector
+            )
+        else:
+            tiling_command = TileUsingForOp(sched_state.handle, sizes=tiling_vector)
+        # Extract the results
+        sched_state.handle = tiling_command.results[0]
+        assert len(tiling_command.results) == 2
+        new_loop = tiling_command.results[-1]
+        sched_state.all_loops[loop_name] = new_loop
+        # Annotate the resulting loop if successfully generated
+        transform.AnnotateOp(new_loop, loop_name)
+
+        return new_loop
+
+    def _vectorize(self, sched_state: SchedulingState):
+        if self._vectors_size is not None:
+            return
+
+        transform.IncludeOp(
+            results_=[],
+            target=_VECTO_SEQ_NAME,
+            failure_propagation_mode=2,
+            operands_=[sched_state.handle],
+        )
+
+    def _post_vectorize(self, sched_state: SchedulingState):
+        if self._vectors_size is not None:
+            return
+
+        parent_op = get_parent_op(
+            transform.AnyOpType.get(),
+            sched_state.handle,
+            isolated_from_above=True,
+        )
+        with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
+            vector.ApplyVectorReductionToContractPatternsOp()
+            vector.ApplyTransferPermutationPatternsOp()
+        with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
+            vector.ApplyLowerOuterProductPatternsOp()
+            vector.ApplyLowerContractionPatternsOp()
+
+    def _unroll(
+        self,
+        permutation: list[str],
+        schedule: MlirNodeSchedule,
+        sched_state: SchedulingState,
+    ):
+        # TODO: LLVM metadata instead of transform unroll may
+        # ultimately put less pressure on opt/llc front-end
+        # https://llvm.org/docs/LangRef.html#llvm-loop
+        for dim_name in reversed(permutation):
+            if (
+                dim_name in schedule.unrolling
+                and not dim_name in schedule.vectorization
+            ):
+                assert self._named_sequence is not None
+                loop_unroll(
+                    sched_state.all_loops[dim_name], schedule.unrolling[dim_name]
+                )
 
 
 class MlirProgramApplyTransformPass:

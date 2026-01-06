@@ -43,15 +43,12 @@ func.func @myfun(
 // CHECK-NEXT:      transform.annotate %loops_1 "__node0__/I[0]/J" : !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %tiled_linalg_op_0 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_3 "__node0__/I[0]/K" : !transform.any_op
-// CHECK-NEXT:      %3 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %2#1 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_5 "__node0__/I[1]/I" : !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_7 "__node0__/I[1]/K" : !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_9 "__node0__/I[1]/J" : !transform.any_op
-// CHECK-NEXT:      %4 = transform.get_parent_op %loops_5 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      %5 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.yield 
 // CHECK-NEXT:    }
 // CHECK-NEXT:  }
