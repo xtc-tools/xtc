@@ -22,10 +22,10 @@ func.func @myfun(
   return
 }
 // CHECK:                 %8 = vector.fma %6, %4, %7 : vector<64xf32>
-// CHECK-NEXT:            %19 = vector.fma %17, %15, %18 : vector<64xf32>
-// CHECK-NEXT:            %30 = vector.fma %28, %26, %29 : vector<64xf32>
-// CHECK-NEXT:            %41 = vector.fma %39, %37, %40 : vector<64xf32>
-// CHECK-NEXT:            %52 = vector.fma %50, %48, %51 : vector<64xf32>
-// CHECK-NEXT:            %63 = vector.fma %61, %59, %62 : vector<64xf32>
-// CHECK-NEXT:            %74 = vector.fma %72, %70, %73 : vector<64xf32>
-// CHECK-NEXT:            %85 = vector.fma %83, %81, %84 : vector<64xf32>
+// CHECK-NEXT:            %17 = vector.fma %15, %13, %16 : vector<64xf32>
+// CHECK-NEXT:            %26 = vector.fma %24, %22, %25 : vector<64xf32>
+// CHECK-NEXT:            %35 = vector.fma %33, %31, %34 : vector<64xf32>
+// CHECK-NEXT:            %44 = vector.fma %42, %40, %43 : vector<64xf32>
+// CHECK-NEXT:            %53 = vector.fma %51, %49, %52 : vector<64xf32>
+// CHECK-NEXT:            %62 = vector.fma %60, %58, %61 : vector<64xf32>
+// CHECK-NEXT:            %71 = vector.fma %69, %67, %70 : vector<64xf32>

@@ -39,6 +39,8 @@ module = comp.compile(sched)
 executor = module.get_executor(validate=True)
 res = executor.execute()
 print(f"CODE: {res}")
+
+
 # CHECK:       // -----// IR Dump Before transform //----- //
 # CHECK-NEXT:  #map = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d1 * 2 + d4, d2 * 2 + d5, d6)>
 # CHECK-NEXT:  #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d4, d5, d6, d3)>
@@ -73,9 +75,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.annotate %loops_3 "./w" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_linalg_op_2 tile_sizes [0, 0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_5 "./f" : !transform.any_op
-# CHECK-NEXT:      %1 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %2 = transform.structured.match attributes {__xtc_id_O_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %2 tile_sizes [1, 0, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %1 = transform.structured.match attributes {__xtc_id_O_} in %arg0 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %1 tile_sizes [1, 0, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_7 "./b" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [0, 1, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_9 "./h" : !transform.any_op
@@ -91,27 +92,18 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.annotate %loops_19 "./c" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_20, %loops_21 = transform.structured.tile_using_for %tiled_linalg_op_18 tile_sizes [0, 0, 1, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_21 "./w1" : !transform.any_op
-# CHECK-NEXT:      %3 = transform.get_parent_op %loops_7 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %3 {
-# CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
-# CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
-# CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %3 {
-# CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
-# CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
-# CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      %4 = transform.structured.match attributes {"./w1"} in %3 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.loop.unroll %loops_21 {factor = 4 : i64} : !transform.any_op
-# CHECK-NEXT:      %5 = transform.structured.match attributes {"./c"} in %3 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.loop.unroll %loops_19 {factor = 3 : i64} : !transform.any_op
-# CHECK-NEXT:      %6 = transform.get_parent_op %loops_7 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %7 = transform.apply_registered_pass "convert-linalg-to-affine-loops" to %6 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %8 = transform.include @_super_vectorize failures(suppress) (%7) : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %2 = transform.get_parent_op %loops_7 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %3 = transform.apply_registered_pass "convert-linalg-to-affine-loops" to %2 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %4 = transform.include @_super_vectorize failures(suppress) (%3) : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.yield 
 # CHECK-NEXT:    }
 # CHECK-NEXT:  }
-# CHECK:       RuntimeError: MLIR Error: NYI: non-trivial layout map
-# CHECK:       // -----// IR Dump After transform //----- //
+
+# CHECK: MLIR Error: NYI: non-trivial layout map
+
+# CHECK:  // -----// IR Dump After transform //----- //
 # CHECK-NEXT:  #map = affine_map<(d0) -> (d0 * 2)>
 # CHECK-NEXT:  #map1 = affine_map<(d0, d1) -> (d0 * 2 + d1)>
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
