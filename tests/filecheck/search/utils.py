@@ -56,3 +56,14 @@ def print_exhaustive_samples(backend: Backend, strategy: Strategy, num: int|None
     sch = backend.get_scheduler()
     strategy.generate(sch, sample)
     print(sch.schedule())
+
+def print_random_samples(backend: Backend, strategy: Strategy, num: int):
+    generator = strategy.sample(num=num)
+    sample = []
+    for idx, sample in enumerate(generator):
+        print(f"sample {idx}: {sample}")
+    if hasattr(strategy, "stats"):
+        print("stats", getattr(strategy, "stats"))
+    sch = backend.get_scheduler()
+    strategy.generate(sch, sample)
+    print(sch.schedule())

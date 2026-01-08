@@ -162,7 +162,10 @@ class BaseStrategy(Strategy):
         self, inds: list[list[list[int]]], num: int, rng: np.random.Generator
     ) -> list[VecSample]:
         draw = np.hstack(
-            [np.array(var)[rng.integers(len(var), size=num)] for var in inds]
+            [
+                np.array(var, dtype="int")[rng.integers(len(var), size=num)]
+                for var in inds
+            ]
         )
         return draw.tolist()
 
