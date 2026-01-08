@@ -25,7 +25,7 @@ format: format-license format-ruff
 check-format: check-format-ruff check-license
 
 check-format-ruff:
-	ruff format --check
+	scripts/ruff/format.sh --check
 
 check-license:
 	scripts/licensing/licensing.py --check
@@ -55,7 +55,7 @@ check-pytest:
 	scripts/pytest/run_pytest.sh -v
 
 format-ruff:
-	ruff format
+	scripts/ruff/format.sh
 
 format-license:
 	scripts/licensing/licensing.py --apply
