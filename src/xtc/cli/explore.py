@@ -519,12 +519,14 @@ def read_input(fname: str, args: NS) -> NPSamples:
 def peak_time(args: NS) -> float:
     if not args.execute:
         return 0
-    dtype = DTYPES_MAP[args.dtype]
-    flops = runtime.evaluate_flops(dtype)
-    assert flops != 0, f"unable to evaluate machine flops for type {dtype}"
+    flops = args.peak_flops
+    if flops is None:
+        dtype = DTYPES_MAP[args.dtype]
+        flops = runtime.evaluate_flops(dtype)
+        assert flops != 0, f"unable to evaluate machine flops for type {dtype}"
+        logger.debug(f"Estimated peak flops: %g", flops)
     dims_names = OPERATORS[args.operator]["dims"]
     dims_map = {k: v for k, v in zip(dims_names, args.dims)}
-
     flop = mulall([d for k, d in dims_map.items() if k.lower() == k])
     time = flop / flops / args.threads
     return time
@@ -943,6 +945,11 @@ def main():
         action=argparse.BooleanOptionalAction,
         default=True,
         help="do not execute, only compile",
+    )
+    parser.add_argument(
+        "--peak-flops",
+        type=float,
+        help="machine peak flops (flop/sec) for the dtype, or estimated",
     )
     parser.add_argument(
         "--mlir-prefix", type=str, help="MLIR install prefix, defaults to mlir package"
