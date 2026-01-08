@@ -261,7 +261,7 @@ class MlirOperatorConv2D(MlirOperator):
             fill = linalg.FillOp(
                 res=(),
                 inputs=(cst0.results[0],),
-                outputs=(block.args[2],),
+                outputs=(args[2],),
             )
             # TODO: Does not work
             # strides = DenseIntOrFPElementsAttr.vector_from_list([SH, SW], i64)
@@ -281,8 +281,8 @@ class MlirOperatorConv2D(MlirOperator):
                 add = arith.AddfOp(block_in.args[2], mul)
                 linalg.YieldOp(add)
             reduce = linalg.GenericOp(
-                inputs=(block.args[0], block.args[1]),
-                outputs=(block.args[2],),
+                inputs=(args[0], args[1]),
+                outputs=(args[2],),
                 body=Region([block_in]),  # type: ignore # mypy issue with dataclass
                 # ignore typing due to xdsl hints limitation
                 indexing_maps=[
