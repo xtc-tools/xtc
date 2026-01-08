@@ -14,4 +14,4 @@ func.func @matmul(%A: memref<256x512xf64>, %B: memref<512x256xf64>, %C: memref<2
       outs(%C: memref<256x256xf64>)
       return
  }
-// CHECK:  Inner tile k1 on axis k must be smaller than outer loop
+// CHECK:  Inner loop k1 on axis k must be smaller than outer loop
