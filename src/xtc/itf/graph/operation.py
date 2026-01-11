@@ -113,3 +113,45 @@ class Operation(ABC):
             Accesses map for this operation
         """
         ...
+
+    @property
+    @abstractmethod
+    def ops_count(self) -> int:
+        """Returns an estimate of the operation count for
+        the operation. Used for operation weight estimates
+        or peak performance estimations.
+
+        For instance on a matmul with dimensions i, j, k,
+        this returns i*j*k.
+
+        Returns:
+            Estimated ops count
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def ops_dtype(self) -> str:
+        """Returns the datatype string for the estimated
+        ops count.
+
+        This is generally the dtype of the output data.
+
+        Returns:
+            Data type string of the operation
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def signature(self) -> list[Any]:
+        """Returns an unique signature for the operation among
+        all possible operations of the particular instances.
+
+        The signature should be a combination of base types and
+        is used for logs databases.
+
+        Returns:
+            List of fields for unique identification of the operation
+        """
+        ...

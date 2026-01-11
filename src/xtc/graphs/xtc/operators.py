@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+from abc import abstractmethod
 from typing_extensions import override
 from typing import TypeAlias, cast, Any
 from types import SimpleNamespace as NS
@@ -12,6 +13,7 @@ import numpy as np
 
 from xtc.itf.operator import Operator
 from xtc.itf.data import Tensor, TensorType
+from xtc.utils.math import mulall
 
 from .data import XTCTensor, XTCTensorType
 from .operation import XTCOperation
@@ -53,6 +55,26 @@ class XTCOperator(Operator):
     def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
         return [cast(XTCTensor, inp) for inp in inputs]
 
+    @classmethod
+    def get_op_signature(cls, name: str, *spec: Any, **kwspec: Any) -> list[Any]:
+        map = dict(
+            matmul=XTCOperMatmul,
+            conv2d=XTCOperConv2D,
+            relu=XTCOperRelu,
+            pad2d=XTCOperPad2D,
+            reshape=XTCOperReshape,
+            transpose=XTCOperTranspose,
+        )
+        oper_cls = cast(XTCOperCompute, map[name])
+        return oper_cls.get_signature(*spec, **kwspec)
+
+
+class XTCOperTensor(XTCOperator):
+    def __init__(self) -> None:
+        super().__init__("tensor")
+
+
+class XTCOperCompute(XTCOperator):
     def get_operation(
         self,
         inps_types: Sequence[XTCTensorType],
@@ -86,32 +108,12 @@ class XTCOperator(Operator):
             outs_maps=outs_maps,
         )
 
-
-class XTCOperTensor(XTCOperator):
-    def __init__(self) -> None:
-        super().__init__("tensor")
-
-    @override
-    def get_operation(
-        self,
-        inps_types: Sequence[XTCTensorType],
-        outs_types: Sequence[XTCTensorType],
-    ) -> XTCOperation:
-        inputs_types = [inp.constant for inp in inps_types]
-        outputs_types = [out.constant for out in outs_types]
-        return XTCOperation(
-            name=self.name,
-            attrs=self.attrs.__dict__,
-            inputs_types=tuple(inputs_types),
-            outputs_types=tuple(outputs_types),
-            dims={"i": outputs_types[0].size},
-            kinds=("P",),
-            inps_maps=(),
-            outs_maps=(("i",)),
-        )
+    @classmethod
+    @abstractmethod
+    def get_signature(cls, *spec: Any, **kwspec: Any) -> list[Any]: ...
 
 
-class XTCOperMatmul(XTCOperator):
+class XTCOperMatmul(XTCOperCompute):
     def __init__(self) -> None:
         super().__init__("matmul")
 
@@ -121,10 +123,12 @@ class XTCOperMatmul(XTCOperator):
         inps_types: Sequence[XTCTensorType],
         outs_types: Sequence[XTCTensorType],
     ) -> XTCOperation:
-        inp0_shape = inps_types[0].constant_shape
-        inp1_shape = inps_types[1].constant_shape
-        i, k = inp0_shape
-        bk, j = inp1_shape
+        Ashape = inps_types[0].constant_shape
+        Bshape = inps_types[1].constant_shape
+        Ashape = (Ashape[0], mulall(list(Ashape[1:])))
+        Bshape = (mulall(list(Bshape[:-1])), Bshape[-1])
+        i, k = Ashape
+        bk, j = Bshape
         assert k == bk
         return self._get_operation(
             inps_types,
@@ -146,10 +150,14 @@ class XTCOperMatmul(XTCOperator):
         assert len(inputs_types) == 2
         assert inputs_types[0].shape is not None
         assert inputs_types[1].shape is not None
-        assert len(inputs_types[0].shape) == 2
-        assert len(inputs_types[1].shape) == 2
-        i, k = cast(XTCTensorType, inputs_types[0]).constant_shape
-        bk, j = cast(XTCTensorType, inputs_types[1]).constant_shape
+        assert len(inputs_types[0].shape) >= 2
+        assert len(inputs_types[1].shape) >= 2
+        Ashape = cast(XTCTensorType, inputs_types[0]).constant_shape
+        Bshape = cast(XTCTensorType, inputs_types[1]).constant_shape
+        Ashape = (Ashape[0], mulall(list(Ashape[1:])))
+        Bshape = (mulall(list(Bshape[:-1])), Bshape[-1])
+        i, k = Ashape
+        bk, j = Bshape
         assert k == bk, (
             f"incompatible dimension k for matmul inputs shapes: ({i}, {k}) ({bk}, {j})"
         )
@@ -162,15 +170,25 @@ class XTCOperMatmul(XTCOperator):
 
     @override
     def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
-        matmul = XTCTensor(np.matmul(inputs[0].numpy(), inputs[1].numpy()))
+        A = inputs[0].numpy()
+        B = inputs[1].numpy()
+        A = A.reshape((A.shape[0], -1))
+        B = B.reshape((-1, B.shape[-1]))
+        matmul = XTCTensor(np.matmul(A, B))
         expected_type = self.forward_types([inp.type for inp in inputs])[0]
         assert matmul.type == expected_type, (
             f"output type mismatch expect: {matmul.type} != {expected_type}"
         )
         return [matmul]
 
+    @override
+    @classmethod
+    def get_signature(cls, *spec: Any, **kwspec: Any) -> list[Any]:
+        i, j, k, dtype = spec
+        return ["matmul", [i, j, k], dtype, {}]
 
-class XTCOperRelu(XTCOperator):
+
+class XTCOperRelu(XTCOperCompute):
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
         super().__init__("relu", **attrs)
         self._threshold = 0 if "threshold" not in attrs else self.attrs.threshold
@@ -197,8 +215,22 @@ class XTCOperRelu(XTCOperator):
         relu = XTCTensor(np.maximum(inputs[0].numpy(), self._threshold))
         return [relu]
 
+    @override
+    @classmethod
+    def get_signature(cls, *spec: Any, **kwspec: Any) -> list[Any]:
+        i, dtype = spec
+        threshold = float(kwspec["threshold"])
+        return [
+            "relu",
+            [i],
+            dtype,
+            dict(
+                threshold=threshold,
+            ),
+        ]
 
-class XTCOperConv2D(XTCOperator):
+
+class XTCOperConv2D(XTCOperCompute):
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
         super().__init__("conv2d", **attrs)
         if "stride" not in attrs:
@@ -294,8 +326,22 @@ class XTCOperConv2D(XTCOperator):
         )
         return [conv]
 
+    @override
+    @classmethod
+    def get_signature(cls, *spec: Any, **kwspec: Any) -> list[Any]:
+        n, h, w, f, r, s, c, dtype = spec
+        stride = list(kwspec["stride"])
+        return [
+            "conv2d",
+            [n, h, w, f, r, s, c],
+            dtype,
+            dict(
+                stride=stride,
+            ),
+        ]
 
-class XTCOperPad2D(XTCOperator):
+
+class XTCOperPad2D(XTCOperCompute):
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
         padding = attrs.get("padding", (0, 0, 0, 0))
         if isinstance(padding, int):
@@ -375,8 +421,22 @@ class XTCOperPad2D(XTCOperator):
         )
         return [padded]
 
+    @override
+    @classmethod
+    def get_signature(cls, *spec: Any, **kwspec: Any) -> list[Any]:
+        b, h, w, c, dtype = spec
+        padding = list(kwspec["padding"])
+        return [
+            "pad2d",
+            [b, h, w, c],
+            dtype,
+            dict(
+                padding=padding,
+            ),
+        ]
 
-class XTCOperReshape(XTCOperator):
+
+class XTCOperReshape(XTCOperCompute):
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
         super().__init__("reshape", **attrs)
         if "shape" not in attrs:
@@ -428,8 +488,22 @@ class XTCOperReshape(XTCOperator):
         )
         return [reshaped]
 
+    @override
+    @classmethod
+    def get_signature(cls, *spec: Any, **kwspec: Any) -> list[Any]:
+        i, dtype = spec
+        shape = list(kwspec["shape"])
+        return [
+            "reshape",
+            [i],
+            dtype,
+            dict(
+                shape=shape,
+            ),
+        ]
 
-class XTCOperTranspose(XTCOperator):
+
+class XTCOperTranspose(XTCOperCompute):
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
         axes = attrs.get("axes", ())
         super().__init__("transpose", axes=axes)
@@ -478,3 +552,17 @@ class XTCOperTranspose(XTCOperator):
             inps_maps=(("i",)),
             outs_maps=(("i",)),  # TODO: invalid
         )
+
+    @override
+    @classmethod
+    def get_signature(cls, *spec: Any, **kwspec: Any) -> list[Any]:
+        i, dtype = spec
+        axes = list(kwspec["axes"])
+        return [
+            "transpose",
+            [i],
+            dtype,
+            dict(
+                axes=axes,
+            ),
+        ]

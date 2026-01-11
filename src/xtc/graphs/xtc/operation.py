@@ -5,10 +5,12 @@
 from typing_extensions import override
 from collections.abc import Mapping, Sequence
 from typing import Any
+import json
 
+from xtc.graphs.xtc.data import XTCTensorType
 from xtc.itf.graph import Operation
 from xtc.itf.graph.operation import AccessesMaps
-from xtc.itf.data import TensorType
+from xtc.utils.math import mulall
 
 
 class XTCOperation(Operation):
@@ -16,8 +18,8 @@ class XTCOperation(Operation):
         self,
         name: str,
         attrs: Mapping[str, Any],
-        inputs_types: Sequence[TensorType],
-        outputs_types: Sequence[TensorType],
+        inputs_types: Sequence[XTCTensorType],
+        outputs_types: Sequence[XTCTensorType],
         dims: Mapping[str, int | str],
         kinds: Sequence[str],
         inps_maps: Sequence[Sequence[str]],
@@ -48,12 +50,12 @@ class XTCOperation(Operation):
 
     @property
     @override
-    def inputs_types(self) -> Sequence[TensorType]:
+    def inputs_types(self) -> Sequence[XTCTensorType]:
         return self._inputs_types
 
     @property
     @override
-    def outputs_types(self) -> Sequence[TensorType]:
+    def outputs_types(self) -> Sequence[XTCTensorType]:
         return self._outputs_types
 
     @property
@@ -69,3 +71,30 @@ class XTCOperation(Operation):
     @override
     def accesses_maps(self) -> AccessesMaps:
         return self._maps
+
+    @property
+    @override
+    def ops_count(self) -> int:
+        # Assume single output, hence estimate
+        # ops as the product of all dimensions
+        # in the iteration space
+        shape = self._outputs_types[0].constant_shape
+        ops_count = mulall(list(shape))
+        return ops_count
+
+    @property
+    @override
+    def ops_dtype(self) -> str:
+        # Assume single output, hence estimate
+        # dtype as the first output dtype
+        return self._outputs_types[0].constant_dtype
+
+    @property
+    @override
+    def signature(self) -> list[Any]:
+        # Normalize json
+        return json.loads(
+            json.dumps(
+                [self.name, list(self.dims.values()), self.ops_dtype, dict(self.attrs)]
+            )
+        )

@@ -99,6 +99,31 @@ def xtc_conv2d_graph(
     return gb.graph
 
 
+def xtc_conv2d_nhwc_frsc_graph(
+    n: int,
+    h: int,
+    w: int,
+    f: int,
+    r: int,
+    s: int,
+    c: int,
+    SH: int,
+    SW: int,
+    ftype: str,
+    name: str = "matmul",
+) -> Graph:
+    import xtc.graphs.xtc.op as O
+
+    dtype = DTYPES_MAP[ftype]
+    a = O.tensor((n, h * SH + r - 1, w * SW + s - 1, c), dtype, name="A")
+    b = O.tensor((f, r, s, c), dtype, name="B")
+    with O.graph(name=name) as gb:
+        tp = O.transpose(b, axes=(1, 2, 3, 0), name="T")
+        O.conv2d(a, tp, stride=(SH, SW), name="O")
+    graph = gb.graph
+    return graph
+
+
 def tvm_impl(graph: Graph) -> tuple[Backend, str]:
     from xtc.backends.tvm import Backend
 
@@ -210,12 +235,12 @@ def compile_one(
             )
         )
     if args.save_temps:
-        compile_args.update(
-            dict(
-                save_temps=True,
-                save_temps_dir=f"{args.save_temps_dir}/{ident}",
-            )
-        )
+        tmp_path = Path(args.save_temps_dir) / ident
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        compile_args.update(dict(save_temps=True, save_temps_dir=str(tmp_path)))
+        with open(tmp_path / f"{ident}_graph.txt", "w") as outf:
+            print(graph, file=outf)
+
     assert args.eval == "eval"
     compiler = impl.get_compiler(**compile_args)
     module = compiler.compile(schedule=schedule)
@@ -252,7 +277,7 @@ def load_and_evaluate_sample(
     results, code, error_msg = evaluate()
     if code == 0:
         time = min(results)
-        logger.debug("  Evaluated: %s: %s: time: %.2f msecs", ident, in_x, time * 1000)
+        logger.debug("  Evaluated: %s: %s: time: %.3f msecs", ident, in_x, time * 1000)
     else:
         time = 0
         logger.error("Error evaluating: %s: %s: %d: %s", ident, in_x, code, error_msg)
@@ -636,22 +661,23 @@ def optimize(args: NS):
         }
         evaluate_sample(strategy, schedule, graph, args, callbacks=callbacks)
         for row in result_callback._rows:
-            in_x, time, peak, backend = row[-4:]
+            in_x, time, peak, backend = row[-4]
             tqdm.write(
-                f"Schedule: {backend}: {in_x}: time: {time * 1000:.2f} msecs, peak perf: {peak * 100:.2f}%"
+                f"Schedule: {backend}: {in_x}: time: {time * 1000:.3f} msecs, peak perf: {peak * 100:.2f}%"
             )
     else:
         search_some(strategy, graph, args)
 
 
-def get_strategy(graph: Graph, args: NS) -> Strategy:
-    def strat_name(name: str) -> str:
-        alias = STRATEGIES_ALIASES.get(name)
-        if alias is None:
-            return name
-        return strat_name(alias)
+def strategy_name(name: str) -> str:
+    alias = STRATEGIES_ALIASES.get(name)
+    if alias is None:
+        return name
+    return strategy_name(alias)
 
-    name = strat_name(args.strategy)
+
+def get_strategy(graph: Graph, args: NS) -> Strategy:
+    name = strategy_name(args.strategy)
     options = dict(
         threads=args.threads,
         max_unroll=args.max_unroll,
@@ -708,6 +734,27 @@ OPERATORS = {
         "outputs": [["n", "h", "w", "f"]],
         "reference_impl": None,  # defaults to graph evaluation
         "operation": xtc_conv2d_graph,
+        "backends": {
+            "mlir": {
+                "implementer": mlir_impl,
+            },
+            "tvm": {
+                "implementer": tvm_impl,
+            },
+        },
+        "default_strategy": "tile_oo",
+    },
+    "conv2d_nhwc_frsc": {
+        "dims": ["n", "h", "w", "f", "r", "s", "c", "SH", "SW"],
+        "default_dims": [1, 112, 112, 64, 7, 7, 3, 2, 2],
+        "default_type": "f32",
+        "inputs": [
+            ["n", "h * SH + r - 1", "w * SW + s - 1", "c"],
+            ["f", "r", "s", "c"],
+        ],
+        "outputs": [["n", "h", "w", "f"]],
+        "reference_impl": None,  # defaults to graph evaluation
+        "operation": xtc_conv2d_nhwc_frsc_graph,
         "backends": {
             "mlir": {
                 "implementer": mlir_impl,

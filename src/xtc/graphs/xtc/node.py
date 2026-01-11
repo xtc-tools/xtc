@@ -136,9 +136,7 @@ class XTCNode(Node):
         assert self._outputs_types is not None
         inputs_types = self._inputs_types
         outputs_types = self._outputs_types
-        assert isinstance(self._expr, XTCTensorExpr) or isinstance(
-            self._expr, XTCOpExpr
-        )
+        assert isinstance(self._expr, XTCOpExpr)
         return self._expr._op.get_operation(
             inps_types=inputs_types,
             outs_types=outputs_types,

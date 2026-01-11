@@ -109,7 +109,7 @@ class Evaluator:
         pmu_counters: list[str] = [],
     ) -> None:
         assert repeat > 0
-        assert number > 0
+        assert number >= 0  # 0 means no warmup
         assert min_repeat_ms >= 0
         self.repeat = repeat
         self.number = number

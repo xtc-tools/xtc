@@ -14,6 +14,7 @@ from .data import XTCTensor, XTCTensorType, ShapeType, DataType
 from .operators import (
     XTCOperator,
     XTCOperTensor,
+    XTCOperCompute,
     XTCOperMatmul,
     XTCOperRelu,
     XTCOperConv2D,
@@ -75,6 +76,10 @@ class XTCExpr(ABC):
 
     @abstractmethod
     def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]: ...
+
+    @property
+    @abstractmethod
+    def op(self) -> XTCOperator: ...
 
     @property
     @abstractmethod
@@ -152,6 +157,11 @@ class XTCTensorExpr(XTCValueExpr):
 
     @property
     @override
+    def op(self) -> XTCOperTensor:
+        return self._op
+
+    @property
+    @override
     def op_name(self) -> str:
         return self._op.name
 
@@ -180,10 +190,15 @@ class XTCTensorExpr(XTCValueExpr):
 
 
 class XTCOpExpr(XTCExpr):
-    def __init__(self, op: XTCOperator, args: ArgumentsType) -> None:
+    def __init__(self, op: XTCOperCompute, args: ArgumentsType) -> None:
         super().__init__()
         self._op = op
         self._args = args
+
+    @property
+    @override
+    def op(self) -> XTCOperCompute:
+        return self._op
 
     @property
     @override

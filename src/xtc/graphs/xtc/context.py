@@ -35,6 +35,12 @@ class XTCGraphScope:
     def add_inputs(self, *inps: XTCExpr) -> None:
         self._inputs.extend(inps)
 
+    def set_outputs(self, *outs: XTCExpr) -> None:
+        self._outputs = list(outs)
+
+    def set_inputs(self, *inps: XTCExpr) -> None:
+        self._inputs = list(inps)
+
     def _infer_inputs(self, inps_seed: list[XTCExpr]) -> list[XTCExpr]:
         defs = set(self._exprs)
         uses = []
@@ -42,7 +48,10 @@ class XTCGraphScope:
             if isinstance(expr, XTCOpExpr):
                 for arg in expr.args:
                     uses.append(arg)
-        inputs = inps_seed + [use for use in uses if use not in defs]
+        inputs = list({use._idx: use for use in uses if use not in defs}.values())
+        # when no order specified, sort by expr id
+        inputs = sorted(inputs, key=lambda x: x._idx)
+        inputs = inps_seed + inputs
         inputs = list({expr._idx: expr for expr in inputs}.values())
         return inputs
 
@@ -112,12 +121,6 @@ class XTCGraphScopes(threading.local):
         for scope in self._scopes:
             scope.add_expr(expr, name)
         return expr
-
-    def outputs(self, *outs: XTCExpr) -> None:
-        return self.current.add_outputs(*outs)
-
-    def inputs(self, *inps: XTCExpr) -> None:
-        return self.current.add_inputs(*inps)
 
 
 XTCGraphContext = XTCGraphScopes()
