@@ -477,12 +477,12 @@ class LoopNestSlice:
     """
 
     root: str
-    tiles: dict[str, dict[str, int]]
-    splits: dict[str, dict[str, int]] = field(default_factory=dict)
+    tiles: dict[str, dict[str, int | str]]
+    splits: dict[str, dict[str, int | str]] = field(default_factory=dict)
     interchange: list[str] = field(default_factory=list)
     vectorize: list[str] = field(default_factory=list)
     parallelize: list[str] = field(default_factory=list)
-    unroll: dict[str, int] = field(default_factory=dict)
+    unroll: dict[str, int | str] = field(default_factory=dict)
 
     @property
     def splits_to_sizes(self) -> dict[str, int]:
@@ -490,6 +490,7 @@ class LoopNestSlice:
         for axis in self.splits:
             last_start = None
             for loop_name, start in reversed(self.splits[axis].items()):
+                assert isinstance(start, int)
                 if last_start is not None:
                     size_of_split = last_start - start
                     splits_to_sizes[loop_name] = size_of_split
@@ -501,6 +502,7 @@ class LoopNestSlice:
         tiles_to_sizes: dict[str, int] = {}
         for tiles in self.tiles.values():
             for loop, size in tiles.items():
+                assert isinstance(size, int)
                 tiles_to_sizes[loop] = size
         return tiles_to_sizes
 
@@ -568,7 +570,9 @@ class LoopNest:
                             `{axis}#{size}`: {axis} has not been materialized yet.
                             """
                         )
-                    seen_axes[axis] = sched.tiles[axis][loop_name]
+                    loop_size = sched.tiles[axis][loop_name]
+                    assert isinstance(loop_size, int)
+                    seen_axes[axis] = loop_size
 
     def _check_sizes(self):
         mapper = LoopsDimsMapper.build_from_slices(self.slices)
@@ -589,6 +593,7 @@ class LoopNest:
                         current_size_of_split[loop_name] = None
                 elif loop_name in mapper.tiles_to_axis:
                     loop_size = sched.tiles[axis][loop_name]
+                    assert isinstance(loop_size, int)
                     LoopNest._must_be_smaller_routine(
                         new_size=loop_size,
                         current_sizes=current_sizes,
@@ -647,6 +652,14 @@ def descript_scheduler(
     """
     descript = Descript(scheduler=scheduler, abstract_axis=abstract_axis)
     descript.apply(node_name=node_name, spec=spec)
+
+
+def correct_type(d: dict[str, int | str]) -> dict[str, int]:
+    out_d: dict[str, int] = {}
+    for k, v in d.items():
+        assert isinstance(v, int)
+        out_d[k] = v
+    return out_d
 
 
 @dataclass(frozen=True)
