@@ -35,5 +35,5 @@ strategy = Strategy(graph, spec)
 print(strategy._constraints)
 print(len(list(strategy.sample(100))))
 
-# CHECK: ['1 || SR || 12', '1 || jR1 || jDDR || 32', '1 || jR2 || jDDR || 32', '1 || iL2 || iL3 || 21', '1 || iR1 || iS', '1 || iR2 || i_1_', 'iS <= iL2', 'i_1_ + iS == iL2']
+# CHECK: ['SR || {12}', 'iL2 || {iL3, 21}', 'iL3 || {21}', 'iR1 || {iL2, iL3, 21}', 'iR2 || {iL2, iL3, 21}', 'iS <= iL2', 'i_1_ + iS == iL2', 'i_1_ <= iL2', 'jDDR || {32}', 'jR1 || {jDDR, 32}', 'jR2 || {jDDR, 32}']
 # CHECK-NEXT: 100

@@ -24,5 +24,5 @@ strategy = Strategy(graph, spec)
 print(strategy._constraints)
 print(len(list(strategy.sample(100))))
 
-# CHECK: ['1 || j2 || j1 || 32', '1 || i1 || 21']
+# CHECK: ['i1 || {21}', 'j1 || {32}', 'j2 || {j1, 32}']
 # CHECK-NEXT: 84

@@ -43,4 +43,4 @@ strategy = Strategy(graph, spec, initialize=False)
 
 print(strategy._constraints)
 
-# CHECK: ['1 || jR2 || jDDR || 32', '1 || jR1 || jDDR || 32', '1 || iR2 || 2', '1 || iR1 || 5', '7 || iL3 || 21']
+# CHECK: ['iL2 || {21}', 'iR1 || {3, iL2, 21}', 'iR2 || {iL2, 21}', 'iR3 || {3, iL2, 21}', 'iS + 2 == 3', 'i_1_ + 6 == iL2', 'i_1_ <= iL2', 'jDDR || {32}', 'jR1 || {jDDR, 32}', 'jR2 || {jDDR, 32}', 'jR3 || {jDDR, 32}']
