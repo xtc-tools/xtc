@@ -62,5 +62,5 @@ strategy = Strategy(graph, spec, constraints=constraints, partial_tiles=False, p
 print(strategy._constraints)
 print(len(list(strategy.sample(100))))
 
-# CHECK: ['nc || {1024}', 'mc || {1024}', 'kc || {1024}', 'kr || kc', 'mr || {mc, 1024}', 'nr || {nc, 1024}', '1 + nvr + nvr * mr <= 32', 'nr == 16 * nvr', 'nvr * mr >= 8', 'nvr * mr * kr <= 256', 'kc * nr <= 8192', 'kc * mc <= 262144', 'kc * nc <= 9437184']
+# CHECK: ['1 + nvr + nvr * mr <= 32', 'kc * mc <= 262144', 'kc * nc <= 9437184', 'kc * nr <= 8192', 'kc || {1024}', 'kr || kc', 'mc || {1024}', 'mr || {mc, 1024}', 'nc || {1024}', 'nr == 16 * nvr', 'nr || {nc, 1024}', 'nvr * mr * kr <= 256', 'nvr * mr >= 8']
 #CHECK-NEXT: 100
