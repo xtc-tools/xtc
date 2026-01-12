@@ -49,7 +49,7 @@ def main():
             node_name,
             always_vectorize=args.always_vectorize,
             concluding_passes=args.concluding_passes,
-            no_alias=args.no_alias,
+            no_alias=not args.alias,
             extend=args.extend,
         )
         schedulers.append(sched)
