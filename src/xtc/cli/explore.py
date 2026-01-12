@@ -48,6 +48,7 @@ from xtc.utils.math import mulall
 from xtc.runtimes.types.ndarray import NDArray
 import xtc.runtimes.host.runtime as runtime
 from xtc.artifacts import get_operation, list_operations
+from xtc.utils.optimizers import RandomForestOptimizer
 
 logger = logging.getLogger(__name__)
 
@@ -421,6 +422,7 @@ def evaluate_all_parallel(
         callbacks["search"] if "search" in callbacks else SearchProgress(),
     )
     search_callback.search_start(ntasks)
+    results = []
     try:
         for job_idx, job_in_x in enumerate(
             np.array_split(all_in_x, np.ceil(len(all_in_x) / jobs), axis=0)
@@ -465,13 +467,22 @@ def evaluate_all_parallel(
                     for compiled in compiled_list:
                         search_callback.execute_job_start()
                         ident, backend, module, dump_file, in_x = compiled
-                        load_and_evaluate_sample(
+                        results.append(load_and_evaluate_sample(
                             ident, backend, module, in_x, args, callbacks=callbacks
-                        )
+                        ))
                         search_callback.execute_job_end()
                 search_callback.execute_batch_end()
     finally:
         search_callback.search_end()
+    return results
+
+def evaluate_iterative(strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks):
+    opt = RandomForestOptimizer(strategy.sample, seed = args.seed)
+    for step in range(100):
+        print(step)
+        in_x = opt.suggest()
+        result = evaluate_sample(strategy, in_x, graph, args, callbacks)[0]
+        opt.observe(in_x, result[-2])
 
 
 def evaluate_generate(strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks):
@@ -500,7 +511,7 @@ def evaluate_data(
 def evaluate_sample(
     strategy: Strategy, in_x: Sample, graph: Graph, args: NS, callbacks: CallBacks
 ):
-    evaluate_all_parallel(strategy, np.array([in_x]), graph, args, callbacks)
+    return evaluate_all_parallel(strategy, np.array([in_x]), graph, args, callbacks)
 
 
 def read_input(fname: str, args: NS) -> NPSamples:
@@ -590,7 +601,14 @@ def search_some(strategy: Strategy, graph: Graph, args: NS):
         "result": result_callback,
         "search": search_callback,
     }
-    if args.search in ["exhaustive", "random"]:
+    if args.search == "iterative":
+         evaluate_iterative(
+            strategy,
+            graph,
+            args,
+            callbacks=callbacks,
+        )       
+    elif args.search in ["exhaustive", "random"]:
         evaluate_generate(
             strategy,
             graph,
@@ -854,7 +872,7 @@ def main():
     parser.add_argument(
         "--search",
         type=str,
-        choices=["random", "exhaustive", "data"],
+        choices=["random", "exhaustive", "data", "iterative"],
         default="random",
         help="search strategy",
     )
