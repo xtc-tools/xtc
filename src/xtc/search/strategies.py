@@ -9,8 +9,8 @@ from collections.abc import Sequence, Mapping, Iterator, Generator
 import itertools
 import numpy as np
 
-from properties import constraints_from_str, hypergraph, Context
-from strategy import (
+from xvs.properties import constraints_from_str, hypergraph, Context
+from xvs.strategy import (
     execute_dynamic,
     execute_static,
     solve_with_z3,
@@ -993,6 +993,7 @@ class Strategy_Descript(Strategy):
             self._orders[a_holder] = permutation
             order_constraints.append(f"{a_holder} in {set(range(len(permutation)))}")
         self._constraints = constraints + input_constraints + order_constraints
+        self._constraints.sort()
         if initialize:
             self._initialize()
 
@@ -1002,15 +1003,13 @@ class Strategy_Descript(Strategy):
         max_enum = int(1 + np.log2(max(self._sizes.values())))
         context = Context()
         constraints, self.constrants = constraints_from_str(
-            self._constraints, silent=True, context=context
+            self._constraints, context=context
         )
         properties, constraints = hypergraph(
-            constraints, max_enum=max_enum, silent=True, context=context
+            constraints, max_enum=max_enum, context=context
         )
-        methods = solve_with_z3(
-            context.variables.keys(), properties, constraints, silent=True
-        )
-        enumerations = execute_static(methods, properties, constraints, silent=True)
+        methods = solve_with_z3(list(context.variables.keys()), properties, constraints)
+        enumerations = execute_static(methods, properties, constraints)
         self._context = context
         self._properties = properties
         self._z3_constraints = constraints
@@ -1050,14 +1049,13 @@ class Strategy_Descript(Strategy):
             self._z3_constraints,
             self._enumerations,
             k=num,
-            silent=True,
         )
         return draw
 
     def pretty_print_methods(self, tab: str = "\t"):
         self._initialize()
         pretty_print_methods(
-            self._methods, self._properties, self._constraints, tab=tab
+            self._methods, self._properties, self._z3_constraints, tab=tab
         )
 
     def _sample_once_tuple(self, num: int) -> Iterator[tuple]:
