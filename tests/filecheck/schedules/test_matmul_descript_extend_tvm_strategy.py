@@ -51,7 +51,7 @@ executor = module.get_executor(validate=True)
 res = executor.execute()
 print(f"CODE: {res}")
 
-#CHECK: graph:
+#CHECK:graph:
 #CHECK-NEXT:  name: matmul
 #CHECK-NEXT:  inputs:
 #CHECK-NEXT:  - %0 : 4x512xfloat32
@@ -60,10 +60,10 @@ print(f"CODE: {res}")
 #CHECK-NEXT:  - %2 : 4x32xfloat32
 #CHECK-NEXT:  nodes:
 #CHECK-NEXT:  - %2: matmul(%0, %1) {name = 'C'} : [4x512xfloat32, 512x32xfloat32] -> [4x32xfloat32]
-#CHECK-NEXT:  
+#CHECK-EMPTY:
 #CHECK-NEXT:# from tvm.script import ir as I
 #CHECK-NEXT:# from tvm.script import tir as T
-#CHECK-NEXT:  
+#CHECK-EMPTY:
 #CHECK-NEXT:@I.ir_module
 #CHECK-NEXT:class Module:
 #CHECK-NEXT:    @T.prim_func
@@ -85,10 +85,10 @@ print(f"CODE: {res}")
 #CHECK-NEXT:sch[O].reorder(k, i, j, j0, i0)
 #CHECK-NEXT:sch[O].unroll(i0)
 #CHECK-NEXT:sch[O].vectorize(j0)
-#CHECK-NEXT:  
+#CHECK-EMPTY:
 #CHECK-NEXT:# from tvm.script import ir as I
 #CHECK-NEXT:# from tvm.script import tir as T
-#CHECK-NEXT:  
+#CHECK-EMPTY:
 #CHECK-NEXT:@I.ir_module
 #CHECK-NEXT:class Module:
 #CHECK-NEXT:    @T.prim_func
