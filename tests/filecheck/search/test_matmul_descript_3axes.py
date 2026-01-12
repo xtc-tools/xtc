@@ -26,4 +26,4 @@ strategy = Strategy(graph, spec, initialize=False)
 
 print(strategy._constraints)
 
-# CHECK: ['1 || kR || 12', '1 || jR || 32', '1 || iR || 21', '0 <= order_DDR <= 5', '0 <= order_R <= 5']
+# CHECK: ['iR || {21}', 'jR || {32}', 'kR || {12}', 'order_DDR in {0, 1, 2, 3, 4, 5}', 'order_R in {0, 1, 2, 3, 4, 5}']
