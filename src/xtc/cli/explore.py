@@ -396,6 +396,21 @@ class SearchProgressTQDM(SearchProgress):
         if self.nexec_per_job > 0:
             self.evalbar.close()
 
+class IterativeProgressTQDM(SearchProgressTQDM):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    @override
+    def search_start(self, ntasks: int):
+        pass
+    @override
+    def search_end(self):
+        pass
+    def iterations_start(self, ntasks: int):
+        super().search_start(ntasks)
+    def iterations_end(self):
+        super().search_end()
+
 
 def evaluate_all_parallel(
     strategy: Strategy,
@@ -478,11 +493,12 @@ def evaluate_all_parallel(
 
 def evaluate_iterative(strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks):
     opt = RandomForestOptimizer(strategy.sample, seed = args.seed)
-    for step in range(100):
-        print(step)
+    callbacks["search"].iterations_start(args.trials * len(args.backends))
+    for step in range(args.trials):
         in_x = opt.suggest()
         result = evaluate_sample(strategy, in_x, graph, args, callbacks)[0]
-        opt.observe(in_x, result[-2])
+        opt.observe(in_x, result[-2]) # observe "peak" value
+    callbacks["search"].iterations_end()
 
 
 def evaluate_generate(strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks):
@@ -602,7 +618,13 @@ def search_some(strategy: Strategy, graph: Graph, args: NS):
         "search": search_callback,
     }
     if args.search == "iterative":
-         evaluate_iterative(
+        callbacks["search"] = IterativeProgressTQDM(
+            ncomp_per_job,
+            nexec_per_job,
+            args.quiet,
+            args.operator,
+        )   
+        evaluate_iterative(
             strategy,
             graph,
             args,
