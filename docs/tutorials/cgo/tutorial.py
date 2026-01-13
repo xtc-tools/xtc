@@ -177,5 +177,105 @@ def _():
     """)
     return
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## 3. Compile, Evaluate and Schedule
+
+    Now that we have a graph, we need to:
+    1. **Create a Backend**: The backend handles code generation for a specific target (MLIR, TVM)
+    2. **Get a Scheduler**: The scheduler allows us to apply transformations to optimize the code
+    3. **Generate a Schedule**: Apply (or not) transformations and get a schedule object
+    4. **Compile**: Generate executable code from the schedule
+    5. **Evaluate**: Run the compiled code and measure performance
+
+    The code below shows the complete workflow for compiling and evaluating a simple matmul operation without any optimizations.
+
+    **Performance is measured as a percentage of the peak perf (the theoretical number of flops/seconds of the CPU), the baseline to compare against when we add optimizations!**
+    """)
+    return
+
+@app.cell
+def _():
+    comp_editor = mo.ui.code_editor(
+        value=
+"""import xtc.graphs.xtc.op as O
+import xtc.runtimes.host.runtime as rt
+from xtc.backends.mlir import Backend  # Choose between mlir & tvm here
+
+I, J, K, dtype = 4, 32, 512, "float32"
+a = O.tensor((I, K), dtype, name="A")
+b = O.tensor((K, J), dtype, name="B")
+with O.graph(name="matmul") as gb:
+   O.matmul(a, b, name="C")
+graph = gb.graph
+impl = Backend(graph)
+
+# Schedule
+sch = impl.get_scheduler()
+sch.set_dims(['i','j','k'])
+...                                    # Schedule the operator here
+sched = sch.schedule()
+
+# Compile
+comp = impl.get_compiler(
+   shared_lib=True,
+   dump_file="matmul_mlir",
+   print_source_ir=False,              # Serialize the generated code here...
+   print_transformed_ir=False,         # And/or here...
+   print_lowered_ir=False,             # And/or here...
+   print_assembly=False,               # And/or here !
+)
+code = StringIO()
+with redirect_stderr(code):
+   module = comp.compile(sched)
+
+# Evaluate the generated code
+evaluator = module.get_evaluator()
+results, _, _ = evaluator.evaluate()
+peak_flops = rt.evaluate_flops(dtype)
+time_flops = (I*J*K) / min(results)
+perf = time_flops / peak_flops * 100
+
+print("perf: {:.2f}%".format(perf))
+print(f"{code.getvalue()}")""",
+        language="python",
+        label=""
+    )
+    comp_editor
+    return comp_editor,
+
+@app.cell
+def __(comp_editor):
+    
+    _old_stdout = sys.stdout
+    sys.stdout = _captured_output = StringIO()
+    
+    try:
+        exec(comp_editor.value)
+        _output = _captured_output.getvalue()
+    except Exception as e:
+        _output = f"Error:\n{type(e).__name__}: {str(e)}"
+    finally:
+        sys.stdout = _old_stdout
+    
+    mo.md(f"**Output:**\n```\n{_output}\n```")
+    return _captured_output, _old_stdout, _output
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    **Practice:**
+    1. *Serialize the IR.* The serialization of the generated assembly as well as the different IR levels is disabled for now. You should try enabling these different levels to see what the executed operator really looks like! If you're more comfortable with TVM than with MLIR, or simply curious to explore TVM, you can also replace MLIR with TVM as a backend.
+    2. *Inspect the IR.* In your opinion, why is the performance so poor?
+    3. *Transform the code.* You can start transforming the code using the primitives exposed by the scheduler:
+       - `sch.tile("j", {"j1": 1})` creates an (useless) tile of size 1 along `j`.
+       - `sch.vectorize(["j1"])` vectorizes the computation along the loop `j1`.
+       - `sch.unroll({"j1":1})` unrolls the loop `j1` with an unroll factor of 1 (useless too).
+       - `sch.interchange(["i", "k", "j", "j1"])` reorders the loops.
+    4. Try to maximize the performance!
+    """)
+    return
+
 if __name__ == "__main__":
     app.run()
