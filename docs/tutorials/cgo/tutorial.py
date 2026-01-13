@@ -107,5 +107,75 @@ def _():
     """)
     return
 
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## 2. Define Your First Graph with XTC
+
+    In XTC, computations are represented as **dataflow graphs**. A graph consists of:
+    - **Tensors**: Multi-dimensional arrays that hold data
+    - **Operators**: Operations that transform tensors (e.g., matrix multiplication, convolution)
+    - **Nodes**: Individual operations within the graph
+
+    Let's start by creating a simple matrix multiplication graph. Matrix multiplication (matmul) computes $C = A \times B$ where:
+    - $A$ is an $I \times K$ matrix
+    - $B$ is a $K \times J$ matrix
+    - $C$ is the resulting $I \times J$ matrix
+
+    The code below demonstrates how to:
+    1. Define input tensors with their shapes and data types
+    2. Create a graph context and add the matmul operation
+    3. Serialize the resulting graph.
+
+    **Try modifying the dimensions or data type to see how the graph changes!**
+    """)
+    return
+
+@app.cell
+def _():
+    def_editor = mo.ui.code_editor(
+        value=
+"""import xtc.graphs.xtc.op as O
+from xtc.backends.mlir import Backend
+I, J, K, dtype = 4, 32, 512, "float32"
+a = O.tensor((I, K), dtype, name="A")
+b = O.tensor((K, J), dtype, name="B")
+with O.graph(name="matmul") as gb:
+   O.matmul(a, b, name="C")
+graph = gb.graph
+print(graph)
+... # Compilation comes soon""",
+        language="python",
+        label=""
+    )
+    def_editor
+    return def_editor,
+
+@app.cell
+def __(def_editor):
+    
+    _old_stdout = sys.stdout
+    sys.stdout = _captured_output = StringIO()
+    
+    try:
+        exec(def_editor.value)
+        _output = _captured_output.getvalue()
+    except Exception as e:
+        _output = f"Error:\n{type(e).__name__}: {str(e)}"
+    finally:
+        sys.stdout = _old_stdout
+    
+    mo.md(f"**Output:**\n```\n{_output}\n```")
+    return _captured_output, _old_stdout, _output
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    **Practice:**
+
+    Try modifying the dimensions or data type to see how the graph changes!
+    """)
+    return
+
 if __name__ == "__main__":
     app.run()
