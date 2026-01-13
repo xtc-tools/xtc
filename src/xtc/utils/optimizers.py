@@ -1,8 +1,17 @@
 import random
 import numpy as np
+from abc import ABC, abstractmethod
 from sklearn.ensemble import RandomForestRegressor
 
-class RandomForestOptimizer: # 128
+class Optimizer():
+    @abstractmethod
+    def suggest():
+        pass
+    @abstractmethod
+    def observe(self, x, y):
+        pass
+
+class RandomForestOptimizer:
     def __init__(self, sample_fn, batch_size=128, min_samples=5, beta=1.0, seed=0):
         self.sample_fn = sample_fn
         self.batch_size = batch_size
@@ -29,7 +38,7 @@ class RandomForestOptimizer: # 128
         preds = np.stack([t.predict(candidates) for t in self.rf.estimators_])
         mean = preds.mean(axis=0)
         std = preds.std(axis=0)
-        # want low loss with high certainty (std)
+        # want low loss with high certainty (low std)
         score = mean - self.beta * std
         return candidates[np.argmin(score)]
 
