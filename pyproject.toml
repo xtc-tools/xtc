@@ -20,7 +20,7 @@ dev = [
     "pytest-xdist",
     "pyright==1.1.407",
     "types-PyYAML",
-    "marimo==0.14.16",
+    "marimo==0.19.6",
     "ruff==0.14.10",
 ]
 
