@@ -8,7 +8,7 @@ Refer to documentation at https://corse.gitlabpages.inria.fr/XTC
 
 Refer to installable python packages at: https://gitlab.inria.fr/corse/xtc/-/packages
 
-Refer to tutorials [here](docs/tutorials).
+Refer to tutorials [here](docs/tutorials) and to additionnal developers documentation [here](docs/develop).
 
 ## Overview
 
@@ -144,3 +144,6 @@ To force the use of a specific target, you can set the env variable XTC_MLIR_TAR
 - `loop-explore` - Autotuning and space exploration
 - `loop-display` - Visualization of exploration results
 
+## AI assistants
+
+To create the `CLAUDE.md` file required to use Claude Code: `make claude`

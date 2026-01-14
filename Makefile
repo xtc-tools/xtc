@@ -12,6 +12,7 @@ help:
 	@echo "  make format          # apply formatting (warning: change files in place)"
 	@echo "    make format-license # add licenses"
 	@echo "    make format-ruff   # format python files with ruff"
+	@echo "  make claude          # create CLAUDE.md"
 	@echo
 
 
@@ -59,6 +60,9 @@ format-ruff:
 
 format-license:
 	scripts/licensing/licensing.py --apply
+
+claude:
+	scripts/llms/init_claude.sh README.md "Links" "System requirements" "AI assistants" > CLAUDE.md
 
 .PHONY: help test check check-lit-all check-lit check-lit-c check-pytest check-type check-pyright check-mypy check-format check-format-ruff check-license check-banwords format format-ruff format-license
 .SUFFIXES:
