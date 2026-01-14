@@ -396,6 +396,7 @@ class SearchProgressTQDM(SearchProgress):
         if self.nexec_per_job > 0:
             self.evalbar.close()
 
+
 class IterativeProgressTQDM(SearchProgressTQDM):
     def __init__(self, *args):
         super().__init__(*args)
@@ -403,11 +404,14 @@ class IterativeProgressTQDM(SearchProgressTQDM):
     @override
     def search_start(self, ntasks: int):
         pass
+
     @override
     def search_end(self):
         pass
+
     def iterations_start(self, ntasks: int):
         super().search_start(ntasks)
+
     def iterations_end(self):
         super().search_end()
 
@@ -482,22 +486,29 @@ def evaluate_all_parallel(
                     for compiled in compiled_list:
                         search_callback.execute_job_start()
                         ident, backend, module, dump_file, in_x = compiled
-                        results.append(load_and_evaluate_sample(
-                            ident, backend, module, in_x, args, callbacks=callbacks
-                        ))
+                        results.append(
+                            load_and_evaluate_sample(
+                                ident, backend, module, in_x, args, callbacks=callbacks
+                            )
+                        )
                         search_callback.execute_job_end()
                 search_callback.execute_batch_end()
     finally:
         search_callback.search_end()
     return results
 
-def evaluate_iterative(strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks):
-    opt = RandomForestOptimizer(strategy.sample, seed = args.seed)
+
+def evaluate_iterative(
+    strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks, peak_time=0
+):
+    opt = RandomForestOptimizer(strategy.sample, seed=args.seed, batch=args.batch)
     callbacks["search"].iterations_start(args.trials * len(args.backends))
-    for step in range(args.trials):
+    for step in range(0, args.trials, args.batch):
         in_x = opt.suggest()
-        result = evaluate_sample(strategy, in_x, graph, args, callbacks)[0]
-        opt.observe(in_x, result[-2]) # observe "peak" value
+        results = evaluate_all_parallel(strategy, in_x, graph, args, callbacks)
+        peaks = [peak_time / res[-2] for res in results]  # res[-2] is the time
+        opt.observe(in_x, peaks)
+    opt.finished()
     callbacks["search"].iterations_end()
 
 
@@ -527,7 +538,7 @@ def evaluate_data(
 def evaluate_sample(
     strategy: Strategy, in_x: Sample, graph: Graph, args: NS, callbacks: CallBacks
 ):
-    return evaluate_all_parallel(strategy, np.array([in_x]), graph, args, callbacks)
+    evaluate_all_parallel(strategy, np.array([in_x]), graph, args, callbacks)
 
 
 def read_input(fname: str, args: NS) -> NPSamples:
@@ -623,13 +634,8 @@ def search_some(strategy: Strategy, graph: Graph, args: NS):
             nexec_per_job,
             args.quiet,
             args.operator,
-        )   
-        evaluate_iterative(
-            strategy,
-            graph,
-            args,
-            callbacks=callbacks,
-        )       
+        )
+        evaluate_iterative(strategy, graph, args, callbacks=callbacks, peak_time=ptime)
     elif args.search in ["exhaustive", "random"]:
         evaluate_generate(
             strategy,
@@ -994,6 +1000,7 @@ def main():
     parser.add_argument(
         "--mlir-prefix", type=str, help="MLIR install prefix, defaults to mlir package"
     )
+    parser.add_argument("--batch", type=int, default=1, help="batch size for optimizer")
     parser.add_argument(
         "--debug", action=argparse.BooleanOptionalAction, help="debug mode"
     )
@@ -1004,6 +1011,11 @@ def main():
     )
     parser.add_argument(
         "--debug-xtc", action=argparse.BooleanOptionalAction, help="debug xtc modules"
+    )
+    parser.add_argument(
+        "--debug-optimizer",
+        action=argparse.BooleanOptionalAction,
+        help="debug optimizer",
     )
     parser.add_argument(
         "--quiet",
@@ -1021,6 +1033,8 @@ def main():
         logger.setLevel(logging.DEBUG)
     if args.debug_xtc:
         logging.getLogger("xtc").setLevel(logging.DEBUG)
+    if args.debug_optimizer:
+        logging.getLogger("xtc.utils.optimizers").setLevel(logging.INFO)
 
     if not args.child:
         launch_child(sys.argv, args)
