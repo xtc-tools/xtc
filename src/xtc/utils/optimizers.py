@@ -5,6 +5,8 @@
 import random
 import numpy as np
 import logging
+import yaml
+from collections.abc import Sequence
 from abc import ABC, abstractmethod
 from sklearn.ensemble import RandomForestRegressor
 
@@ -28,13 +30,17 @@ class RandomForestOptimizer(Optimizer):
     def __init__(
         self,
         sample_fn,
-        batch=1,
-        batch_candidates=1000,
-        beta=2,
-        alpha=0.6,
-        seed=0,
-        update_first=None,
-        update_period=None,
+        batch,
+        seed,
+        batch_candidates,
+        beta,
+        alpha,
+        update_first,
+        update_period,
+        n_estimators,
+        max_depth,
+        min_samples_leaf,
+        max_features,
     ):
         self.sample_fn = sample_fn
         self.batch = batch
@@ -50,12 +56,12 @@ class RandomForestOptimizer(Optimizer):
         self.X = []
         self.y = []
         self.rf = RandomForestRegressor(
-            n_estimators=200,
+            n_estimators=n_estimators,
             n_jobs=1,
-            max_depth=8,
-            min_samples_leaf=5,
-            min_samples_split=10,  # 2*leaf
-            max_features=0.8,
+            max_depth=max_depth,
+            min_samples_leaf=min_samples_leaf,
+            min_samples_split=min_samples_leaf * 2,
+            max_features=max_features,
             random_state=seed,
         )
         self.best_y = 0
@@ -99,3 +105,77 @@ class RandomForestOptimizer(Optimizer):
     def finished(self):
         logger.info("finished!")
         logger.info(self.log_str)
+
+
+class RandomForestOptimizer_Explore(RandomForestOptimizer):
+    def __init__(self, sample_fn, batch, seed, config_file):
+        preset = {
+            "batch_candidates": 1000,
+            "beta": 5,
+            "alpha": 0.6,
+            "update_first": None,
+            "update_period": None,
+            "n_estimators": 300,
+            "max_depth": 8,
+            "min_samples_leaf": 3,
+            "max_features": 0.9,
+        }
+        super().__init__(sample_fn, batch, seed, **preset)
+
+
+class RandomForestOptimizer_Default(RandomForestOptimizer):
+    def __init__(self, sample_fn, batch, seed, config_file):
+        preset = {
+            "batch_candidates": 1000,
+            "beta": 2.5,
+            "alpha": 0.7,
+            "update_first": None,
+            "update_period": None,
+            "n_estimators": 300,
+            "max_depth": 12,
+            "min_samples_leaf": 5,
+            "max_features": 0.8,
+        }
+        super().__init__(sample_fn, batch, seed, **preset)
+
+
+class RandomForestOptimizer_Aggressive(RandomForestOptimizer):
+    def __init__(self, sample_fn, batch, seed, config_file):
+        preset = {
+            "batch_candidates": 1000,
+            "beta": 2,
+            "alpha": 0.8,
+            "update_first": None,
+            "update_period": None,
+            "n_estimators": 200,
+            "max_depth": 8,
+            "min_samples_leaf": 5,
+            "max_features": 0.7,
+        }
+        super().__init__(sample_fn, batch, seed, **preset)
+
+
+class RandomForestOptimizer_Custom(RandomForestOptimizer):
+    def __init__(self, sample_fn, batch, seed, config_file):
+        with open(config_file, "r") as f:
+            custom = yaml.safe_load(f)
+            super().__init__(sample_fn, batch, seed, **custom)
+
+
+class Optimizers:
+    @classmethod
+    def names(cls) -> Sequence[str]:
+        return list(cls._map.keys())
+
+    @classmethod
+    def from_name(cls, name: str) -> type[Optimizer]:
+        if name not in cls._map:
+            raise ValueError(f"unknown optimizer name: {name}")
+        return cls._map[name]
+
+    _map = {
+        "random-forest-explore": RandomForestOptimizer_Explore,
+        "random-forest-default": RandomForestOptimizer_Default,
+        "random-forest-aggressive": RandomForestOptimizer_Aggressive,
+        "random-forest-custom": RandomForestOptimizer_Custom,
+    }

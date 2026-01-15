@@ -48,7 +48,7 @@ from xtc.utils.math import mulall
 from xtc.runtimes.types.ndarray import NDArray
 import xtc.runtimes.host.runtime as runtime
 from xtc.artifacts import get_operation, list_operations
-from xtc.utils.optimizers import RandomForestOptimizer
+from xtc.utils.optimizers import Optimizers
 
 logger = logging.getLogger(__name__)
 
@@ -501,7 +501,8 @@ def evaluate_all_parallel(
 def evaluate_iterative(
     strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks, peak_time=0
 ):
-    opt = RandomForestOptimizer(strategy.sample, seed=args.seed, batch=args.batch)
+    optimizer = Optimizers.from_name(args.optimizer)
+    opt = optimizer(strategy.sample, args.batch, args.seed, args.optimizer_config)
     callbacks["search"].iterations_start(args.trials * len(args.backends))
     for step in range(0, args.trials, args.batch):
         in_x = opt.suggest()
@@ -913,6 +914,12 @@ def main():
         help="backends to use",
     )
     parser.add_argument(
+        "--optimizer",
+        type=str,
+        default="random-forest-explore",
+        help=f"optimizer to use. One of {Optimizers.names()}",
+    )
+    parser.add_argument(
         "--data", type=str, help="data CSV file for input to data search"
     )
     parser.add_argument(
@@ -970,6 +977,9 @@ def main():
     )
     parser.add_argument(
         "--explore-dir", type=str, default=".", help="exploration results .so dir"
+    )
+    parser.add_argument(
+        "--optimizer-config", type=str, help="config yaml file for optimizer"
     )
     parser.add_argument(
         "--child",
