@@ -127,7 +127,17 @@ XTC also supports multiple MLIR Targets for the code generation:
   - llvmir (default)
   - c
 
-To force the use of a specific target, you can set the env variable XTC_MLIR_TARGET=<mlir-target>.
+To force the use of a specific target, you can set the env variable `XTC_MLIR_TARGET=<mlir-target>`.
+
+#### MLIR SDist extension
+
+The MLIR backend can be extended using the SDist extension, which gives access to distribution primitives.
+To install SDist, please run the following commands:
+
+    pip uninstall mlir-python-bindings
+    pip install mlir-sdist --index-url https://gitlab-ci-token:<your-token>@gitlab.inria.fr/api/v4/projects/59056/packages/pypi/simple
+
+Note that SDist is currently an Inria internal project (cf JIR section on how to access).
 
 ### Compilation Pipeline
 
