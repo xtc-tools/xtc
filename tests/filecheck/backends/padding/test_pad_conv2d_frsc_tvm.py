@@ -10,7 +10,7 @@ a = O.tensor((N, H, W, C), dtype, name="I")
 b = O.tensor((F, R, S, C), dtype, name="W")
 
 with O.graph(name="pad_conv2d_nhwc_mini") as gb:
-    p = O.pad2d(a, padding=2, name="pad")
+    p = O.pad2d(a, padding=2, axis=(1, 2), name="pad")
     t = O.transpose(b, axes=(1, 2, 3, 0))
     O.conv2d(p, t, stride=(SH, SW), name="conv")
 
@@ -40,7 +40,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:    outputs:
 # CHECK-NEXT:    - %4 : 1x4x4x16xfloat32
 # CHECK-NEXT:    nodes:
-# CHECK-NEXT:    - %2: pad2d(%0, padding=(2, 2, 2, 2)) {name = 'pad'} : [1x8x8x3xfloat32] -> [1x12x12x3xfloat32]
+# CHECK-NEXT:    - %2: pad2d(%0, padding=(2, 2, 2, 2), axis=(1, 2), constant_value=0) {name = 'pad'} : [1x8x8x3xfloat32] -> [1x12x12x3xfloat32]
 # CHECK-NEXT:    - %3: transpose(%1, axes=(1, 2, 3, 0)) : [16x5x5x3xfloat32] -> [5x5x3x16xfloat32]
 # CHECK-NEXT:    - %4: conv2d(%2, %3, stride=(2, 2)) {name = 'conv'} : [1x12x12x3xfloat32, 5x5x3x16xfloat32] -> [1x4x4x16xfloat32]
 # CHECK-NEXT:  
@@ -55,10 +55,10 @@ print(f"CODE: {res}")
 # CHECK-NEXT:          pad = T.allocate([363], "float32", "global")
 # CHECK-NEXT:          _3 = T.allocate([1200], "float32", "global")
 # CHECK-NEXT:          pad_1 = T.Buffer((363,), data=pad)
-# CHECK-NEXT:          for hi, wi, ci in T.grid(11, 11, 3):
-# CHECK-NEXT:              cse_var_1: T.int32 = wi * 3
+# CHECK-NEXT:          for i1, i2, i3 in T.grid(11, 11, 3):
+# CHECK-NEXT:              cse_var_1: T.int32 = i2 * 3
 # CHECK-NEXT:              _0_1 = T.Buffer((192,), data=_0.data)
-# CHECK-NEXT:              pad_1[hi * 33 + cse_var_1 + ci] = T.if_then_else(2 <= hi and hi < 10 and 2 <= wi and wi < 10, _0_1[hi * 24 + cse_var_1 + ci - 54], T.float32(0.0))
+# CHECK-NEXT:              pad_1[i1 * 33 + cse_var_1 + i3] = T.if_then_else(2 <= i1 and i1 < 10 and 2 <= i2 and i2 < 10, _0_1[i1 * 24 + cse_var_1 + i3 - 54], T.float32(0.0))
 # CHECK-NEXT:          for i0 in range(1200):
 # CHECK-NEXT:              _3_1 = T.Buffer((1200,), data=_3)
 # CHECK-NEXT:              _1_1 = T.Buffer((1200,), data=_1.data)
@@ -86,10 +86,10 @@ print(f"CODE: {res}")
 # CHECK-NEXT:          pad = T.allocate([363], "float32", "global")
 # CHECK-NEXT:          _3 = T.allocate([1200], "float32", "global")
 # CHECK-NEXT:          pad_1 = T.Buffer((363,), data=pad)
-# CHECK-NEXT:          for hi, wi, ci in T.grid(11, 11, 3):
-# CHECK-NEXT:              cse_var_1: T.int32 = wi * 3
+# CHECK-NEXT:          for i1, i2, i3 in T.grid(11, 11, 3):
+# CHECK-NEXT:              cse_var_1: T.int32 = i2 * 3
 # CHECK-NEXT:              _0_1 = T.Buffer((192,), data=_0.data)
-# CHECK-NEXT:              pad_1[hi * 33 + cse_var_1 + ci] = T.if_then_else(2 <= hi and hi < 10 and 2 <= wi and wi < 10, _0_1[hi * 24 + cse_var_1 + ci - 54], T.float32(0.0))
+# CHECK-NEXT:              pad_1[i1 * 33 + cse_var_1 + i3] = T.if_then_else(2 <= i1 and i1 < 10 and 2 <= i2 and i2 < 10, _0_1[i1 * 24 + cse_var_1 + i3 - 54], T.float32(0.0))
 # CHECK-NEXT:          for i0 in range(1200):
 # CHECK-NEXT:              _3_1 = T.Buffer((1200,), data=_3)
 # CHECK-NEXT:              _1_1 = T.Buffer((1200,), data=_1.data)

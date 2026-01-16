@@ -6,7 +6,7 @@ i = O.tensor() # format NHWC
 k = O.tensor() # format OHWI
 
 with O.graph(name="conv_relu") as gb:
-    p = O.pad2d(i, padding=2)
+    p = O.pad2d(i, padding=2, axis=(1, 2))
     t = O.transpose(k, axes=(1, 2, 3, 0))
     c = O.conv2d(p, t, stride=(2, 2))
     O.relu(c, threshold=0.1)
@@ -38,7 +38,7 @@ print(f"Outputs: {outs}")
 # CHECK-NEXT:    outputs:
 # CHECK-NEXT:    - %5
 # CHECK-NEXT:    nodes:
-# CHECK-NEXT:    - %2: pad2d(%0, padding=(2, 2, 2, 2))
+# CHECK-NEXT:    - %2: pad2d(%0, padding=(2, 2, 2, 2), axis=(1, 2), constant_value=0)
 # CHECK-NEXT:    - %3: transpose(%1, axes=(1, 2, 3, 0))
 # CHECK-NEXT:    - %4: conv2d(%2, %3, stride=(2, 2))
 # CHECK-NEXT:    - %5: relu(%4, threshold=0.1)
@@ -51,7 +51,7 @@ print(f"Outputs: {outs}")
 # CHECK-NEXT:    outputs:
 # CHECK-NEXT:    - %5 : 2x3x3x8xfloat32
 # CHECK-NEXT:    nodes:
-# CHECK-NEXT:    - %2: pad2d(%0, padding=(2, 2, 2, 2)) : [2x6x6x3xfloat32] -> [2x10x10x3xfloat32]
+# CHECK-NEXT:    - %2: pad2d(%0, padding=(2, 2, 2, 2), axis=(1, 2), constant_value=0) : [2x6x6x3xfloat32] -> [2x10x10x3xfloat32]
 # CHECK-NEXT:    - %3: transpose(%1, axes=(1, 2, 3, 0)) : [8x5x5x3xfloat32] -> [5x5x3x8xfloat32]
 # CHECK-NEXT:    - %4: conv2d(%2, %3, stride=(2, 2)) : [2x10x10x3xfloat32, 5x5x3x8xfloat32] -> [2x3x3x8xfloat32]
 # CHECK-NEXT:    - %5: relu(%4, threshold=0.1) : [2x3x3x8xfloat32] -> [2x3x3x8xfloat32]
