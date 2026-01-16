@@ -389,6 +389,7 @@ class BaseStrategyPRTScheme(BaseStrategy):
         self._unrolled = self._init_unrolled()
         self._vectorized = self._init_vectorized()
         self._sample_names = self._init_sample_names()
+        self._out_dtype = self._op.outputs_types[0].dtype
         assert len(self._vectorized) <= 1
 
     def _init_order_tiles(
@@ -568,7 +569,7 @@ class BaseStrategyPRTScheme(BaseStrategy):
         if stat:
             self._stats[stat] = 0
         indexes = self._inner_items_indexes(-inner_items)
-        max_l1_elts = self._arch_l1_size / 4  # where 4 is float size (TODO)
+        max_l1_elts = self._arch_l1_size / np.dtype(self._out_dtype).itemsize
         for x in samples:
             elts = np.prod(np.array(x)[indexes])
             if not elts <= max_l1_elts:
@@ -584,7 +585,7 @@ class BaseStrategyPRTScheme(BaseStrategy):
         if stat:
             self._stats[stat] = 0
         indexes = self._inner_items_indexes(-inner_items)
-        max_l2_elts = self._arch_l2_size / 4  # where 4 is float size (TODO)
+        max_l2_elts = self._arch_l2_size / np.dtype(self._out_dtype).itemsize
         for x in samples:
             elts = np.prod(np.array(x)[indexes])
             if not elts <= max_l2_elts:
