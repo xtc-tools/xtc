@@ -48,6 +48,7 @@ from xtc.utils.math import mulall
 from xtc.runtimes.types.ndarray import NDArray
 import xtc.runtimes.host.runtime as runtime
 from xtc.artifacts import get_operation, list_operations
+from xtc.utils.optimizers import Optimizers
 
 logger = logging.getLogger(__name__)
 
@@ -396,6 +397,25 @@ class SearchProgressTQDM(SearchProgress):
             self.evalbar.close()
 
 
+class IterativeProgressTQDM(SearchProgressTQDM):
+    def __init__(self, *args):
+        super().__init__(*args)
+
+    @override
+    def search_start(self, ntasks: int):
+        pass
+
+    @override
+    def search_end(self):
+        pass
+
+    def iterations_start(self, ntasks: int):
+        super().search_start(ntasks)
+
+    def iterations_end(self):
+        super().search_end()
+
+
 def evaluate_all_parallel(
     strategy: Strategy,
     all_in_x: NPSamples,
@@ -421,6 +441,7 @@ def evaluate_all_parallel(
         callbacks["search"] if "search" in callbacks else SearchProgress(),
     )
     search_callback.search_start(ntasks)
+    results = []
     try:
         for job_idx, job_in_x in enumerate(
             np.array_split(all_in_x, np.ceil(len(all_in_x) / jobs), axis=0)
@@ -465,13 +486,31 @@ def evaluate_all_parallel(
                     for compiled in compiled_list:
                         search_callback.execute_job_start()
                         ident, backend, module, dump_file, in_x = compiled
-                        load_and_evaluate_sample(
-                            ident, backend, module, in_x, args, callbacks=callbacks
+                        results.append(
+                            load_and_evaluate_sample(
+                                ident, backend, module, in_x, args, callbacks=callbacks
+                            )
                         )
                         search_callback.execute_job_end()
                 search_callback.execute_batch_end()
     finally:
         search_callback.search_end()
+    return results
+
+
+def evaluate_iterative(
+    strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks, peak_time=0
+):
+    optimizer = Optimizers.from_name(args.optimizer)
+    opt = optimizer(strategy.sample, args.batch, args.seed, args.optimizer_config)
+    callbacks["search"].iterations_start(args.trials * len(args.backends))
+    for step in range(0, args.trials, args.batch):
+        in_x = opt.suggest()
+        results = evaluate_all_parallel(strategy, in_x, graph, args, callbacks)
+        peaks = [peak_time / res[-2] for res in results]  # res[-2] is the time
+        opt.observe(in_x, peaks)
+    opt.finished()
+    callbacks["search"].iterations_end()
 
 
 def evaluate_generate(strategy: Strategy, graph: Graph, args: NS, callbacks: CallBacks):
@@ -590,7 +629,15 @@ def search_some(strategy: Strategy, graph: Graph, args: NS):
         "result": result_callback,
         "search": search_callback,
     }
-    if args.search in ["exhaustive", "random"]:
+    if args.search == "iterative":
+        callbacks["search"] = IterativeProgressTQDM(
+            ncomp_per_job,
+            nexec_per_job,
+            args.quiet,
+            args.operator,
+        )
+        evaluate_iterative(strategy, graph, args, callbacks=callbacks, peak_time=ptime)
+    elif args.search in ["exhaustive", "random"]:
         evaluate_generate(
             strategy,
             graph,
@@ -854,7 +901,7 @@ def main():
     parser.add_argument(
         "--search",
         type=str,
-        choices=["random", "exhaustive", "data"],
+        choices=["random", "exhaustive", "data", "iterative"],
         default="random",
         help="search strategy",
     )
@@ -865,6 +912,12 @@ def main():
         choices=["mlir", "tvm", "jir"],
         default=["mlir"],
         help="backends to use",
+    )
+    parser.add_argument(
+        "--optimizer",
+        type=str,
+        default="random-forest-explore",
+        help=f"optimizer to use. One of {Optimizers.names()}",
     )
     parser.add_argument(
         "--data", type=str, help="data CSV file for input to data search"
@@ -926,6 +979,9 @@ def main():
         "--explore-dir", type=str, default=".", help="exploration results .so dir"
     )
     parser.add_argument(
+        "--optimizer-config", type=str, help="config yaml file for optimizer"
+    )
+    parser.add_argument(
         "--child",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -954,6 +1010,7 @@ def main():
     parser.add_argument(
         "--mlir-prefix", type=str, help="MLIR install prefix, defaults to mlir package"
     )
+    parser.add_argument("--batch", type=int, default=1, help="batch size for optimizer")
     parser.add_argument(
         "--debug", action=argparse.BooleanOptionalAction, help="debug mode"
     )
@@ -964,6 +1021,11 @@ def main():
     )
     parser.add_argument(
         "--debug-xtc", action=argparse.BooleanOptionalAction, help="debug xtc modules"
+    )
+    parser.add_argument(
+        "--debug-optimizer",
+        action=argparse.BooleanOptionalAction,
+        help="debug optimizer",
     )
     parser.add_argument(
         "--quiet",
@@ -981,6 +1043,8 @@ def main():
         logger.setLevel(logging.DEBUG)
     if args.debug_xtc:
         logging.getLogger("xtc").setLevel(logging.DEBUG)
+    if args.debug_optimizer:
+        logging.getLogger("xtc.utils.optimizers").setLevel(logging.INFO)
 
     if not args.child:
         launch_child(sys.argv, args)
