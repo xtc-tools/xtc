@@ -28,7 +28,8 @@ typedef struct {
 typedef enum {
     PERF_ARG_INVALID = -1,
     PERF_ARG_GENERIC,
-    PERF_ARG_PTR
+    PERF_ARG_PTR,
+    PERF_ARG_GPU
 } perf_event_arg_mode_t;
 
 typedef struct {

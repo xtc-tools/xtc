@@ -126,8 +126,13 @@ Exposed backends:
 XTC also supports multiple MLIR Targets for the code generation:
   - llvmir (default)
   - c
+  - nvgpu
 
 To force the use of a specific target, you can set the env variable XTC_MLIR_TARGET=<mlir-target>.
+
+Note that the nvgpu target requires a recent version of Cuda (tested with Cuda 13.0).
+By default, it tries to find Cuda at */usr/local/cuda*, but it can be overridden with the CUDA_INSTALL_DIR env variable.
+The performance counters can be accessed is the GPU has a compute capability >=7.5.
 
 ### Compilation Pipeline
 

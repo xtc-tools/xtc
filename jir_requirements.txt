@@ -1,5 +1,5 @@
 --index-url https://gitlab.inria.fr/api/v4/groups/corse/-/packages/pypi/simple
-mlir==21.1.2.2025091602
-mlir-python-bindings==21.1.2.2025091602
+mlir==21.1.2.2025091603
+mlir-python-bindings==21.1.2.2025091603
 polygeist==18.0.0.2024042201
 jir==0.3.4

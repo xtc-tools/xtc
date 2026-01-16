@@ -17,6 +17,10 @@
 #include <perfmon/pfmlib.h>
 #endif
 
+#if HAS_GPU
+#include "perf_event_gpu.h"
+#endif /* HAS_GPU */
+
 int all_perf_events[PERF_EVENT_NUM] = {
     PERF_EVENT_CYCLES,       PERF_EVENT_CLOCKS,        PERF_EVENT_INSTRS,
     PERF_EVENT_MIGRATIONS,   PERF_EVENT_SWITCHES,      PERF_EVENT_CACHE_ACCESS,
@@ -125,16 +129,30 @@ void close_perf_event(int perf_fd) { close(perf_fd); }
 void open_perf_events(int n_events, const perf_event_args_t *events, int *fds) {
   assert(n_events <= PERF_EVENT_MAX_EVENTS);
   for (int i = 0; i < n_events; i++) {
+    #if HAS_GPU
+    if (events[i].mode == PERF_ARG_GPU) // FIXME do it more efficiently
+      continue;
+    #endif /* HAS_GPU */
     fds[i] = open_perf_event(events[i]);
   }
+  #if HAS_GPU
+  open_perf_events__gpu(n_events, events, fds);
+  #endif /* HAS_GPU */
 }
 
 void close_perf_events(int n_events, const int *fds) {
   for (int i = 0; i < n_events; i++) {
+    #if HAS_GPU
+    if (fds[i] == GPU_MAGIC_NUMBER)
+      continue;
+    #endif /* HAS_GPU */
     if (fds[i] >= 0) {
       close_perf_event(fds[i]);
     }
   }
+  #if HAS_GPU
+  close_perf_events__gpu(n_events, fds);
+  #endif /* HAS_GPU */
 }
 
 uint64_t _tmp_results[PERF_EVENT_MAX_EVENTS];
@@ -143,10 +161,22 @@ void reset_perf_events(int n_events, const int *fds, uint64_t *results) {
   for (int i = 0; i < n_events; i++) {
     results[i] = 0;
   }
+  #if HAS_GPU
+  reset_perf_events__gpu(n_events, fds, results);
+  #endif /* HAS_GPU */
 }
 
 void start_perf_events(int n_events, const int *fds, uint64_t *results) {
+  // Start GPU perf event before because to reduce overhead on CPU perf measurement
+  #if HAS_GPU
+  start_perf_events__gpu(n_events, fds, results);
+  #endif /* HAS_GPU */
+
   for (int i = 0; i < n_events; i++) {
+    #if HAS_GPU
+    if (fds[i] == GPU_MAGIC_NUMBER)
+      continue;
+    #endif /* HAS_GPU */
     if (fds[i] >= 0) {
       _tmp_results[i] = read_perf_event(fds[i]);
     }
@@ -155,11 +185,20 @@ void start_perf_events(int n_events, const int *fds, uint64_t *results) {
 
 void stop_perf_events(int n_events, const int *fds, uint64_t *results) {
   for (int i = 0; i < n_events; i++) {
+    #if HAS_GPU
+    if (fds[i] == GPU_MAGIC_NUMBER)
+      continue;
+    #endif /* HAS_GPU */
     if (fds[i] >= 0) {
       _tmp_results[i] = read_perf_event(fds[i]) - _tmp_results[i];
       results[i] += _tmp_results[i];
     }
   }
+
+  // Stop GPU perf event after because to reduce overhead on CPU perf measurement
+  #if HAS_GPU
+  stop_perf_events__gpu(n_events, fds, results);
+  #endif /* HAS_GPU */
 }
 
 int get_perf_event_config(const char *name, perf_event_args_t *event) {
@@ -172,6 +211,12 @@ int get_perf_event_config(const char *name, perf_event_args_t *event) {
       return 0;
     }
   }
+  
+  #if HAS_GPU
+  if (strncmp(name, "gpu.", 4) == 0) {
+    return get_perf_event_config__gpu(name, event);
+  }
+  #endif /* HAS_GPU */
   
   #if HAS_PFM
   struct perf_event_attr *attr = malloc(sizeof(struct perf_event_attr));

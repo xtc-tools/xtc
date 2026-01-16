@@ -1,4 +1,5 @@
 // RUN: mlir-loop --no-alias --print-lowered-ir %s 2>&1 | grep omp | filecheck %s
+// UNSUPPORTED: mlir-target=nvgpu
 
 func.func @myfun(
   %A: memref<256x512xf32>,

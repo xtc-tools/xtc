@@ -29,6 +29,7 @@ class MlirConfig:
     vectors_size: int | None = None
     arch: str = "native"
     cpu: str = "native"
+    selected_device: int | None = None
 
     def __post_init__(self):
         object.__setattr__(

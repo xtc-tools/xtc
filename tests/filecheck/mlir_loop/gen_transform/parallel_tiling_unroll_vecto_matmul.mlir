@@ -1,4 +1,5 @@
 // RUN: mlir-loop --no-alias --print-source-ir %s 2>&1 | filecheck %s
+// UNSUPPORTED: mlir-target=nvgpu
 
 func.func @myfun(
   %A: memref<256x512xf32>,
