@@ -289,22 +289,6 @@ class DescriptExtend(Descript):
     ) -> LoopNestExtend:
         recursive_scheds = LoopNestExtend(abstract_dims=self.abstract_axis)
         sched = recursive_scheds.build_slice(root)
-        # sched: SchedDict = {
-        #     "root": root,
-        #     "fusions": {},
-        #     "packs": {},
-        #     "buffers": {},
-        #     "axis_orders": [],
-        #     "axes": {},
-        #     "splits": {},
-        #     "tiles": {a: {} for a in self.abstract_axis},
-        #     "interchange": [],
-        #     "vectorize": [],
-        #     "parallelize": [],
-        #     "unroll": {},
-        #     "variables": [],
-        #     "constraints": [],
-        # }
         # State of the schedule
         if tile_sizes:
             axes_sizes: dict[str, int | str] = tile_sizes
@@ -317,8 +301,6 @@ class DescriptExtend(Descript):
         sizes: dict[str, int | str | None] = {}
         previous_cut: dict[str, int | str | None] = {a: 0 for a in self.abstract_axis}
         interchange: list[str] = head
-        # constraints: list[str] = []
-        # variables: list[str] = []
         # Processing the schedule
         for tree_declaration, tree_val in spec.items():
             assert isinstance(tree_val, dict)
