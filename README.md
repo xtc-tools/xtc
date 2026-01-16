@@ -1,8 +1,8 @@
+![logo.png](logo.png)
+
 # XTC
 
 ## Links
-
-![logo.png](logo.png)
 
 Refer to documentation at https://corse.gitlabpages.inria.fr/XTC
 
