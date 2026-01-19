@@ -31,6 +31,11 @@ class MlirNodeSchedule:
     vectorization: list[str]
     parallelization: list[str]
     unrolling: dict[str, int]
+    memory_mesh: tuple[list[str], list[int]]
+    processor_mesh: tuple[list[str], list[int]]
+    distribution: dict[str, str]
+    distributed_buffers: dict[str, dict]
+    local_buffers: dict[str, list[int]]
 
     def index_of_dim(self, dim: str) -> int:
         return list(self.dims).index(dim)
@@ -86,6 +91,11 @@ class MlirNodeScheduler:
         self.vectorization: list[str] = []
         self.parallelization: list[str] = []
         self.unrolling: dict[str, int] = {}
+        self.memory_mesh: tuple[list[str], list[int]] = ([], [])
+        self.processor_mesh: tuple[list[str], list[int]] = ([], [])
+        self.distribution: dict[str, str] = {}
+        self.distributed_buffers: dict[str, dict] = {}
+        self.local_buffers: dict[str, list[int]] = {}
 
     def mlir_node_schedule(self) -> MlirNodeSchedule:
         if not self.permutation:
@@ -102,6 +112,11 @@ class MlirNodeScheduler:
             vectorization=self.vectorization,
             parallelization=self.parallelization,
             unrolling=self.unrolling,
+            memory_mesh=self.memory_mesh,
+            processor_mesh=self.processor_mesh,
+            distribution=self.distribution,
+            distributed_buffers=self.distributed_buffers,
+            local_buffers=self.local_buffers,
         )
 
     @override
@@ -150,3 +165,44 @@ class MlirNodeScheduler:
     def unroll(self, unrolls: dict[str, int], root: str = DEFAULT_ROOT):
         for dim, ufactor in unrolls.items():
             self.unrolling[f"{root}{ROOT_SEP}{dim}"] = ufactor
+
+    def define_memory_mesh(self, axes: list[str], sizes: list[int]):
+        assert len(axes) == len(sizes)
+        assert len(self.memory_mesh[0]) == 0 and len(self.memory_mesh[1]) == 0, (
+            "Memory mesh has already been defined"
+        )
+        self.memory_mesh = (axes, sizes)
+
+    def define_processor_mesh(self, axes: list[str], sizes: list[int]):
+        assert len(axes) == len(sizes)
+        assert len(self.processor_mesh[0]) == 0 and len(self.processor_mesh[1]) == 0, (
+            "Processor mesh has already been defined"
+        )
+        self.processor_mesh = (axes, sizes)
+
+    def distribute(self, axis: str, processor_axis: str, root: str = DEFAULT_ROOT):
+        axis_key = f"{root}{ROOT_SEP}{axis}"
+        processor_axis_key = f"{root}{ROOT_SEP}{axis}"
+        self.parallelization.append(axis_key)
+        self.distribution[axis_key] = processor_axis_key
+
+    def distributed_buffer_at(
+        self,
+        axis: str,
+        input_idx: int,
+        memory_axes: list[str],
+        root: str = DEFAULT_ROOT,
+    ):
+        axis_key = f"{root}{ROOT_SEP}{axis}"
+        memory_axes_keys = [f"{root}{ROOT_SEP}{ma}" for ma in memory_axes]
+        self.distributed_buffers[axis_key] = {
+            "input_idx": input_idx,
+            "memory_axes": memory_axes_keys,
+        }
+
+    def local_buffer_at(self, axis: str, input_idx: int, root: str = DEFAULT_ROOT):
+        axis_key = f"{root}{ROOT_SEP}{axis}"
+        if axis_key not in self.local_buffers.keys():
+            self.local_buffers[axis_key] = [input_idx]
+        else:
+            self.local_buffers[axis_key].append(input_idx)
