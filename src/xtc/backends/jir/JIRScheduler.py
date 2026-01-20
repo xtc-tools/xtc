@@ -310,5 +310,33 @@ class JIRScheduler(itf.schd.Scheduler):
         # TODO: not implemented for now
         pass
 
+    @override
+    def define_memory_mesh(self, axes: dict[str, int]) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def define_processor_mesh(self, axes: dict[str, int]) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def distribute(
+        self, axis: str, processor_axis: str, root: str = DEFAULT_ROOT
+    ) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def distributed_buffer_at(
+        self,
+        axis: str,
+        input_idx: int,
+        memory_axes: list[str],
+        root: str = DEFAULT_ROOT,
+    ) -> None:
+        # TODO: not implemented for now
+        pass
+
     def get_schedule_str(self) -> str:
         return str(JIRSchedule(scheduler=self))

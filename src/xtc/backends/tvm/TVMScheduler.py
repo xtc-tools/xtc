@@ -438,6 +438,34 @@ class TVMScheduler(itf.schd.Scheduler):
             assert unroll > 0, f"unroll < 1 not supported for axis {axis}"
         self.unrolling = unrolls
 
+    @override
+    def define_memory_mesh(self, axes: dict[str, int]) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def define_processor_mesh(self, axes: dict[str, int]) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def distribute(
+        self, axis: str, processor_axis: str, root: str = DEFAULT_ROOT
+    ) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def distributed_buffer_at(
+        self,
+        axis: str,
+        input_idx: int,
+        memory_axes: list[str],
+        root: str = DEFAULT_ROOT,
+    ) -> None:
+        # TODO: not implemented for now
+        pass
+
     def _get_plain_schedule(self) -> TVMPlainSchedule:
         return TVMPlainSchedule(
             dims=deepcopy(self.dims),

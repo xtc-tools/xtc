@@ -28,6 +28,8 @@ class MlirScheduler(itf.schd.Scheduler):
         from .MlirNodeBackend import MlirNodeBackend
 
         self._backend = backend
+        # MLIR extensions
+        self.mlir_extensions: dict[str, bool] = {}
         if isinstance(backend, MlirGraphBackend):
             if nodes_schedulers is None:
                 if nodes is None:
@@ -79,6 +81,14 @@ class MlirScheduler(itf.schd.Scheduler):
     def backend(self) -> itf.back.Backend:
         return self._backend
 
+    def _require_extension(self, extension: str, weak: bool = False):
+        if (
+            extension in self.mlir_extensions
+            and self.mlir_extensions[extension] == True
+        ):
+            return
+        self.mlir_extensions[extension] = weak
+
     @override
     def schedule(self) -> itf.schd.Schedule:
         from .MlirGraphBackend import MlirGraphBackend
@@ -92,7 +102,11 @@ class MlirScheduler(itf.schd.Scheduler):
         else:
             assert isinstance(self._backend, MlirNodeBackend)
             nodes_schedules = [self._current_scheduler.mlir_node_schedule()]
-        return MlirSchedule(scheduler=self, nodes_schedules=nodes_schedules)
+        return MlirSchedule(
+            scheduler=self,
+            nodes_schedules=nodes_schedules,
+            mlir_extensions=self.mlir_extensions,
+        )
 
     @override
     def set_dims(self, dims: list[str]) -> None:
@@ -129,9 +143,16 @@ class MlirScheduler(itf.schd.Scheduler):
         pad: bool = False,
         root: str = DEFAULT_ROOT,
     ) -> None:
-        assert mtype is None or mtype == "global"
-        # TODO: not implemented for now
-        pass
+        # The current implemntation exclusively rely on SDist, but upstream
+        # transform dialect may be used for some cases.
+        assert mtype is None or mtype == "global" or mtype == "local"
+        if pad:
+            return  # TODO: not implemented for now
+        if mtype is None or mtype == "global":
+            self._require_extension("sdist", weak=True)
+        else:
+            self._require_extension("sdist")
+        self._current_scheduler.pack_at(axis, input_idx, mtype, pad, root=root)
 
     @override
     def vectorize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
@@ -145,13 +166,47 @@ class MlirScheduler(itf.schd.Scheduler):
     def unroll(self, unrolls: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         self._current_scheduler.unroll(unrolls, root=root)
 
+    @override
+    def define_memory_mesh(self, axes: dict[str, int]) -> None:
+        self._require_extension("sdist")
+        self._current_scheduler.define_memory_mesh(axes)
+
+    @override
+    def define_processor_mesh(self, axes: dict[str, int]) -> None:
+        self._require_extension("sdist")
+        self._current_scheduler.define_processor_mesh(axes)
+
+    @override
+    def distribute(
+        self, axis: str, processor_axis: str, root: str = DEFAULT_ROOT
+    ) -> None:
+        self._require_extension("sdist")
+        self._current_scheduler.distribute(axis, processor_axis, root=root)
+
+    @override
+    def distributed_buffer_at(
+        self,
+        axis: str,
+        input_idx: int,
+        memory_axes: list[str],
+        root: str = DEFAULT_ROOT,
+    ) -> None:
+        self._require_extension("sdist")
+        self._current_scheduler.distributed_buffer_at(
+            axis, input_idx, memory_axes, root=root
+        )
+
 
 class MlirSchedule(itf.schd.Schedule):
     def __init__(
-        self, scheduler: MlirScheduler, nodes_schedules: list[MlirNodeSchedule]
+        self,
+        scheduler: MlirScheduler,
+        nodes_schedules: list[MlirNodeSchedule],
+        mlir_extensions: dict[str, bool],
     ) -> None:
         self._scheduler = scheduler
         self._nodes_schedules = nodes_schedules
+        self._mlir_extensions = mlir_extensions
 
     @property
     def schedule_impl(self) -> list[MlirNodeSchedule]:
@@ -161,6 +216,10 @@ class MlirSchedule(itf.schd.Schedule):
     @override
     def scheduler(self) -> itf.schd.Scheduler:
         return self._scheduler
+
+    @property
+    def mlir_extensions(self) -> dict[str, bool]:
+        return self._mlir_extensions
 
     @override
     def __str__(self) -> str:

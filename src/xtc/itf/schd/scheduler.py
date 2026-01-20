@@ -192,3 +192,61 @@ class Scheduler(ABC):
             root: the parent split (or the operator's absolute root)
         """
         ...
+
+    @abstractmethod
+    def define_memory_mesh(self, axes: dict[str, int]) -> None:
+        """Define a memory mesh.
+
+        Args:
+            axes: dictionary where keys are axes names and values are the number of memories along each axis
+        """
+        ...
+
+    @abstractmethod
+    def define_processor_mesh(self, axes: dict[str, int]) -> None:
+        """Define a processor mesh. It must be a superset of the memory mesh.
+
+        Args:
+            axes: dictionary where keys are axes names and values are the number of processors along each axis
+        """
+        ...
+
+    @abstractmethod
+    def distribute(
+        self, axis: str, processor_axis: str, root: str = DEFAULT_ROOT
+    ) -> None:
+        """Distribute computation across processors along a given axis.
+
+        This method distributes the computation of the specified axis across
+        multiple processors or cores. The processor_axis parameter defines
+        the axis that represents the processor dimension for this distribution.
+
+        Args:
+            axis: the axis to distribute across processors
+            processor_axis: the axis representing the processor dimension
+            root: the parent split (or the operator's absolute root)
+        """
+        ...
+
+    @abstractmethod
+    def distributed_buffer_at(
+        self,
+        axis: str,
+        input_idx: int,
+        memory_axes: list[str],
+        root: str = DEFAULT_ROOT,
+    ) -> None:
+        """Create a distributed buffer at a given level across multiple memory axes.
+
+        This method creates a distributed buffer for the given input buffer index
+        at the specified axis level. The buffer is distributed across the provided
+        memory axes, enabling distributed memory management and access patterns
+        for improved performance in distributed computing environments.
+
+        Args:
+            axis: the axis level where the distributed buffer should be created
+            input_idx: input buffer index for the scheduled computation
+            memory_axes: list of memory axes across which to distribute the buffer
+            root: the parent split (or the operator's absolute root)
+        """
+        ...

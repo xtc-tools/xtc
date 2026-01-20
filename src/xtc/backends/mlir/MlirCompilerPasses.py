@@ -8,6 +8,7 @@ from mlir.dialects.transform import (
     NamedSequenceOp,
     structured,
     vector,
+    memref,
     get_parent_op,
 )
 from mlir.dialects.transform.structured import (
@@ -25,6 +26,13 @@ from mlir.ir import (
     OpResult,
 )
 from mlir.passmanager import PassManager
+
+# Import SDist if available
+try:
+    from mlir_sdist.dialects.transform import sdist as sdist_transform
+except ImportError:
+    sdist_transform = None
+    pass
 
 from xtc.utils.ext_tools import transform_opts
 
@@ -177,6 +185,7 @@ class MlirProgramInsertTransformPass:
         assert self._named_sequence is not None
         handle = None
         for schedule in self._nodes_schedules:
+            self._create_sdist_meshes(schedule)
             handle = structured_match(
                 results_=transform.AnyOpType.get(),
                 target=self._named_sequence.bodyTarget,
@@ -193,6 +202,37 @@ class MlirProgramInsertTransformPass:
                 handle = scheduling_state.handle
         assert handle, "At least 1 operation should have been processed"
         return handle
+
+    def _create_sdist_meshes(self, schedule: MlirNodeSchedule) -> None:
+        assert self._named_sequence is not None
+        with (
+            InsertionPoint.at_block_begin(self._named_sequence.body),
+            self._mlir_program.mlir_context,
+            self._loc,
+        ):
+            if len(schedule.memory_mesh) > 0:
+                mesh = [
+                    {axis_name: axis_size}
+                    for axis_name, axis_size in schedule.memory_mesh.items()
+                ]
+                assert sdist_transform is not None
+                sdist_transform.SDistCreateMemoryMeshOp(
+                    self._named_sequence.bodyTarget,
+                    name="memory_mesh",
+                    mesh=mesh,
+                )
+            if len(schedule.processor_mesh) > 0:
+                mesh = [
+                    {axis_name: axis_size}
+                    for axis_name, axis_size in schedule.processor_mesh.items()
+                ]
+                assert sdist_transform is not None
+                sdist_transform.SDistCreateProcessorMeshOp(
+                    self._named_sequence.bodyTarget,
+                    name="processor_mesh",
+                    memory_mesh="memory_mesh",
+                    mesh=mesh,
+                )
 
     def _implement(self) -> None:
         assert self._named_sequence is not None
@@ -250,6 +290,20 @@ class MlirProgramInsertTransformPass:
                     schedule=schedule, root=loop_name, sched_state=sched_state
                 )
                 continue
+
+            # Bufferization
+            if loop_name in schedule.distributed_buffers.keys():
+                self._distribute_buffer(
+                    loop_name=loop_name,
+                    schedule=schedule,
+                    sched_state=sched_state,
+                )
+            if loop_name in schedule.packed_buffers.keys():
+                self._pack_buffer(
+                    loop_name=loop_name,
+                    schedule=schedule,
+                    sched_state=sched_state,
+                )
 
             # Manage the strip-mining
             if loop_name in schedule.vectorization:
@@ -414,6 +468,45 @@ class MlirProgramInsertTransformPass:
                 assert self._named_sequence is not None
                 loop_unroll(
                     sched_state.all_loops[dim_name], schedule.unrolling[dim_name]
+                )
+            if dim_name in schedule.distribution.keys():
+                assert self._named_sequence is not None
+                assert sdist_transform is not None
+                sdist_transform.SDistDistributeLoopOp(
+                    target=sched_state.all_loops[dim_name],
+                    mesh="processor_mesh",
+                    axis=schedule.distribution[dim_name],
+                )
+
+    def _distribute_buffer(
+        self,
+        loop_name: str,
+        schedule: MlirNodeSchedule,
+        sched_state: SchedulingState,
+    ):
+        # TODO multiple buffers
+        assert sdist_transform is not None
+        sdist_transform.SDistDistributeBufferAtOp(
+            target=sched_state.handle,
+            mesh="memory_mesh",
+            input_idx=schedule.distributed_buffers[loop_name]["input_idx"],
+            axes=schedule.distributed_buffers[loop_name]["memory_axes"],
+        )
+
+    def _pack_buffer(
+        self,
+        loop_name: str,
+        schedule: MlirNodeSchedule,
+        sched_state: SchedulingState,
+    ):
+        with InsertionPoint(transform.ApplyPatternsOp(sched_state.handle).patterns):
+            memref.ApplyFoldMemrefAliasOpsPatternsOp()
+        for input_idx in schedule.packed_buffers[loop_name]:
+            if "sdist" in self._mlir_program.mlir_extensions:
+                assert sdist_transform is not None
+                sdist_transform.SDistLocalBufferAtOp(
+                    target=sched_state.handle,
+                    input_idx=input_idx,
                 )
 
 

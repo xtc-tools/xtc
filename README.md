@@ -127,7 +127,11 @@ XTC also supports multiple MLIR Targets for the code generation:
   - llvmir (default)
   - c
 
-To force the use of a specific target, you can set the env variable XTC_MLIR_TARGET=<mlir-target>.
+To force the use of a specific target, you can set the env variable `XTC_MLIR_TARGET=<mlir-target>`.
+
+The MLIR backend can be extended using the SDist extension, which provides distribution primitives.
+To install SDist, follow the instructions in 
+[docs/develop/optional_backends.md](docs/develop/optional_backends.md), in the "MLIR development version" section.
 
 ### Compilation Pipeline
 

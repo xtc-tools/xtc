@@ -23,6 +23,7 @@ class RawMlirProgram:
         self.ctx.emit_error_diagnostics = True  # type: ignore
         self.loc = Location.unknown(self.ctx)
         self.module = Module.parse(source, context=self.ctx)
+        self.mlir_extensions: list[str] = []
 
     @property
     def mlir_context(self):
@@ -35,6 +36,24 @@ class RawMlirProgram:
     @classmethod
     def _diagnostic_handler(cls, diag: Diagnostic) -> bool:
         raise RuntimeError(f"MLIR Error: {diag}")
+
+    def require_extension(self, extension: str, weak: bool = False):
+        if extension in self.mlir_extensions:
+            return
+        # Register the extension
+        if extension == "sdist":
+            try:
+                from mlir_sdist.extras.utils import (
+                    register_dialects as sdist_register_dialects,
+                )
+
+                sdist_register_dialects(self.ctx)
+                self.mlir_extensions.append(extension)
+            except ImportError:
+                if not weak:
+                    raise ImportError("mlir_sdist is not installed but is required")
+        else:
+            raise ValueError(f"Unknown extension: {extension}")
 
 
 class MlirProgram(RawMlirProgram):

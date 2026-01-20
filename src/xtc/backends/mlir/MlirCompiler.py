@@ -122,6 +122,8 @@ class MlirProgramCompiler:
         self._target = target
         self._config = config
         self.dump_file = kwargs.get("dump_file")
+        # Register required Mlir extensions by the schedule
+        self._register_mlir_extensions()
 
     def dump_ir(self, title: str):
         print(f"// -----// {title} //----- //", file=sys.stderr)
@@ -153,6 +155,11 @@ class MlirProgramCompiler:
         os.makedirs(self._config.save_temps_dir, exist_ok=True)
         with open(f"{self._config.save_temps_dir}/{fname}", "w") as outf:
             outf.write(str(content))
+
+    def _register_mlir_extensions(self) -> None:
+        if self._mlir_schedule is not None:
+            for extension, weak in self._mlir_schedule.mlir_extensions.items():
+                self._mlir_program.require_extension(extension, weak=weak)
 
     def compile(self) -> None:
         save_temp = self._save_temp

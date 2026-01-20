@@ -256,10 +256,20 @@ class MlirProgramToStdDialectsPass:
         self._mlir_program = mlir_program
 
     def _lowering_pipeline(self) -> list[str]:
-        return [
+        pipeline = [
             "canonicalize",
             "cse",
             "sccp",
+        ]
+        if "sdist" in self._mlir_program.mlir_extensions:
+            pipeline += [
+                "sdist-lower-distribution",
+                "convert-sdist-to-std",
+                "cse",
+                "canonicalize",
+                "convert-sdist-utils-to-std",
+            ]
+        pipeline += [
             # From complex control to the soup of basic blocks
             "expand-strided-metadata",
             "convert-linalg-to-loops",
@@ -280,6 +290,7 @@ class MlirProgramToStdDialectsPass:
             "cse",
             "sccp",
         ]
+        return pipeline
 
     def run(self) -> None:
         pm = PassManager(context=self._mlir_program.mlir_context)
