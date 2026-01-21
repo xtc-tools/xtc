@@ -23,15 +23,11 @@ descript_extend_scheduler(
     node_name="C",
     abstract_axis=["i", "j", "k"],
     spec={
-        "DDR": {
             "k": {},
             "i": {},
             "j": {},
-        },
-        "R": {
             "i#i_inner": {"unroll": "i_unroll"},
             "j#j_inner": {"vectorize": "j_vectorize"},
-        },
     },
     abstract_axis_sizes=axes_sizes,
     sample={"i_inner": 2, "j_inner": 16, "i_unroll": None, "j_vectorize": None},
