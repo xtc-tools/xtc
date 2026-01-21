@@ -295,24 +295,260 @@ class XTCOperConv2D(XTCOperator):
         return [conv]
 
 
+class _OperPadImpl:
+    def __init__(self, **attrs: XTCOperatorAttr) -> None:
+        padding = attrs.get("padding", 0)
+        constant_value = attrs.get("constant_value", 0)
+        self.padding = padding
+        self.constant_value = constant_value
+
+    def get_operation_variable(
+        self,
+        inps_types: Sequence[XTCTensorType],
+        outs_types: Sequence[XTCTensorType],
+    ) -> tuple[
+        dict[str, int], tuple[str, ...], tuple[tuple[str, ...]], tuple[tuple[str, ...]]
+    ]:
+        inp_shape = inps_types[0].constant_shape
+        size_inp_shape = len(inp_shape)
+        assert size_inp_shape >= 2
+        padding = self.padding
+        dims_names = [f"d{i}" for i in range(len(inp_shape))]
+        dims_values = list(inp_shape)
+        dims_inp = dims_names[:]
+        if isinstance(padding, dict):
+            for axis, (val1, val2) in padding.items():
+                dims_values[axis] += val1 + val2
+                dims_inp[axis] += f"-{val1}"
+        else:
+            pad = sum(padding)
+            dims_values = [value + pad for value in dims_values]
+            dims_inp = [inp + f"-{padding[0]}" for inp in dims_inp]
+        return (
+            {name: value for name, value in zip(dims_names, dims_values)},
+            tuple("P" for _ in inp_shape),
+            (tuple(dims_inp),),
+            (tuple(dims_names),),
+        )
+
+    def forward_types(
+        self, inputs_types: Sequence[TensorType]
+    ) -> Sequence[XTCTensorType]:
+        assert len(inputs_types) == 1
+        assert inputs_types[0].shape is not None
+        size_input_type_0 = len(inputs_types[0].shape)
+        assert size_input_type_0 >= 2
+        shape = cast(XTCTensorType, inputs_types[0]).constant_shape
+        padding = self.padding
+        dims_types = list(shape)
+        if isinstance(padding, dict):
+            for axis, pad in padding.items():
+                assert -size_input_type_0 <= axis and axis < size_input_type_0, (
+                    "axis: {axis} is out of bound should be between {-size_input_type_0} and {size_input_type_0-1"
+                )
+                dims_types[axis] += sum(pad)
+        else:
+            pad = sum(padding)
+            dims_types = [value + pad for value in dims_types]
+        return [
+            XTCTensorType(
+                shape=tuple(dims_types),
+                dtype=inputs_types[0].dtype,
+            ),
+        ]
+
+    def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
+        shape = cast(XTCTensorType, inputs[0].type).constant_shape
+        padding = self.padding
+        data_input = inputs[0].numpy()
+        constant_value = self.constant_value
+        if isinstance(padding, dict):
+            pads = [(0, 0) for _ in range(len(shape))]
+            for axis, pad in padding.items():
+                pads[axis] = pad
+        else:
+            pads = [padding for _ in range(len(shape))]
+        padded = XTCTensor(
+            data=np.pad(
+                data_input, pads, mode="constant", constant_values=constant_value
+            )
+        )
+        expected_type = self.forward_types([inp.type for inp in inputs])[0]
+        assert padded.type == expected_type, (
+            f"output type mismatch expect: {padded.type} != {expected_type}"
+        )
+        return [padded]
+
+
+class XTCOperPad(XTCOperator):
+    def __init__(self, **attrs: XTCOperatorAttr) -> None:
+        padding = attrs.get("padding", 0)
+        constant_value = attrs.get("constant_value", 0)
+        if isinstance(padding, int):
+            padding = (padding, padding)
+        elif (
+            isinstance(padding, (tuple, list))
+            and all(isinstance(pad, int) for pad in padding)
+            and len(padding) == 2
+        ):
+            pass
+        elif isinstance(padding, (tuple, list)):
+            len_pad = len(padding)
+            padding = {
+                -(len_pad - i): (value, value) if isinstance(value, int) else value
+                for i, value in enumerate(padding)
+            }
+        else:
+            assert isinstance(padding, dict), (
+                "padding is either a list of tuple/int or int or a dict"
+            )
+            for key, value in padding.items():
+                if isinstance(value, (int, float)):
+                    padding[key] = (value, value)
+        assert isinstance(constant_value, (int, float)), (
+            f"constant_value need to be a number"
+        )
+        if isinstance(padding, dict):
+            padding = {k: v for k, v in padding.items() if v != (0, 0)}
+        self.impl = _OperPadImpl(padding=padding, constant_value=constant_value)
+        super().__init__("pad", padding=padding, constant_value=constant_value)
+
+    @override
+    def get_operation(
+        self,
+        inps_types: Sequence[XTCTensorType],
+        outs_types: Sequence[XTCTensorType],
+    ) -> XTCOperation:
+        dims, kinds, inps_maps, outs_maps = self.impl.get_operation_variable(
+            inps_types, outs_types
+        )
+        return self._get_operation(
+            inps_types,
+            outs_types,
+            dims=dims,
+            kinds=kinds,
+            inps_maps=inps_maps,
+            outs_maps=outs_maps,
+        )
+
+    @override
+    def forward_types(
+        self, inputs_types: Sequence[TensorType]
+    ) -> Sequence[XTCTensorType]:
+        return self.impl.forward_types(inputs_types)
+
+    @override
+    def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
+        return self.impl.forward(inputs)
+
+
 class XTCOperPad2D(XTCOperator):
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
         padding = attrs.get("padding", (0, 0, 0, 0))
+        constant_value = attrs.get("constant_value", 0)
+        # Axes -3 and -2 are [..., a3, a2, .]
+        axes = attrs.get("axes", (-3, -2))
         if isinstance(padding, int):
-            padding = (padding, padding, padding, padding)
+            padding = {axes[0]: (padding, padding), axes[1]: (padding, padding)}
         else:
             assert isinstance(padding, tuple), (
                 f"padding for pad2d of wrong type, expect int or tuple: {padding}"
             )
             if len(padding) == 1:
-                padding = (padding[0], padding[0], padding[0], padding[0])
-            elif len(padding) == 2:
-                padding = (padding[0], padding[0], padding[1], padding[1])
+                padding = {
+                    axes[0]: (padding[0], padding[0]),
+                    axes[1]: (padding[0], padding[0]),
+                }
+            elif all(isinstance(pad, int) for pad in padding) and len(padding) == 2:
+                padding = {
+                    axes[0]: (padding[0], padding[1]),
+                    axes[1]: (padding[0], padding[1]),
+                }
+            elif (
+                all(isinstance(pad, tuple) and len(pad) == 2 for pad in padding)
+                and len(padding) == 2
+            ):
+                padding = {
+                    axes[0]: padding[0],
+                    axes[1]: padding[1],
+                }
             else:
                 assert len(padding) == 4, (
                     f"padding for pad2d of wrong size, expected 1, 2 or 4: {padding}"
                 )
-        super().__init__("pad2d", padding=padding)
+                padding = {
+                    axes[0]: (padding[0], padding[1]),
+                    axes[1]: (padding[2], padding[3]),
+                }
+        padding = {k: v for k, v in padding.items() if v != (0, 0)}
+        assert len(axes) == 2, f"axes for pad2d of wrong size, expected 2: {axes}"
+        assert axes[0] != axes[1], f"axes need 2 different dimension to pad: {axes}"
+        assert isinstance(constant_value, (int, float)), (
+            f"constant_value need to be a number"
+        )
+        self.impl = _OperPadImpl(padding=padding, constant_value=constant_value)
+        super().__init__("pad2d", padding=padding, constant_value=constant_value)
+
+    @override
+    def get_operation(
+        self,
+        inps_types: Sequence[XTCTensorType],
+        outs_types: Sequence[XTCTensorType],
+    ) -> XTCOperation:
+        dims, kinds, inps_maps, outs_maps = self.impl.get_operation_variable(
+            inps_types, outs_types
+        )
+        return self._get_operation(
+            inps_types,
+            outs_types,
+            dims=dims,
+            kinds=kinds,
+            inps_maps=inps_maps,
+            outs_maps=outs_maps,
+        )
+
+    @override
+    def forward_types(
+        self, inputs_types: Sequence[TensorType]
+    ) -> Sequence[XTCTensorType]:
+        return self.impl.forward_types(inputs_types)
+
+    @override
+    def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
+        return self.impl.forward(inputs)
+
+
+class XTCOperUnpad(XTCOperator):
+    def __init__(self, **attrs: XTCOperatorAttr) -> None:
+        padding = attrs.get("padding", 0)
+        constant_value = attrs.get("constant_value", 0)
+        if isinstance(padding, int):
+            padding = (padding, padding)
+        elif (
+            isinstance(padding, (tuple, list))
+            and all(isinstance(pad, int) for pad in padding)
+            and len(padding) == 2
+        ):
+            pass
+        elif isinstance(padding, (tuple, list)):
+            len_pad = len(padding)
+            padding = {
+                -(len_pad - i): (value, value) if isinstance(value, int) else value
+                for i, value in enumerate(padding)
+            }
+        else:
+            assert isinstance(padding, dict), (
+                "padding is either a list of tuple/int or int or a dict"
+            )
+            for key, value in padding.items():
+                if isinstance(value, (int, float)):
+                    padding[key] = (value, value)
+        assert isinstance(constant_value, (int, float)), (
+            f"constant_value need to be a number"
+        )
+        if isinstance(padding, dict):
+            padding = {k: v for k, v in padding.items() if v != (0, 0)}
+        super().__init__("unpad", padding=padding)
 
     @override
     def get_operation(
@@ -321,59 +557,77 @@ class XTCOperPad2D(XTCOperator):
         outs_types: Sequence[XTCTensorType],
     ) -> XTCOperation:
         inp_shape = inps_types[0].constant_shape
-        assert len(inp_shape) >= 3
+        size_inp_shape = len(inp_shape)
+        assert size_inp_shape >= 2
         padding = self.attrs.padding
-        b = functools.reduce(operator.mul, inp_shape[:-3], 1)
-        oh, ow, c = (
-            inp_shape[-3] + padding[0] + padding[1],
-            inp_shape[-2] + padding[2] + padding[3],
-            inp_shape[-1],
-        )
+        dims_names = [f"d{i}" for i in range(len(inp_shape))]
+        dims_values = list(inp_shape)
+        dims_inp = dims_names[:]
+        if isinstance(padding, dict):
+            for axis, (val1, val2) in padding.items():
+                dims_values[axis] -= val1 + val2
+                dims_inp[axis] += f"+{val1}"
+        else:
+            pad = sum(padding)
+            dims_values = [value - pad for value in dims_values]
+            dims_inp = [inp + f"+{padding[0]}" for inp in dims_inp]
         return self._get_operation(
             inps_types,
             outs_types,
-            dims={"b": b, "h": oh, "w": ow, "c": c},
-            kinds=("P", "P", "P", "P"),
-            inps_maps=(("b", f"h-{padding[0]}", f"w-{padding[2]}", "c"),),
-            outs_maps=(("b", "h", "w", "c"),),
+            dims={name: value for name, value in zip(dims_names, dims_values)},
+            kinds=tuple("P" for _ in inp_shape),
+            inps_maps=(tuple(dims_inp),),
+            outs_maps=(tuple(dims_names),),
         )
 
     @override
     def forward_types(
         self, inputs_types: Sequence[TensorType]
     ) -> Sequence[XTCTensorType]:
-        # TODO: assume NHWC input
         assert len(inputs_types) == 1
         assert inputs_types[0].shape is not None
-        assert len(inputs_types[0].shape) >= 3
+        size_input_type_0 = len(inputs_types[0].shape)
+        assert size_input_type_0 >= 2
         shape = cast(XTCTensorType, inputs_types[0]).constant_shape
         padding = self.attrs.padding
+        dims_types = list(shape)
+        if isinstance(padding, dict):
+            for axis, pad in padding.items():
+                assert -size_input_type_0 <= axis and axis < size_input_type_0, (
+                    "axis: {axis} is out of bound should be between {-size_input_type_0} and {size_input_type_0-1"
+                )
+                dims_types[axis] -= sum(pad)
+        else:
+            pad = sum(padding)
+            dims_types = [value - pad for value in dims_types]
         return [
             XTCTensorType(
-                shape=tuple(
-                    [
-                        *shape[:-3],
-                        shape[-3] + padding[0] + padding[1],
-                        shape[-2] + padding[2] + padding[3],
-                        shape[-1],
-                    ]
-                ),
+                shape=tuple(dims_types),
                 dtype=inputs_types[0].dtype,
             ),
         ]
 
     @override
     def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
-        shape = cast(XTCTensorType, inputs[0].type).constant_shape
         padding = self.attrs.padding
-        pad_2d = [(padding[0], padding[1]), (padding[2], padding[3])]
-        pads = [(0, 0) for _ in range(len(shape) - 3)] + pad_2d + [(0, 0)]
-        padded = XTCTensor(data=np.pad(inputs[0].numpy(), pads))
+        data_input = inputs[0].numpy()
+        data_shape = data_input.shape
+        if isinstance(padding, dict):
+            slices = [slice(None)] * data_input.ndim
+            for axis, pad in padding.items():
+                slices[axis] = slice(pad[0], data_shape[axis] - pad[1])
+        else:
+            slices = [
+                slice(padding[0], data_shape[i] - padding[1])
+                for i in range(len(data_shape))
+            ]
+
+        unpadded = XTCTensor(data=data_input[tuple(slices)])
         expected_type = self.forward_types([inp.type for inp in inputs])[0]
-        assert padded.type == expected_type, (
-            f"output type mismatch expect: {padded.type} != {expected_type}"
+        assert unpadded.type == expected_type, (
+            f"output type mismatch expect: {unpadded.type} != {expected_type}"
         )
-        return [padded]
+        return [unpadded]
 
 
 class XTCOperReshape(XTCOperator):

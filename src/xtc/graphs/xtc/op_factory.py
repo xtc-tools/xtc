@@ -13,6 +13,8 @@ from .expr import (
     XTCReluExpr,
     XTCConv2DExpr,
     XTCPad2DExpr,
+    XTCUnpadExpr,
+    XTCPadExpr,
     XTCReshapeExpr,
     XTCTransposeExpr,
 )
@@ -21,6 +23,8 @@ __all__ = [
     "matmul",
     "conv2d",
     "pad2d",
+    "unpad",
+    "pad",
     "relu",
     "reshape",
     "transpose",
@@ -50,6 +54,20 @@ def conv2d(
 def pad2d(inp: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
     return XTCGraphContext.append(
         XTCPad2DExpr(inp, **attrs),
+        name=name,
+    )
+
+
+def unpad(inp: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
+    return XTCGraphContext.append(
+        XTCUnpadExpr(inp, **attrs),
+        name=name,
+    )
+
+
+def pad(inp: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
+    return XTCGraphContext.append(
+        XTCPadExpr(inp, **attrs),
         name=name,
     )
 

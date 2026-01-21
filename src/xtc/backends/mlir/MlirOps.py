@@ -470,6 +470,220 @@ class MlirOperatorRelu(MlirOperator):
         return (dtype,)
 
 
+class MlirOperatorPad(MlirOperator):
+    DEFAULT_NAME = "pad"
+    AXES = "ijklmnopqrstuvwxyz"
+    KINDS = "PPPPPPPPPPPPPPPPPP"
+
+    @override
+    def dims(self, kind: str = "") -> tuple[str, ...]:
+        return self._dims(kind)
+
+    @override
+    def dims_sizes(self) -> dict[str, int]:
+        assert len(self.args[:-1]) <= len(self.AXES)
+        return {name: size for name, size in zip(self.AXES, self.args[:-1])}
+
+    @override
+    def generate_op(
+        self, block: Block | None = None, args: Sequence[BlockArgument] = []
+    ) -> tuple[Block, OpAttrs]:
+        dtype = self.args[-1]
+        dims_value = list(self.args[:-1])
+        padding = self.attrs["padding"]
+        constant_value = self.attrs["constant_value"]
+        if isinstance(padding, dict):
+            dims_value_before_pad = list(dims_value)
+            for i, pad_value in padding.items():
+                dims_value_before_pad[i] -= sum(pad_value)
+        else:
+            dims_value_before_pad = [
+                dim_value - sum(padding) for dim_value in dims_value
+            ]
+        elt_type = {"float32": f32, "float64": f64}[dtype]
+        elt_size = {"float32": 32, "float64": 64}[dtype]
+        if block is None:
+            ops_types = [
+                MemRefType(elt_type, shape)
+                for shape in [dims_value_before_pad, dims_value]
+            ]
+            block = Block(arg_types=ops_types)
+            args = block.args
+        assert len(args) == 2
+        assert all(isinstance(arg.type, MemRefType) for arg in args)
+        if isinstance(padding, dict):
+            offsets = [0 for _ in self.args[:-1]]
+            for i, (pad_b, pad_a) in padding.items():
+                offsets[i] = pad_b
+        else:
+            offsets = [padding[0] for _ in self.args[:-1]]
+        sizes = list(dims_value_before_pad)
+        strides = [1 for _ in self.args[:-1]]
+        with ImplicitBuilder(block):
+            cst0 = arith.ConstantOp(builtin.FloatAttr(constant_value, elt_size))
+            fill = linalg.FillOp(
+                res=(),
+                inputs=(cst0.results[0],),
+                outputs=(args[1],),
+            )
+            subview = memref.SubviewOp.from_static_parameters(
+                source=args[1],
+                source_type=args[1].type,  # type: ignore
+                offsets=offsets,
+                sizes=sizes,
+                strides=strides,
+            )
+            copy = linalg.CopyOp(
+                inputs=[args[0]],
+                outputs=[subview.result],
+                res=(),
+            )
+        fill_node_id = f"{self.name}_0"
+        fill.attributes[f"__xtc_id_{fill_node_id}_"] = UnitAttr()
+        copy_node_id = f"{self.name}"
+        copy.attributes[f"__xtc_id_{copy_node_id}_"] = UnitAttr()
+        attrs = {
+            "nodes_map": {
+                fill_node_id: fill,
+                copy_node_id: copy,
+            },
+            "dims_sizes": [
+                self.dims_sizes(),
+                self.dims_sizes(),
+            ],
+        }
+        return block, attrs
+
+    @override
+    def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        padding = self.attrs["padding"]
+        dims_value = list(self.args[:-1])
+        if isinstance(padding, dict):
+            for i, pad_value in padding.items():
+                dims_value[i] -= sum(pad_value)
+        else:
+            dims_value = [value - sum(padding) for value in dims_value]
+        return (tuple(dims_value),)
+
+    @override
+    def inputs_types(self) -> tuple[str, ...]:
+        dtype = self.args[-1]
+        return (dtype,)
+
+    @override
+    def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        return (tuple(self.args[:-1]),)
+
+    @override
+    def outputs_types(self) -> tuple[str, ...]:
+        dtype = self.args[-1]
+        return (dtype,)
+
+
+class MlirOperatorPad2D(MlirOperatorPad):
+    DEFAULT_NAME = "pad2d"
+    AXES = "bhwc"
+    KINDS = "PPPP"
+
+
+class MlirOperatorUnpad(MlirOperator):
+    DEFAULT_NAME = "unpad"
+    AXES = "ijklmnopqrstuvwxyz"
+    KINDS = "PPPPPPPPPPPPPPPPPP"
+
+    @override
+    def dims(self, kind: str = "") -> tuple[str, ...]:
+        return self._dims(kind)
+
+    @override
+    def dims_sizes(self) -> dict[str, int]:
+        assert len(self.args[:-1]) <= len(self.AXES)
+        return {name: size for name, size in zip(self.AXES, self.args[:-1])}
+
+    @override
+    def generate_op(
+        self, block: Block | None = None, args: Sequence[BlockArgument] = []
+    ) -> tuple[Block, OpAttrs]:
+        dtype = self.args[-1]
+        dims_values = list(self.args[:-1])
+        padding = self.attrs["padding"]
+        if isinstance(padding, dict):
+            dims_values_before_unpad = list(dims_values)
+            for i, pad_value in padding.items():
+                dims_values_before_unpad[i] += sum(pad_value)
+        else:
+            dims_values_before_unpad = [
+                dim_value + sum(padding) for dim_value in dims_values
+            ]
+        elt_type = {"float32": f32, "float64": f64}[dtype]
+        if block is None:
+            ops_types = [
+                MemRefType(elt_type, shape)
+                for shape in [dims_values_before_unpad, dims_values]
+            ]
+            block = Block(arg_types=ops_types)
+            args = block.args
+        assert len(args) == 2
+        assert all(isinstance(arg.type, MemRefType) for arg in args)
+        if isinstance(padding, dict):
+            offsets = [0 for _ in self.args[:-1]]
+            for i, (pad_b, _) in padding.items():
+                offsets[i] = pad_b
+        else:
+            offsets = [padding[0] for _ in self.args[:-1]]
+        sizes = dims_values
+        strides = [1 for _ in self.args[:-1]]
+        with ImplicitBuilder(block):
+            subview = memref.SubviewOp.from_static_parameters(
+                source=args[0],
+                source_type=args[0].type,  # type: ignore
+                offsets=offsets,
+                sizes=sizes,
+                strides=strides,
+            )
+            copy = linalg.CopyOp(
+                inputs=[subview.result],
+                outputs=[args[1]],
+                res=(),
+            )
+        copy_node_id = f"{self.name}"
+        copy.attributes[f"__xtc_id_{copy_node_id}_"] = UnitAttr()
+        attrs = {
+            "nodes_map": {
+                copy_node_id: copy,
+            },
+            "dims_sizes": [
+                self.dims_sizes(),
+            ],
+        }
+        return block, attrs
+
+    @override
+    def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        padding = self.attrs["padding"]
+        inp_dims = list(self.args[:-1])
+        if isinstance(padding, dict):
+            for axis, (pad_b, pad_a) in padding.items():
+                inp_dims[axis] += pad_b + pad_a
+        else:
+            inp_dims = [inp_dim + sum(padding) for inp_dim in inp_dims]
+        return (tuple(inp_dims),)
+
+    @override
+    def inputs_types(self) -> tuple[str, ...]:
+        dtype = self.args[-1]
+        return (dtype,)
+
+    @override
+    def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        return (self.args[:-1],)
+
+    @override
+    def outputs_types(self) -> tuple[str, ...]:
+        dtype = self.args[-1]
+        return (dtype,)
+
+
 class MlirOperators:
     @classmethod
     def from_name(cls, name: str) -> Type[MlirOperator]:
@@ -479,3 +693,6 @@ class MlirOperators:
     matmul = MlirOperatorMatmul
     conv2d = MlirOperatorConv2D
     relu = MlirOperatorRelu
+    pad2d = MlirOperatorPad2D
+    unpad = MlirOperatorUnpad
+    pad = MlirOperatorPad
