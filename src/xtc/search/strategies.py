@@ -20,7 +20,7 @@ from xtc.itf.graph import Graph
 from xtc.itf.schd import Scheduler
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
 from xtc.itf.search import Sample, Strategy
-from xtc.schedules.descript_extend import DescriptExtend
+from xtc.schedules.descript_extend import DescriptExtend, LoopNestSliceExtend
 from xtc.utils.math import (
     factors_to_sizes,
     factors_enumeration,
@@ -953,7 +953,7 @@ class Strategy_Descript(Strategy):
     def __init__(
         self,
         graph: Graph,
-        spec: dict[str, dict] | str,
+        spec: dict[str, dict[str, Any]] | str,
         constraints: list[str] = [],
         partial_tiles: bool = False,
         partial_unrolls: bool = False,
@@ -964,6 +964,7 @@ class Strategy_Descript(Strategy):
         self._stats: dict[str, int] = {}
         self._axes = list(self._op.dims)
         self._sizes = self._constant_sizes()
+        self._sample_names: list[str] = []
         descript = DescriptExtend(
             abstract_axis=self._axes,
             abstract_axis_sizes=dict(self._sizes),
@@ -973,26 +974,19 @@ class Strategy_Descript(Strategy):
         )
         self._descript = descript
         self._initialized = False
-        input_constraints = constraints
-        self._flat_schedules, self._sample_names, constraints, axes, orders = (
-            descript.flatten_schedule(node_name=DEFAULT_ROOT, spec=spec)
-        )
+        loop_nest = descript.loop_nest(node_name=DEFAULT_ROOT, spec=spec)
+        self._loop_nest = loop_nest
+        input_constraints: list[str] = []
+        for slice in loop_nest.slices:
+            assert isinstance(slice, LoopNestSliceExtend)
+            input_constraints += slice.constraints
+            self._sample_names += slice.variables
         for a, v in self._sizes.items():
             for i, s in enumerate(constraints):
                 assert isinstance(s, str)
                 constraints[i] = s.replace(f"[{a}]", str(v))
-        self._axes_names = {}
-        for a, v in axes.items():
-            self._axes_names[a] = v
         self._orders: dict[str, list] = {}
-        order_constraints: list[str] = []
-        for a, v in orders.items():
-            assert isinstance(v, dict)
-            permutation = list(itertools.permutations(v))
-            a_holder = f"order_{a}"
-            self._orders[a_holder] = permutation
-            order_constraints.append(f"{a_holder} in {set(range(len(permutation)))}")
-        self._constraints = constraints + input_constraints + order_constraints
+        self._constraints = constraints + input_constraints
         self._constraints.sort()
         if initialize:
             self._initialize()
@@ -1025,15 +1019,13 @@ class Strategy_Descript(Strategy):
     @override
     def generate(self, scheduler: Scheduler, sample: Sample) -> None:
         descript = self._descript
-        flat_schedules = self._flat_schedules
-        for a, p in self._orders.items():
-            if a in sample:
-                if isinstance(sample[a], int):
-                    sample[a] = p[sample[a]]
-        flat_schedules = descript.apply_sample(
-            flat_schedules=flat_schedules, sample=sample
+        # for a, p in self._orders.items():
+        #     if a in sample:
+        #         if isinstance(sample[a], int):
+        #             sample[a] = p[sample[a]]
+        descript.apply_sample(
+            loop_nest=self._loop_nest, scheduler=scheduler, sample=sample
         )
-        descript.apply_scheduler(flat_schedules, scheduler)
 
     @override
     def sample(self, num: int, seed: int | None = 0) -> Iterator[Sample]:

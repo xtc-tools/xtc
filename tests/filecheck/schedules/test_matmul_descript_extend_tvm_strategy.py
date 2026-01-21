@@ -21,15 +21,11 @@ impl = Backend(graph, always_vectorize=False, no_alias=True)
 sch = impl.get_scheduler()
 
 spec = {
-    "DDR": {
         "k": {},
         "i": {},
         "j": {},
-    },
-    "R": {
         "i#i_inner": {"unroll": "i_unroll"},
         "j#j_inner": {"vectorize": "j_vectorize"},
-    },
 }
 
 sample = {"i_inner": 2, "j_inner": 16, "i_unroll": 2, "j_vectorize": None, "order_R": ["j", "i"]}
@@ -80,9 +76,9 @@ print(f"CODE: {res}")
 #CHECK-NEXT:O = obj['C']
 #CHECK-NEXT:i, j, = O.op.axis
 #CHECK-NEXT:k, = O.op.reduce_axis
-#CHECK-NEXT:j, j0 = sch[O].split(j, factor=16)
 #CHECK-NEXT:i, i0 = sch[O].split(i, factor=2)
-#CHECK-NEXT:sch[O].reorder(k, i, j, j0, i0)
+#CHECK-NEXT:j, j0 = sch[O].split(j, factor=16)
+#CHECK-NEXT:sch[O].reorder(k, i, j, i0, j0)
 #CHECK-NEXT:sch[O].unroll(i0)
 #CHECK-NEXT:sch[O].vectorize(j0)
 #CHECK-EMPTY:
