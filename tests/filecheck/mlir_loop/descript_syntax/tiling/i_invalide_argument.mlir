@@ -15,4 +15,5 @@ func.func @matmul(%A: memref<256x512xf64>, %B: memref<512x256xf64>, %C: memref<2
 	outs(%C: memref<256x256xf64>)
 	return
 }
-// CHECK: `j#a`: a is not an integer.
+// CHECK: xtc.schedules.descript.ScheduleInterpretError: `j#a`: a is not an integer.
+

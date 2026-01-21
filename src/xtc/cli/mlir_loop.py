@@ -182,11 +182,13 @@ def normalize_extend_schedule(
                         assert isinstance(instr, str)
                         if isinstance(param, builtin.UnitAttr):
                             annotations[instr] = None
-                        elif isinstance(param, builtin.IntegerAttr):
+                        elif isinstance(param, builtin.IntegerAttr) or isinstance(
+                            param, builtin.StringAttr
+                        ):
                             annotations[instr] = param.value.data
                         else:
                             raise Exception(
-                                "Annotation parameter should be void or int."
+                                "Annotation parameter should be void, int, or str."
                             )
 
                 elif not isinstance(val, builtin.UnitAttr):

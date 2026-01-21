@@ -41,10 +41,12 @@ class Annotations:
         parallelize: True if parallelization was requested.
     """
 
-    unroll_factor: int | None = None
+    unroll_factor: int | str | None = None
     unroll_specified: bool = False
-    vectorize: bool = False
-    parallelize: bool = False
+    vectorize: bool | str = False
+    parallelize: bool | str = False
+    partial: bool = False
+    full: bool = False
 
 
 @dataclass(frozen=True)
@@ -52,12 +54,15 @@ class SplitDecl:
     """AST Type: a split declaration like 'axis[start:end]'."""
 
     axis: str
-    start: int | None
-    end: int | None
+    start: int | str | None
+    end: int | str | None
     body: ScheduleSpec
+    size: int | str | None = None
 
     @override
     def __str__(self) -> str:
+        if self.size is not None:
+            return f"{self.axis}[:{self.size}:]"
         start_str = "" if self.start is None else str(self.start)
         end_str = "" if self.end is None else str(self.end)
         decl = f"{self.axis}[{start_str}:{end_str}]"
@@ -69,7 +74,7 @@ class TileDecl:
     """AST Type: a tile declaration like 'axis#size'."""
 
     axis: str
-    size: int
+    size: int | str
     annotations: Annotations
 
     @override
@@ -85,7 +90,36 @@ class AxisDecl:
     annotations: Annotations
 
 
-ScheduleItem = SplitDecl | TileDecl | AxisDecl
+@dataclass(frozen=True)
+class FusionDecl:
+    """AST Type: a fusion declaration"""
+
+
+@dataclass(frozen=True)
+class PackDecl:
+    """AST Type: a packing declaration"""
+
+    param: str | bool
+    input: str
+    pad: str | bool
+
+
+@dataclass(frozen=True)
+class BufferDecl:
+    """AST Type: a bufferisation declaration"""
+
+    param: str | bool
+    pad: str
+
+
+@dataclass(frozen=True)
+class ExploreDecl:
+    level: str
+
+
+ScheduleItem = (
+    SplitDecl | TileDecl | AxisDecl | FusionDecl | PackDecl | BufferDecl | ExploreDecl
+)
 
 
 @dataclass(frozen=True)
@@ -144,10 +178,12 @@ class ScheduleParser:
 
         axis_name, size_str = parts
 
-        try:
-            size = int(size_str)
-        except ValueError:
-            raise ScheduleParseError(f"`{declaration}`: {size_str} is not an integer.")
+        size = int(size_str) if size_str.isnumeric() else size_str
+
+        # try:
+        #     size = int(size_str)
+        # except ValueError:
+        #     raise ScheduleParseError(f"`{declaration}`: {size_str} is not an integer.")
 
         annotations = self._parse_annotations(value, declaration)
         return TileDecl(axis=axis_name, size=size, annotations=annotations)
@@ -234,8 +270,8 @@ class ScheduleInterpreter:
         slice = loop_nest.build_slice(root)
 
         # Track state during interpretation
-        sizes: dict[str, int] = {}
-        previous_cut: dict[str, int | None] = {a: 0 for a in self.abstract_axis}
+        sizes: dict[str, int | str] = {}
+        previous_cut: dict[str, int | str | None] = {a: 0 for a in self.abstract_axis}
         interchange: list[str] = list(head)
 
         for item in spec.items:
@@ -267,7 +303,7 @@ class ScheduleInterpreter:
         loop_nest: LoopNest,
         root: str,
         interchange: list[str],
-        previous_cut: dict[str, int | None],
+        previous_cut: dict[str, int | str | None],
     ) -> None:
         """Interpret a split declaration."""
         axis_name = item.axis
@@ -283,10 +319,8 @@ class ScheduleInterpreter:
         # it is the previous cut
         if x is None:
             x = cut
-        assert x is not None
-
         self._check_splitting_intervals(item, cut, x)
-
+        assert x is not None
         # Update the previous cut
         previous_cut[axis_name] = y
 
@@ -308,12 +342,15 @@ class ScheduleInterpreter:
         item: TileDecl,
         slice: LoopNestSlice,
         interchange: list[str],
-        sizes: dict[str, int],
+        sizes: dict[str, int | str],
     ) -> str:
         """Interpret a tile declaration. Returns the loop name."""
         self._check_axis_existence(item.axis)
         tile_num = len(slice.tiles[item.axis])
         loop_name = f"{item.axis}{tile_num}"
+        if not isinstance(item.size, int):
+            raise ScheduleInterpretError(f"`{item}`: {item.size} is not an integer.")
+        assert isinstance(item.size, int)
         if item.size <= 0:
             raise ScheduleInterpretError(
                 f"`{item}`: tile sizes should be strictly positive."
@@ -354,7 +391,7 @@ class ScheduleInterpreter:
         self,
         annotations: Annotations,
         loop_name: str,
-        sizes: dict[str, int],
+        sizes: dict[str, int | str],
         slice: LoopNestSlice,
     ) -> None:
         """Apply annotations to a loop in the slice."""
@@ -367,7 +404,7 @@ class ScheduleInterpreter:
                         f"{loop_name}'s size being unknown, an unroll factor is needed."
                     )
                 unroll_factor = sizes[loop_name]
-            elif unroll_factor <= 0:
+            elif isinstance(unroll_factor, int) and unroll_factor <= 0:
                 raise ScheduleInterpretError(
                     f'`{{"unroll" = {unroll_factor}}}`: unroll parameter should be strictly positive.'
                 )
@@ -382,27 +419,46 @@ class ScheduleInterpreter:
     def _check_splitting_intervals(
         self,
         item: SplitDecl,
-        cut: int | None,
-        x: int,
-    ) -> None:
+        cut: int | str | None,
+        x: int | str | None,
+    ) -> int | str | None:
         """Check that split intervals are valid and contiguous."""
-
+        y = item.end
         if cut is None:
             raise ScheduleInterpretError(f"{item}: {item.axis} already covered.")
 
-        if x > cut:
+        if x is None:
             raise ScheduleInterpretError(
-                f"{item}: splitting doesn't fully cover {item.axis} (jumps from {cut} to {x})."
+                f"x is None, but cut: {cut} is not, this should be unreachable."
             )
-        elif x < cut:
-            raise ScheduleInterpretError(
-                f"{item}: the segment begins at {x} but the previous one ends at {cut}."
-            )
+        if isinstance(x, int) and isinstance(cut, int):
+            if x > cut:
+                raise ScheduleInterpretError(
+                    f"{item}: splitting doesn't fully cover {item.axis} (jumps from {cut} to {x})."
+                )
+            elif x < cut:
+                raise ScheduleInterpretError(
+                    f"{item}: the segment begins at {x} but the previous one ends at {cut}."
+                )
+        else:
+            if x != cut:
+                raise ScheduleInterpretError(
+                    f"{item}: Splitting ends at {cut} and begins at {x}. These need to be the same."
+                )
+        if y is None:
+            return None
 
-        if item.end is not None and x >= item.end:
-            raise ScheduleInterpretError(
-                f"{item}: the ending point should be greater than the starting point."
-            )
+        if isinstance(x, int):
+            if isinstance(y, int):
+                if x >= y:
+                    raise ScheduleInterpretError(
+                        f"{item}: the ending point should be greater than the starting point."
+                    )
+                else:
+                    return y - x
+            if x == 0:
+                return y
+        return None
 
 
 @dataclass
@@ -505,6 +561,34 @@ class LoopNestSlice:
                 assert isinstance(size, int)
                 tiles_to_sizes[loop] = size
         return tiles_to_sizes
+
+    @property
+    def int_tiles(self) -> dict[str, dict[str, int]]:
+        return self._int_dict(self.tiles)
+
+    @property
+    def int_splits(self) -> dict[str, dict[str, int]]:
+        return self._int_dict(self.splits)
+
+    @property
+    def int_unroll(self) -> dict[str, int]:
+        out = {}
+        for x, v in self.unroll.items():
+            if isinstance(v, str) and v.isnumeric():
+                v = int(v)
+            assert isinstance(v, int)
+            out[x] = v
+        return out
+
+    def _int_dict(self, input: dict[str, dict[str, Any]]) -> dict[str, dict[str, int]]:
+        out: dict[str, dict[str, int]] = {}
+        for x, v in input.items():
+            v_dict: dict[str, int] = {}
+            for x_v, v_v in v.items():
+                assert isinstance(v_v, int)
+                v_dict[x_v] = v_v
+            out[x] = v_dict
+        return out
 
 
 @dataclass
@@ -616,6 +700,7 @@ class LoopNest:
 
                 if loop_name in sched.unroll:
                     unroll_factor = sched.unroll[loop_name]
+                    assert isinstance(unroll_factor, int)
                     if loop_size and loop_size < unroll_factor:
                         raise ScheduleValidationError(
                             f'`{{"unroll" = {unroll_factor}}}`: unroll factor should be smaller than {loop_size}.'
@@ -650,19 +735,11 @@ def descript_scheduler(
         abstract_axis: The list of abstract axis names (e.g., ["m", "n", "k"]).
         spec: The schedule specification as a nested dict.
     """
-    descript = Descript(scheduler=scheduler, abstract_axis=abstract_axis)
-    descript.apply(node_name=node_name, spec=spec)
+    descript = Descript(abstract_axis=abstract_axis)
+    descript.apply(scheduler=scheduler, node_name=node_name, spec=spec)
 
 
-def correct_type(d: dict[str, int | str]) -> dict[str, int]:
-    out_d: dict[str, int] = {}
-    for k, v in d.items():
-        assert isinstance(v, int)
-        out_d[k] = v
-    return out_d
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class Descript:
     """Applies a parsed and interpreted schedule to a Scheduler.
 
@@ -674,10 +751,11 @@ class Descript:
     4. Apply: LoopNest -> Scheduler
     """
 
-    scheduler: Scheduler
     abstract_axis: list[str]
 
-    def apply(self, node_name: str, spec: dict[str, dict[str, Any]]) -> None:
+    def apply(
+        self, node_name: str, spec: dict[str, dict[str, Any]], scheduler: Scheduler
+    ) -> None:
         """Parse, interpret, validate, and apply a schedule specification.
 
         Args:
@@ -701,22 +779,22 @@ class Descript:
         loop_nest.check()
 
         # Apply the schedule to the scheduler
-        self._apply_loop_nest(loop_nest)
+        self._apply_loop_nest(loop_nest, scheduler)
 
-    def _apply_loop_nest(self, loop_nest: LoopNest) -> None:
+    def _apply_loop_nest(self, loop_nest: LoopNest, scheduler: Scheduler) -> None:
         """Apply a LoopNest to the scheduler."""
-        self.scheduler.set_dims(self.abstract_axis)
+        scheduler.set_dims(self.abstract_axis)
 
         for slice in loop_nest.slices:
             root = slice.root
 
-            for d, s in slice.splits.items():
-                self.scheduler.split(d, s, root=root)
+            for d, s in slice.int_splits.items():
+                scheduler.split(d, s, root=root)
 
-            for d, s in slice.tiles.items():
-                self.scheduler.tile(d, s, root=root)
+            for d, s in slice.int_tiles.items():
+                scheduler.tile(d, s, root=root)
 
-            self.scheduler.interchange(slice.interchange, root=root)
-            self.scheduler.vectorize(slice.vectorize, root=root)
-            self.scheduler.parallelize(slice.parallelize, root=root)
-            self.scheduler.unroll(slice.unroll, root=root)
+            scheduler.interchange(slice.interchange, root=root)
+            scheduler.vectorize(slice.vectorize, root=root)
+            scheduler.parallelize(slice.parallelize, root=root)
+            scheduler.unroll(slice.int_unroll, root=root)

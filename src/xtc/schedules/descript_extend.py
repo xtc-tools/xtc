@@ -2,16 +2,34 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import Any, Tuple
+from typing import Any
 from copy import deepcopy
 from dataclasses import dataclass, field
 import re
+
 import strictyaml
 from typing_extensions import override
 
 from xtc.itf.schd.scheduler import Scheduler
 
-from xtc.schedules.descript import Descript, LoopNest, LoopNestSlice, correct_type
+from xtc.schedules.descript import (
+    Annotations,
+    AxisDecl,
+    BufferDecl,
+    Descript,
+    FusionDecl,
+    LoopNest,
+    LoopNestSlice,
+    PackDecl,
+    ScheduleInterpretError,
+    ScheduleInterpreter,
+    ScheduleItem,
+    ScheduleParseError,
+    ScheduleParser,
+    ScheduleSpec,
+    SplitDecl,
+    TileDecl,
+)
 
 
 @dataclass
@@ -121,38 +139,542 @@ def descript_extend_scheduler(
         partial_tiles=partial_tiles,
         partial_unrolls=partial_unrolls,
     )
-    descript.apply(node_name=node_name, spec=spec, scheduler=scheduler, sample=sample)
+    descript.apply(node_name=node_name, spec=spec, sample=sample, scheduler=scheduler)
 
 
-@dataclass(frozen=True)
+class ScheduleParserExtend(ScheduleParser):
+    _SPLIT_PATTERN = re.compile(r"^(.*)\[(-\w+|\w*)?:(-\w+|\w*)?\]$")
+    _SPLIT_MIDDLE_PATTERN = re.compile(r"^(.*)\[:(\w*):\]$")
+
+    @override
+    def __init__(self, abstract_axis: list[str], abstract_matrix: list[str]):
+        self.abstract_matrix = abstract_matrix
+        super().__init__(abstract_axis)
+
+    @override
+    def _parse_declaration(self, declaration: str, value: Any) -> ScheduleItem:
+        if "fusion" == declaration:
+            return self._parse_fusion()
+        if "pack" == declaration:
+            return self._parse_pack(value)
+        if "buffer" == declaration:
+            return self._parse_buffer(value)
+        if declaration in self.abstract_matrix:
+            return self._parse_matrix(declaration, value)
+
+        return super()._parse_declaration(declaration, value)
+
+    @override
+    def _parse_split(self, declaration: str, value: dict) -> SplitDecl:
+        axis_name, start, end, size = self._parse_split_syntax_extend(declaration)
+
+        body = self.parse(value)
+        return SplitDecl(axis=axis_name, start=start, end=end, body=body, size=size)
+
+    @override
+    def _parse_annotations(self, value: dict[str, Any], context: str) -> Annotations:
+        """Parse annotation dict into Annotations object."""
+
+        unroll_factor: int | str | None = None
+        unroll_specified = False
+        vectorize = False
+        parallelize = False
+        partial = False
+        full = False
+
+        for key, param in value.items():
+            if key == "unroll":
+                if param is True or param is None:
+                    unroll_factor = None
+                    unroll_specified = True
+                elif param is False:
+                    pass
+                elif isinstance(param, int) or isinstance(param, str):
+                    unroll_factor = param
+                    unroll_specified = True
+                else:
+                    raise ScheduleParseError(
+                        f'`{{"unroll" = {param}}}`: unroll parameter should be True, False, None, or an integer.'
+                    )
+            elif key == "vectorize":
+                if param is True or param is None:
+                    vectorize = True
+                elif param is False:
+                    pass
+                elif isinstance(param, str):
+                    vectorize = param
+                else:
+                    raise ScheduleParseError(
+                        f'`{{"vectorize" = {param}}}`: parameterized vectorization not implemented.'
+                    )
+            elif key == "parallelize":
+                if isinstance(param, str):
+                    parallelize = param
+                elif param is not None:
+                    raise ScheduleParseError(
+                        f'`{{"parallelize" = {param}}}`: parameterized parallelization not implemented.'
+                    )
+                else:
+                    parallelize = True
+            elif key == "partial":
+                if full:
+                    raise ScheduleParseError("Tile cannot be full and partial.")
+                partial = True
+            elif key == "full":
+                if partial:
+                    raise ScheduleParseError("Tile cannot be partial and full.")
+                full = True
+            else:
+                raise ScheduleParseError(f"Unknown annotation on {context}: {key}")
+
+        return Annotations(
+            unroll_factor=unroll_factor,
+            unroll_specified=unroll_specified,
+            vectorize=vectorize,
+            parallelize=parallelize,
+            partial=partial,
+            full=full,
+        )
+
+    def _parse_split_syntax_extend(
+        self, declaration: str
+    ) -> tuple[str, int | str | None, int | str | None, int | str | None]:
+        """Parse the syntax of a split declaration."""
+        match = self._SPLIT_PATTERN.match(declaration)
+        if not match:
+            match = self._SPLIT_MIDDLE_PATTERN.match(declaration)
+            if not match:
+                raise ScheduleParseError(f"Wrong format {declaration}")
+            prefix, z = match.groups()
+            z = int(z) if z.isnumeric() else z
+            return prefix, None, None, z
+
+        prefix, x_str, y_str = match.groups()
+        x = int(x_str) if x_str.isnumeric() else x_str
+        y = int(y_str) if y_str.isnumeric() else y_str
+        x = x if x else None
+        y = y if y else None
+        return prefix, x, y, None
+
+    def _parse_fusion(self) -> FusionDecl:
+        return FusionDecl()
+
+    def _parse_pack(self, value: Any) -> PackDecl:
+        assert len(value) == 3
+        param, input, pad = value
+        return PackDecl(param, input, pad)
+
+    def _parse_buffer(self, value: Any) -> BufferDecl:
+        assert len(value == 2)
+        param, pad = value
+        return BufferDecl(param, pad)
+
+    def _parse_matrix(self, declaration: str, value: Any) -> PackDecl | BufferDecl:
+        param = value.get("bufferize", False)
+        if not (param is None or param):
+            raise ScheduleParseError(
+                f"Declared matrix {declaration} without bufferization."
+            )
+        pad = value.get("pad", False)
+        if declaration == self.abstract_matrix[-1]:
+            return BufferDecl(param, pad)
+        return PackDecl(param, declaration, pad)
+
+
+class ScheduleInterpreterExtend(ScheduleInterpreter):
+    @override
+    def __init__(
+        self,
+        abstract_axis: list[str],
+        abstract_axis_sizes: dict[str, int],
+        abstract_matrix: list[str],
+        partial_tiles: bool = False,
+        partial_unrolls: bool = False,
+    ):
+        self.abstract_matrix = abstract_matrix
+        self.abstract_axis_sizes = abstract_axis_sizes
+        self.partial_tiles = partial_tiles
+        self.partial_unrolls = partial_unrolls
+        super().__init__(abstract_axis)
+
+    @override
+    def interpret(self, spec: ScheduleSpec, root: str) -> LoopNestExtend:
+        return self._interpret_spec(spec, root, head=[])
+
+    @override
+    def _interpret_spec(
+        self,
+        spec: ScheduleSpec,
+        root: str,
+        head: list[str],
+        tile_sizes: dict[str, list[int | str]] | None = None,
+    ) -> LoopNestExtend:
+        """Interpret a schedule spec recursively."""
+        loop_nest = LoopNestExtend(abstract_dims=self.abstract_axis)
+        slice = loop_nest.build_slice(root)
+
+        # Track state during interpretation
+        last_split: list[tuple[int | str, int | str]] = []
+        previous_cut: dict[str, int | str | None] = {a: 0 for a in self.abstract_axis}
+        interchange: list[str] = list(head)
+        axes_sizes: dict[str, list[int | str]] = {}
+        sizes: dict[str, int | str] = {}
+        if tile_sizes:
+            axes_sizes = tile_sizes
+        else:
+            axes_sizes = {a: [v] for a, v in self.abstract_axis_sizes.items()}
+
+        for item in spec.items:
+            if isinstance(item, SplitDecl):
+                self._interpret_split(
+                    item=item,
+                    slice=slice,
+                    loop_nest=loop_nest,
+                    root=root,
+                    interchange=interchange,
+                    previous_cut=previous_cut,
+                    axes_sizes=axes_sizes,
+                    last_split=last_split,
+                )
+            elif isinstance(item, TileDecl):
+                loop_name = self._interpret_tile(
+                    item=item,
+                    slice=slice,
+                    interchange=interchange,
+                    axes_sizes=axes_sizes,
+                    sizes=sizes,
+                )
+                self._apply_annotations(item.annotations, loop_name, sizes, slice)
+            elif isinstance(item, AxisDecl):
+                loop_name = self._interpret_axis(item, interchange)
+                self._apply_annotations(item.annotations, loop_name, sizes, slice)
+            elif isinstance(item, FusionDecl):
+                ...
+            elif isinstance(item, PackDecl):
+                self._interpret_pack(slice, interchange[-1], item)
+            elif isinstance(item, BufferDecl):
+                self._interpret_buffer(slice, interchange[-1], item)
+
+        if len(last_split) > 0:
+            a, b = last_split[0]
+            if isinstance(a, int) and not isinstance(b, int):
+                a, b = b, a
+            a, b = str(a), str(b)
+            for c in slice.constraints:
+                slice.constraints.remove(c)
+                slice.constraints.add(c.replace(a, b))
+
+        # Check that all splits are complete
+        for axis, cut in previous_cut.items():
+            if (
+                cut is not None
+                and isinstance(cut, int)
+                and cut not in [0, axes_sizes[axis][-1]]
+            ):
+                raise ScheduleInterpretError(
+                    f"Splitting of {axis} unachieved (stops at {cut})."
+                )
+
+        slice.interchange = interchange
+        return loop_nest
+
+    @override
+    def _interpret_split(
+        self,
+        item: SplitDecl,
+        slice: LoopNestSlice,
+        loop_nest: LoopNest,
+        root: str,
+        interchange: list[str],
+        previous_cut: dict[str, int | str | None],
+        axes_sizes: dict[str, list[int | str]] = {},
+        last_split: list[tuple[int | str, int | str]] = [],
+    ):
+        """Interpret a split declaration."""
+        if not isinstance(slice, LoopNestSliceExtend):
+            return super()._interpret_split(
+                item, slice, loop_nest, root, interchange, previous_cut
+            )
+        axis_name = item.axis
+        self._check_axis_existence(axis_name)
+        x = item.start
+        y = item.end
+        z = item.size
+
+        # The only declaration where y (the cut) is None is the
+        # last one, so it cannot be the previous one.
+        cut = previous_cut[axis_name]
+        current_size = axes_sizes[axis_name][-1]
+
+        # When x (the starting point of the slice) is not specified,
+        # it is the previous cut
+        if x is None:
+            x = cut
+        inner_size = self._check_splitting_intervals(item, cut, x)
+        assert x is not None
+
+        # Save the cutting points of the new dimensions
+        if axis_name not in slice.splits:
+            slice.splits[axis_name] = {}
+        new_dim_index = len(slice.splits[axis_name])
+        new_dim_name = f"{axis_name}[{new_dim_index}]"
+        new_root_name = f"{root}/{new_dim_name}"
+        interchange.append(new_dim_name)
+
+        if z is None:
+            # Update the previous cut
+            previous_cut[axis_name] = y
+            slice.splits[axis_name][new_dim_name] = x
+            inner_size = None
+            if y is None:
+                y = current_size
+            if isinstance(x, int):
+                if x == 0:
+                    inner_size = y
+                elif isinstance(y, int):
+                    inner_size = y - x
+            if inner_size is None:
+                inner_size = root[1:] + new_dim_name
+                inner_size = (
+                    inner_size.replace("/", "").replace("[", "_").replace("]", "_")
+                )
+                slice.constraints.add(f"{inner_size} <= {y}")
+                if isinstance(x, str):
+                    slice.constraints.add(f"{x} <= {y}")
+                slice.constraints.add(f"{inner_size} + {x} == {y}")
+        else:
+            inner_size = z
+            x = cut
+            y = current_size
+            assert x is not None
+            slice.splits[axis_name][new_dim_name] = x
+            if isinstance(z, int) and isinstance(x, int):
+                previous_cut[axis_name] = x + z
+                if not isinstance(y, int):
+                    slice.constraints.add(f"{z + x} <= {y}")
+            elif isinstance(x, int) and x == 0:
+                previous_cut[axis_name] = z
+                if not isinstance(y, int):
+                    slice.constraints.add(f"{z} <= {y}")
+            else:
+                new_cut = root[1:] + new_dim_name
+                new_cut = new_cut.replace("/", "").replace("[", "_").replace("]", "_")
+                previous_cut[axis_name] = new_cut
+                if len(last_split) > 0:
+                    a, b = last_split[0]
+                    slice.constraints.add(f"{a} <= {b}")
+                last_split.append((new_cut, y))
+                slice.constraints.add(f"{z} + {x} == {new_cut}")
+
+        # Recursively interpret the nested schedule
+        inner_nest = self._interpret_spec(
+            spec=item.body,
+            root=new_root_name,
+            head=[axis_name],
+            tile_sizes=deepcopy(axes_sizes),
+        )
+        loop_nest.slices += inner_nest.slices
+
+    @override
+    def _interpret_tile(
+        self,
+        item: TileDecl,
+        slice: LoopNestSlice,
+        interchange: list[str],
+        sizes: dict[str, int | str],
+        axes_sizes: dict[str, list[int | str]] = {},
+    ) -> str:
+        """Interpret a tile declaration. Returns the loop name."""
+        self._check_axis_existence(item.axis)
+        tile_num = len(slice.tiles[item.axis])
+        loop_name = f"{item.axis}{tile_num}"
+        if isinstance(item.size, int) and item.size <= 0:
+            raise ScheduleInterpretError(
+                f"`{item}`: tile sizes should be strictly positive."
+            )
+        slice.tiles[item.axis][loop_name] = item.size
+        size_list = axes_sizes[item.axis]
+        sizes[loop_name] = item.size
+        assert isinstance(size_list, list)
+        old_size = size_list[-1]
+        interchange.append(loop_name)
+        if isinstance(item.size, str):
+            assert isinstance(slice, LoopNestSliceExtend)
+            slice.variables.add(item.size)
+            partial = item.annotations.partial
+            full = item.annotations.full
+            if partial or (not full and self.partial_tiles):
+                slice.constraints.add(f"{item.size} <= {old_size}")
+            else:
+                s = (
+                    ", ".join(map(str, size_list))
+                    if len(size_list) > 1
+                    else str(size_list[0])
+                )
+                s = f"{item.size} || {{{s}}}"
+                slice.constraints.add(s)
+        size_list.append(item.size)
+        return loop_name
+
+    @override
+    def _apply_annotations(
+        self,
+        annotations: Annotations,
+        loop_name: str,
+        sizes: dict[str, int | str],
+        slice: LoopNestSlice,
+    ) -> None:
+        """Apply annotations to a loop in the slice."""
+        assert isinstance(slice, LoopNestSliceExtend)
+        if annotations.unroll_specified:
+            unroll_factor = annotations.unroll_factor
+            if unroll_factor is None:
+                # None means "unroll fully" - use the loop size
+                if loop_name not in sizes:
+                    raise ScheduleInterpretError(
+                        f"{loop_name}'s size being unknown, an unroll factor is needed."
+                    )
+                unroll_factor = sizes[loop_name]
+            elif isinstance(unroll_factor, str):
+                slice.variables.add(unroll_factor)
+                if self.partial_unrolls:
+                    slice.constraints.add(f"{unroll_factor} <= {sizes[loop_name]}")
+                else:
+                    slice.constraints.add(f"{unroll_factor} || {sizes[loop_name]}")
+            elif unroll_factor <= 0:
+                raise ScheduleInterpretError(
+                    f'`{{"unroll" = {unroll_factor}}}`: unroll parameter should be strictly positive.'
+                )
+            slice.unroll[loop_name] = unroll_factor
+
+        vectorize = annotations.vectorize
+        if vectorize:
+            slice.vectorize.append(loop_name)
+            if isinstance(vectorize, str):
+                slice.variables.add(vectorize)
+                slice.constraints.add(f"{vectorize} in {{0, 1}}")
+
+        parallelize = annotations.parallelize
+        if parallelize:
+            slice.parallelize.append(loop_name)
+            if isinstance(parallelize, str):
+                slice.variables.add(parallelize)
+                slice.constraints.add(f"{parallelize} in {{0, 1}}")
+
+    def _interpret_pack(
+        self, slice: LoopNestSliceExtend, loop_name: str, item: PackDecl
+    ):
+        param, input, pad = item.param, item.input, item.pad
+        if isinstance(param, str):
+            slice.variables.add(param)
+            slice.constraints.add(f"{param} in {{0, 1}}")
+        if isinstance(pad, str):
+            slice.variables.add(pad)
+            slice.constraints.add(f"{pad} in {{0, 1}}")
+        if loop_name in slice.packs:
+            slice.packs[loop_name].append((param, input, pad))
+        else:
+            slice.packs[loop_name] = [(param, input, pad)]
+
+    def _interpret_buffer(
+        self, slice: LoopNestSliceExtend, loop_name: str, item: BufferDecl
+    ):
+        param, pad = item.param, item.pad
+        if isinstance(param, str):
+            slice.variables.add(param)
+            slice.constraints.add(f"{param} in {{0, 1}}")
+        if isinstance(pad, str):
+            slice.variables.add(pad)
+            slice.constraints.add(f"{pad} in {{0, 1}}")
+        slice.buffers[loop_name].append((param, pad))
+
+
+@dataclass(frozen=False)
 class DescriptExtend(Descript):
     abstract_axis_sizes: dict[str, int]
     abstract_matrix: list[str]
     partial_tiles: bool = False
     partial_unrolls: bool = False
+    _loop_nest: None | LoopNestExtend = None
 
     @override
     def apply(
         self,
         node_name: str,
-        spec: dict[str, dict] | str,
+        spec: str | dict[str, dict[str, Any]],
         scheduler: Scheduler,
         sample: dict[str, Any] = {},
-    ):
-        if isinstance(spec, str):
-            dict_spec = self.parse_yaml(spec)
-        else:
-            dict_spec = spec
-        flat_schedules = self._flatten_schedule(root=node_name, spec=dict_spec, head=[])
-        variables = set()
-        constraints = set()
-        for schedule in flat_schedules.slices:
-            if isinstance(schedule, LoopNestSliceExtend):
-                variables.update(schedule.variables)
-                constraints.update(schedule.constraints)
+    ) -> None:
+        """Parse, interpret, validate, and apply a schedule specification.
 
-        flat_schedules = self.apply_sample(flat_schedules, sample)
-        self.apply_scheduler(flat_schedules, scheduler)
+        Args:
+            node_name: The name of the root node to schedule.
+            spec: The schedule specification as a nested dict.
+        Raises:
+            ScheduleParseError: If the spec cannot be parsed.
+            ScheduleInterpretError: If the spec cannot be interpreted.
+            ScheduleValidationError: If the resulting schedule is invalid.
+        """
+
+        if isinstance(spec, str):
+            spec = self.parse_yaml(spec)
+
+        # Parse the specification into an AST
+        parser = ScheduleParserExtend(self.abstract_axis, self.abstract_matrix)
+        ast = parser.parse(spec)
+
+        # Interpret the AST into a LoopNest
+        interpreter = ScheduleInterpreterExtend(
+            self.abstract_axis, self.abstract_axis_sizes, self.abstract_matrix
+        )
+        loop_nest = interpreter.interpret(ast, root=node_name)
+
+        if sample != {}:
+            loop_nest.apply_sample(sample)
+
+        # Validate the loop nest
+        loop_nest.check()
+        for slice in loop_nest.slices:
+            assert isinstance(slice, LoopNestSliceExtend)
+
+        # Apply the schedule to the scheduler
+        self._apply_loop_nest(loop_nest, scheduler)
+
+    def loop_nest(
+        self, node_name: str, spec: str | dict[str, dict[str, Any]]
+    ) -> LoopNestExtend:
+        if self._loop_nest:
+            return self._loop_nest
+
+        if isinstance(spec, str):
+            spec = self.parse_yaml(spec)
+
+        parser = ScheduleParserExtend(self.abstract_axis, self.abstract_matrix)
+        ast = parser.parse(spec)
+
+        # Interpret the AST into a LoopNest
+        interpreter = ScheduleInterpreterExtend(
+            abstract_axis=self.abstract_axis,
+            abstract_axis_sizes=self.abstract_axis_sizes,
+            abstract_matrix=self.abstract_matrix,
+            partial_tiles=self.partial_tiles,
+            partial_unrolls=self.partial_unrolls,
+        )
+        self._loop_nest = interpreter.interpret(ast, root=node_name)
+        return self._loop_nest
+
+    def apply_sample(
+        self, loop_nest: LoopNestExtend, scheduler: Scheduler, sample: dict[str, Any]
+    ):
+        loop_nest = deepcopy(loop_nest)
+        if sample != {}:
+            loop_nest.apply_sample(sample)
+
+        # Validate the loop nest
+        loop_nest.check()
+
+        # Apply the schedule to the scheduler
+        self._apply_loop_nest(loop_nest, scheduler)
 
     def parse_yaml(self, spec: str) -> dict[str, dict]:
         dspec = strictyaml.load(spec).data
@@ -161,41 +683,26 @@ class DescriptExtend(Descript):
 
     def _parse_yaml(self, spec: dict[str, dict]) -> dict[str, dict]:
         out_dict = {}
-        for level, d_level in spec.items():
-            level_dict = {}
-            if not isinstance(d_level, dict):
-                continue
-            for a, v in d_level.items():
-                if a == "explore":
-                    assert isinstance(v, str)
-                    if v == "":
-                        tmp = None
-                    else:
-                        try:
-                            tmp = eval(v)
-                        except NameError:
-                            tmp = v
-                    level_dict["explore_axis_order"] = tmp
-                elif a in self.abstract_matrix:
-                    assert isinstance(v, str)
-                    level_dict[a] = self._split_yaml(v)
+        for a, v in spec.items():
+            if a in self.abstract_matrix:
+                assert isinstance(v, str)
+                out_dict[a] = self._split_yaml(v)
+            else:
+                if isinstance(v, str):
+                    d = self._split_yaml(v)
                 else:
-                    if isinstance(v, str):
-                        d = self._split_yaml(v)
-                    else:
-                        assert isinstance(v, dict)
-                        d = v
-                    size = d.get("size", None)
-                    if size:
-                        d.pop("size")
-                        a = f"{a}#{size}"
-                    if ":" in a:
-                        level_dict[a] = self._parse_yaml(d)
-                        continue
-                    level_dict[a] = {}
-                    for axis_arg, arg_val in d.items():
-                        level_dict[a][axis_arg] = arg_val
-                out_dict[level] = level_dict
+                    assert isinstance(v, dict)
+                    d = v
+                size = d.get("size", None)
+                if size:
+                    d.pop("size")
+                    a = f"{a}#{size}"
+                if ":" in a:
+                    out_dict[a] = self._parse_yaml(d)
+                    continue
+                out_dict[a] = {}
+                for axis_arg, arg_val in d.items():
+                    out_dict[a][axis_arg] = arg_val
         return out_dict
 
     def _split_yaml(self, s: str) -> dict[str, Any]:
@@ -211,488 +718,3 @@ class DescriptExtend(Descript):
                     tmp = y
                 d[x] = tmp
         return d
-
-    def flatten_schedule(self, node_name: str, spec: dict[str, dict] | str):
-        if isinstance(spec, str):
-            dict_spec = self.parse_yaml(spec)
-        else:
-            dict_spec = spec
-        flat_schedules = self._flatten_schedule(root=node_name, spec=dict_spec, head=[])
-        variables = []
-        constraints = []
-        axes = {}
-        orders = {}
-        for schedule in flat_schedules.slices:
-            if isinstance(schedule, LoopNestSliceExtend):
-                variables += schedule.variables
-                constraints += schedule.constraints
-                for axis, order in schedule.axes.items():
-                    axes[f"order_{axis}"] = order
-                axis_orders = schedule.axis_orders
-                for axis in axis_orders:
-                    orders[axis] = schedule.axes[axis]
-
-        variables = list(dict.fromkeys(variables))
-        constraints = list(dict.fromkeys(constraints))
-        return (flat_schedules, variables, constraints, axes, orders)
-
-    def apply_sample(
-        self, flat_schedules: LoopNestExtend, sample: dict[str, Any]
-    ) -> LoopNestExtend:
-        flat_schedules = deepcopy(flat_schedules)
-        flat_schedules.apply_sample(sample)
-        return flat_schedules
-
-    def apply_scheduler(self, flat_schedules: LoopNestExtend, scheduler: Scheduler):
-        flat_schedules.check()
-        for schedule in flat_schedules.slices:
-            assert isinstance(schedule, LoopNestSliceExtend)
-            root = schedule.root
-            interchange = []
-
-            for d, s in schedule.axes.items():
-                s = list(s.values())
-                for s in s:
-                    interchange += s
-
-                p = schedule.packs.get(d, None)
-                if p:
-                    for _, input, pad in p:
-                        scheduler.pack_at(s[-1], input, pad=pad)
-
-                b = schedule.buffers.get(d, None)
-                if b:
-                    scheduler.buffer_at(s[-1])
-
-            for d, s in schedule.splits.items():
-                s = correct_type(s)
-                scheduler.split(d, s, root=root)
-
-            for d, s in schedule.tiles.items():
-                s = correct_type(s)
-                scheduler.tile(d, s, root=root)
-
-            scheduler.interchange(interchange, root=root)
-            scheduler.vectorize(schedule.vectorize, root=root)
-            scheduler.parallelize(schedule.parallelize, root=root)
-            s = correct_type(schedule.unroll)
-            scheduler.unroll(s, root=root)
-
-    @override
-    def _flatten_schedule(
-        self,
-        root: str,
-        spec: dict[str, dict],
-        head: list[str],
-        tile_sizes: dict[str, int | str] | None = None,
-        sched_sizes: dict[str, list] | None = None,
-    ) -> LoopNestExtend:
-        recursive_scheds = LoopNestExtend(abstract_dims=self.abstract_axis)
-        sched = recursive_scheds.build_slice(root)
-        # State of the schedule
-        if tile_sizes:
-            axes_sizes: dict[str, int | str] = tile_sizes
-        else:
-            axes_sizes = {a: v for a, v in self.abstract_axis_sizes.items()}
-        if sched_sizes is None:
-            sched_sizes = {}
-            for a, v in axes_sizes.items():
-                sched_sizes[a] = [str(v)]
-        sizes: dict[str, int | str | None] = {}
-        previous_cut: dict[str, int | str | None] = {a: 0 for a in self.abstract_axis}
-        interchange: list[str] = head
-        # Processing the schedule
-        for tree_declaration, tree_val in spec.items():
-            assert isinstance(tree_val, dict)
-            tree_interchange = {}
-            tree_packs = []
-            tree_fusion = []
-            tree_buff = []
-            last_split = None
-            for declaration, val in tree_val.items():
-                if declaration == "fusion":
-                    tree_fusion.append(val)
-                    continue
-                elif declaration == "pack":
-                    for val_ in val:
-                        if len(val_) != 3:
-                            raise Exception(f"Packing {val_} should have 3 parameters.")
-                        param, input, pad = val_
-                        tree_packs.append((param, input, pad))
-                        if isinstance(param, str):
-                            sched.variables.add(param)
-                            sched.constraints.add(f"{param} in {{0, 1}}")
-                        if isinstance(input, str):
-                            input = self.abstract_matrix.index(input)
-                        if isinstance(pad, str):
-                            sched.variables.add(pad)
-                            sched.constraints.add(f"{pad} in {{0, 1}}")
-                    continue
-                elif declaration in "buffer":
-                    for val_ in val:
-                        if len(val_) != 2:
-                            raise Exception(
-                                f"Bufferisation {val_} should have 2 parameters."
-                            )
-                        param, pad = val_
-                        tree_buff.append((param, pad))
-                        if isinstance(param, str):
-                            sched.variables.add(param)
-                            sched.constraints.add(f"{param} in {{0, 1}}")
-                        if isinstance(pad, str):
-                            sched.variables.add(pad)
-                            sched.constraints.add(f"{pad} in {{0, 1}}")
-                    continue
-                elif declaration == "explore_axis_order":
-                    sched.axis_orders.append(tree_declaration)
-                    continue
-                elif declaration in self.abstract_matrix:
-                    matrix_index = self.abstract_matrix.index(declaration)
-                    param = val.get("bufferize", False)
-                    pad = val.get("pad", False)
-                    if param is None or param:
-                        if matrix_index == len(self.abstract_matrix) - 1:
-                            tree_buff.append((param, pad))
-                        else:
-                            tree_packs.append((param, matrix_index, pad))
-                        if isinstance(param, str):
-                            sched.variables.add(param)
-                            sched.constraints.add(f"{param} in {{0, 1}}")
-                        if isinstance(pad, str):
-                            sched.variables.add(pad)
-                            sched.constraints.add(f"{pad} in {{0, 1}}")
-                    continue
-                elif ":" in declaration:
-                    axis_name, x, y, z = self.parse_split_declaration(declaration)
-                    self._check_axis_existence(axis_name)
-
-                    # The only declaration where y (the cut) is None is the
-                    # last one, so it cannot be the previous one.
-                    cut = previous_cut[axis_name]
-
-                    current_size = axes_sizes[axis_name]
-                    # Update the previous cut
-                    # Save the cutting points of the new dimensions
-                    if axis_name not in sched.splits:
-                        sched.splits[axis_name] = {}
-                    new_dim_index = len(sched.splits[axis_name])
-                    new_dim_name = f"{axis_name}[{new_dim_index}]"
-                    new_axes_root_name = f"{root}/{new_dim_name}"
-                    if axis_name in tree_interchange:
-                        tree_interchange[axis_name].append(new_dim_name)
-                    else:
-                        tree_interchange[axis_name] = [new_dim_name]
-
-                    if z is None:
-                        previous_cut[axis_name] = y
-                        # When x (the starting point of the slice), is not
-                        # specified, it is the previous cut
-                        if x is None:
-                            x = cut
-                        assert isinstance(x, int | str)
-                        sched.splits[axis_name][new_dim_name] = x
-
-                        # assert isinstance(x, int)
-                        inner_size = self._extended_check_splitting_intervals(
-                            declaration, axis_name, cut, x, y
-                        )
-                        inner_size = None
-                        if y is None:
-                            y = current_size
-                        if isinstance(x, int):
-                            if x == 0:
-                                inner_size = y
-                            elif isinstance(y, int):
-                                inner_size = y - x
-
-                        if inner_size is None:
-                            inner_size = root[1:] + new_dim_name
-                            inner_size = (
-                                inner_size.replace("/", "")
-                                .replace("[", "_")
-                                .replace("]", "_")
-                            )
-                            sched.constraints.add(f"{inner_size} <= {y}")
-                            if isinstance(x, str):
-                                sched.constraints.add(f"{x} <= {y}")
-                            sched.constraints.add(f"{inner_size} + {x} == {y}")
-                    else:
-                        inner_size = z
-                        x = cut
-                        y = current_size
-                        if isinstance(z, int) and isinstance(x, int):
-                            previous_cut[axis_name] = x + z
-                            if not isinstance(y, int):
-                                sched.constraints.add(f"{z + x} <= {y}")
-                        elif isinstance(x, int) and x == 0:
-                            previous_cut[axis_name] = z
-                            if not isinstance(y, int):
-                                sched.constraints.add(f"{z} <= {y}")
-                        else:
-                            new_cut = root[1:] + new_dim_name
-                            new_cut = (
-                                new_cut.replace("/", "")
-                                .replace("[", "_")
-                                .replace("]", "_")
-                            )
-                            previous_cut[axis_name] = new_cut
-                            if last_split is not None:
-                                a, b = last_split
-                                sched.constraints.add(f"{a} <= {b}")
-                            last_split = (new_cut, y)
-                            sched.constraints.add(f"{z} + {x} == {new_cut}")
-
-                    axes_sizes[axis_name] = inner_size
-
-                    # Fetch the schedule associated with the new dimension
-                    next_schedule = val
-                    assert isinstance(next_schedule, dict)
-                    inner_scheds = self._flatten_schedule(
-                        spec=next_schedule,
-                        root=new_axes_root_name,
-                        tile_sizes=axes_sizes.copy(),
-                        head=[axis_name],
-                        sched_sizes=deepcopy(sched_sizes),
-                    )
-                    axes_sizes[axis_name] = current_size
-
-                    recursive_scheds.slices += inner_scheds.slices
-                    continue
-
-                elif "#" in declaration:
-                    axis_name, tile_size = declaration.split("#")
-                    self._check_axis_existence(axis_name)
-                    assert isinstance(tile_size, str)
-                    if tile_size.isdecimal():
-                        loop_size = int(tile_size)
-                    else:
-                        loop_size = tile_size
-                        sched.variables.add(tile_size)
-                    if not loop_size:
-                        raise Exception(
-                            f"Invalid tile size: '{tile_size}' in {declaration}"
-                        )
-
-                    if isinstance(loop_size, str):
-                        partial = "partial" in val
-                        full = "full" in val
-                        if partial and full:
-                            raise Exception(
-                                f"Tile {declaration} cannot be partial and full"
-                            )
-                        if partial or (not full and self.partial_tiles):
-                            sched.constraints.add(
-                                f"{loop_size} <= {axes_sizes[axis_name]}"
-                            )
-                        else:
-                            s = (
-                                ", ".join(sched_sizes[axis_name])
-                                if len(sched_sizes[axis_name]) > 1
-                                else sched_sizes[axis_name][0]
-                            )
-                            s = f"{loop_size} || {{{s}}}"
-                            sched.constraints.add(s)
-                    sched_sizes[axis_name].insert(0, str(loop_size))
-                    axes_sizes[axis_name] = loop_size
-                    tile_num = len(sched.tiles[axis_name])
-                    loop_name = f"{axis_name}{tile_num}"
-                    sched.tiles[axis_name][loop_name] = loop_size
-                    sizes[loop_name] = loop_size
-                    if axis_name in tree_interchange:
-                        raise Exception(
-                            f"axis {axis_name} already is used in level {tree_declaration}."
-                        )
-                    tree_interchange[axis_name] = [loop_name]
-                elif declaration in self.abstract_axis:
-                    loop_name = declaration
-                    axis_name = loop_name
-                    if loop_name in tree_interchange:
-                        raise Exception(
-                            f"""
-                            Axis {declaration} is scheduled twice (or more).
-                            """
-                        )
-                    tree_interchange[loop_name] = [loop_name]
-                else:
-                    raise Exception(
-                        f"""
-                        Axis {declaration} is not a defined axis.
-                        Known axis are: {self.abstract_axis}")
-                        """
-                    )
-
-                self.annotate(
-                    loop_name=loop_name,
-                    sizes=sizes,
-                    annotations=val,
-                    sched=sched,
-                )
-            sched.axes[tree_declaration] = tree_interchange
-            if len(tree_packs) > 0:
-                sched.packs[tree_declaration] = tree_packs
-            if len(tree_fusion) > 0:
-                sched.fusions[tree_declaration] = tree_fusion
-            if len(tree_buff) > 0:
-                sched.buffers[tree_declaration] = tree_buff
-            for v in tree_interchange.values():
-                interchange += v
-
-            if last_split is not None:
-                a, b = last_split
-                if isinstance(a, int) and not isinstance(b, int):
-                    a, b = b, a
-                a, b = str(a), str(b)
-                for c in sched.constraints:
-                    sched.constraints.remove(c)
-                    sched.constraints.add(c.replace(a, b))
-                last_split = None
-
-        # Check if the last cut of each axis is either 0 or None.
-        # None correspond to "until the end of the loop". 0 is the
-        # default value, if it has 0 then it means the axis isn't splitted.
-        # Any other value means the split is let in a partial state.
-        for axis, cut in previous_cut.items():
-            if cut is not None and isinstance(cut, int) and cut != 0:
-                raise Exception(
-                    f"Splitting on axis {axis} should end but stops at {cut}"
-                )
-
-        sched.interchange = interchange
-        return recursive_scheds
-
-    def _extended_check_splitting_intervals(
-        self,
-        declaration: str,
-        axis_name: str,
-        cut: int | str | None,
-        x: int | str | None,
-        y: int | str | None,
-    ) -> int | str | None:
-        if cut is None:
-            raise Exception(
-                f"""
-                {declaration} is defined on an already covered axis.
-                This might be caused by a missing endpoint: {axis_name}
-                """
-            )
-
-        assert isinstance(x, int | str)
-
-        if isinstance(cut, int) and isinstance(x, int):
-            if x > cut:
-                raise Exception(
-                    f"""
-                    Splitting doesn't cover the whole axis
-                    (jumps from {cut} to {x} on axis {axis_name})
-                    """
-                )
-            elif x < cut:
-                raise Exception(
-                    f"""
-                    Splitting are overlapping on axis {axis_name}
-                    (covered until {cut} but restart at {x})
-                    """
-                )
-        else:
-            if x != cut:
-                raise Exception(
-                    f"""
-                    Splitting should use the same variables between an end and a start
-                    ({cut} and {x} on axis {axis_name})
-                    """
-                )
-        assert x == cut
-        if y is None:
-            return None
-
-        if isinstance(x, int):
-            if isinstance(y, int):
-                if x >= y:
-                    raise Exception(
-                        f"""
-                        Starting point in the splitting cannot be greater or equal to
-                        the ending point in: {declaration}
-                        """
-                    )
-                else:
-                    return y - x
-            if x == 0:
-                return y
-        return None
-
-    def annotate(
-        self,
-        loop_name: str,
-        sizes: dict[str, int | str | None],
-        annotations: dict[str, Any],
-        sched: LoopNestSliceExtend,
-    ):
-        for instr, param in annotations.items():
-            assert isinstance(instr, str)
-            match instr:
-                case "unroll":
-                    if param is None and loop_name in sizes:
-                        ufactor = sizes[loop_name]
-                    else:
-                        ufactor = param
-                        if isinstance(param, str):
-                            sched.variables.add(param)
-                            leq = "<=" if self.partial_unrolls else "||"
-                            sched.constraints.add(f"{ufactor} {leq} {sizes[loop_name]}")
-                    assert isinstance(ufactor, int | str)
-                    sched.unroll[loop_name] = ufactor
-
-                case "vectorize":
-                    if isinstance(param, str):
-                        sched.variables.add(param)
-                        sched.constraints.add(f"{param} in {{0, 1}}")
-                        sched.vectorize_bool.add((param, loop_name))
-                        continue
-                    if param is None:
-                        sched.vectorize.append(loop_name)
-                        continue
-                    raise Exception(
-                        "Vectorize should not have a parameter (Feature not implemented)"
-                    )
-
-                case "parallelize":
-                    if isinstance(param, str):
-                        sched.variables.add(param)
-                        sched.constraints.add(f"{param} in {{0, 1}}")
-                        sched.parallelize_bool.add((param, loop_name))
-                        continue
-                    if param is None:
-                        sched.parallelize.append(loop_name)
-                        continue
-                    if param is not None:
-                        raise Exception(
-                            "Parallelize should not have a parameter (Feature not implemented)"
-                        )
-                case "partial":
-                    continue
-                case "full":
-                    continue
-                case _:
-                    raise Exception(f"Unknown annotation on {loop_name}: {instr}")
-
-    def parse_split_declaration(
-        self,
-        declaration: str,
-    ) -> Tuple[str, int | str | None, int | str | None, int | str | None]:
-        pattern = r"^(.*)\[(?:(-\w+|\w*)?):(?:(-\w+|\w*)?)\]$"
-        match = re.match(pattern, declaration)
-        if not match:
-            pattern = r"^(.*)\[:(\w*):\]$"
-            match = re.match(pattern, declaration)
-            if not match:
-                raise Exception(f"Wrong format {declaration}")
-            prefix, z = match.groups()
-            z = int(z) if z.isnumeric() else z
-            return prefix, None, None, z
-
-        prefix, x_str, y_str = match.groups()
-        x = int(x_str) if x_str.isnumeric() else x_str
-        y = int(y_str) if y_str.isnumeric() else y_str
-        x = x if x else None
-        y = y if y else None
-        return prefix, x, y, None
