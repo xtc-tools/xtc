@@ -22,7 +22,7 @@ sched = sch.schedule()
 
 comp = impl.get_compiler(
     shared_lib=True,
-    dump_file="pad_tuple_matmul_unpad_mlir",
+    dump_file="gen_pad_tuple_matmul_unpad_mlir",
     print_source_ir=True,
     print_transformed_ir=True,
 )
