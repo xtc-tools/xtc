@@ -8,7 +8,18 @@ jobs:
         os: [ubuntu-latest]
         python-version: ["3.12"]
     steps:
-      - uses: actions/checkout@v5
+      - name: Checkout XTC Repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Ensure PR has linear history
+        if: github.event_name == 'pull_request'
+        run: |
+          MERGE_COMMITS="$(git rev-list --merges "$GITHUB_SHA^1..$GITHUB_SHA^2")"
+          if [ -n "$MERGE_COMMITS" ]; then
+            echo "::error::PR contains merges, always use rebase for updating branches: Merge commits: $MERGE_COMMITS" >&2
+            exit 1
+          fi
       - name: Install Distro Packages
         # Note: package cache with awalsh128/cache-apt-pkgs-action does not work correctly, use standard install.
         run: |
