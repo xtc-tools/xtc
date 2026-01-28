@@ -247,18 +247,30 @@ I, J, K, dtype = 4, 32, 512, "float32"
         language="python",
         label=""
     )
-    compile_output_radio = mo.ui.radio(
-        options=["Source IR", "Transformed IR", "Lowered IR", "Assembly"],
-        value="Assembly",
-        label="Output options:"
-    )
     compile_backend_radio = mo.ui.radio(
         options=["MLIR", "TVM"],
         value="MLIR",
         label="Backend:"
     )
     compile_editor
-    return compile_editor, compile_output_radio, compile_backend_radio
+    return compile_editor, compile_backend_radio
+
+@app.cell
+def _(compile_backend_radio):
+    # Output options depend on backend (TVM doesn't support Lowered IR)
+    if compile_backend_radio.value == "TVM":
+        _output_options = ["Source IR", "Transformed IR", "Assembly"]
+    else:
+        _output_options = ["Source IR", "Transformed IR", "Lowered IR", "Assembly"]
+
+    compile_output_radio = mo.ui.radio(
+        options=_output_options,
+        value="Assembly",
+        label="Output options:"
+    )
+    # Display radios immediately (before compilation runs)
+    mo.hstack([compile_backend_radio, compile_output_radio], justify="start", gap=4)
+    return compile_output_radio,
 
 @app.cell
 def _(compile_editor, compile_output_radio, compile_backend_radio):
@@ -299,10 +311,6 @@ def _(compile_editor, compile_output_radio, compile_backend_radio):
     _print_lowered_ir = compile_output_radio.value == "Lowered IR"
     _print_assembly = compile_output_radio.value == "Assembly"
 
-    # Check for unsupported option
-    if _print_lowered_ir and compile_backend_radio.value == "TVM":
-        mo.stop(True, mo.md("**Note:** The TVM backend does not support 'Lowered IR'. Please select another output option."))
-
     # Create graph and compile without optimizations
     _graph = _matmul_graph(_I, _J, _K, _dtype)
     _backend = _Backend(_graph)
@@ -310,7 +318,7 @@ def _(compile_editor, compile_output_radio, compile_backend_radio):
     _scheduler.set_dims(['i', 'j', 'k'])
     _sched = _scheduler.schedule()
 
-    # Build compiler options
+    # Build compiler options (print_lowered_ir only for MLIR)
     _compiler_opts = {
         "dump_file": "test_mlir",
         "shared_lib": True,
@@ -339,11 +347,10 @@ def _(compile_editor, compile_output_radio, compile_backend_radio):
 
     # Build output
     _perf_display = mo.md(f"**Performance:** {_perf:.2f}% of peak")
-    _radio_row = mo.hstack([compile_backend_radio, compile_output_radio], justify="start", gap=4)
     _code_content = mo.md(f"```asm\n{_code_output}\n```") if _code_output else mo.md("*No IR output.*")
     _code_accordion = mo.accordion({"Generated Code": _code_content})
 
-    mo.vstack([_perf_display, _radio_row, _code_accordion])
+    mo.vstack([_perf_display, _code_accordion])
     return
 
 @app.cell(hide_code=True)
@@ -410,18 +417,30 @@ def schedule(sch):
         language="python",
         label=""
     )
-    sched_output_radio = mo.ui.radio(
-        options=["Source IR", "Transformed IR", "Lowered IR", "Assembly"],
-        value="Assembly",
-        label="Output options:"
-    )
     sched_backend_radio = mo.ui.radio(
         options=["MLIR", "TVM"],
         value="MLIR",
         label="Backend:"
     )
     sched_editor
-    return sched_editor, sched_output_radio, sched_backend_radio
+    return sched_editor, sched_backend_radio
+
+@app.cell
+def _(sched_backend_radio):
+    # Output options depend on backend (TVM doesn't support Lowered IR)
+    if sched_backend_radio.value == "TVM":
+        _output_options = ["Source IR", "Transformed IR", "Assembly"]
+    else:
+        _output_options = ["Source IR", "Transformed IR", "Lowered IR", "Assembly"]
+
+    sched_output_radio = mo.ui.radio(
+        options=_output_options,
+        value="Assembly",
+        label="Output options:"
+    )
+    # Display radios immediately (before compilation runs)
+    mo.hstack([sched_backend_radio, sched_output_radio], justify="start", gap=4)
+    return sched_output_radio,
 
 @app.cell
 def _(sched_editor, sched_output_radio, sched_backend_radio):
@@ -462,10 +481,6 @@ def _(sched_editor, sched_output_radio, sched_backend_radio):
     _print_transformed_ir = sched_output_radio.value == "Transformed IR"
     _print_lowered_ir = sched_output_radio.value == "Lowered IR"
     _print_assembly = sched_output_radio.value == "Assembly"
-
-    # Check for unsupported option
-    if _print_lowered_ir and sched_backend_radio.value == "TVM":
-        mo.stop(True, mo.md("**Note:** The TVM backend does not support 'Lowered IR'. Please select another output option."))
 
     # Create graph and apply schedule
     _graph = _matmul_graph(_I, _J, _K, _dtype)
@@ -510,11 +525,10 @@ def _(sched_editor, sched_output_radio, sched_backend_radio):
 
     # Build output
     _perf_display = mo.md(f"**Performance:** {_perf:.2f}% of peak")
-    _radio_row = mo.hstack([sched_backend_radio, sched_output_radio], justify="start", gap=4)
     _code_content = mo.md(f"```asm\n{_code_output}\n```") if _code_output else mo.md("*No IR output.*")
     _code_accordion = mo.accordion({"Generated Code": _code_content})
 
-    mo.vstack([_perf_display, _radio_row, _code_accordion])
+    mo.vstack([_perf_display, _code_accordion])
     return
 
 @app.cell(hide_code=True)
@@ -578,18 +592,30 @@ schedule_spec = {
         language="python",
         label=""
     )
-    output_radio = mo.ui.radio(
-        options=["Source IR", "Transformed IR", "Lowered IR", "Assembly"],
-        value="Assembly",
-        label="Output options:"
-    )
     backend_radio = mo.ui.radio(
         options=["MLIR", "TVM"],
         value="MLIR",
         label="Backend:"
     )
     descript_editor
-    return descript_editor, output_radio, backend_radio
+    return descript_editor, backend_radio
+
+@app.cell
+def _(backend_radio):
+    # Output options depend on backend (TVM doesn't support Lowered IR)
+    if backend_radio.value == "TVM":
+        _output_options = ["Source IR", "Transformed IR", "Assembly"]
+    else:
+        _output_options = ["Source IR", "Transformed IR", "Lowered IR", "Assembly"]
+
+    output_radio = mo.ui.radio(
+        options=_output_options,
+        value="Assembly",
+        label="Output options:"
+    )
+    # Display radios immediately (before compilation runs)
+    mo.hstack([backend_radio, output_radio], justify="start", gap=4)
+    return output_radio,
 
 @app.cell
 def _(descript_editor, output_radio, backend_radio):
@@ -632,10 +658,6 @@ def _(descript_editor, output_radio, backend_radio):
     _print_lowered_ir = output_radio.value == "Lowered IR"
     _print_assembly = output_radio.value == "Assembly"
 
-    # Check for unsupported option
-    if _print_lowered_ir and backend_radio.value == "TVM":
-        mo.stop(True, mo.md("**Note:** The TVM backend does not support 'Lowered IR'. Please select another output option."))
-
     # Create graph and apply schedule
     _graph = _matmul_graph(_I, _J, _K, _dtype)
     _backend = _Backend(_graph)
@@ -677,11 +699,10 @@ def _(descript_editor, output_radio, backend_radio):
 
     # Build output
     _perf_display = mo.md(f"**Performance:** {_perf:.2f}% of peak")
-    _radio_row = mo.hstack([backend_radio, output_radio], justify="start", gap=4)
     _code_content = mo.md(f"```asm\n{_code_output}\n```") if _code_output else mo.md("*No IR output.*")
     _code_accordion = mo.accordion({"Generated Code": _code_content})
 
-    mo.vstack([_perf_display, _radio_row, _code_accordion])
+    mo.vstack([_perf_display, _code_accordion])
 
 @app.cell(hide_code=True)
 def _():
