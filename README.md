@@ -43,6 +43,12 @@ sudo dnf install libpfm-devel
 sudo sysctl kernel.perf_event_paranoid=1
 ```
 
+MacOS:
+```bash
+brew install libomp
+export DYLD_LIBRARY_PATH="/opt/homebrew/opt/libomp/lib:$DYLD_LIBRARY_PATH"
+```
+
 ### Installation
 
 **Python**: 3.10 to 3.14 inclusive
@@ -50,9 +56,13 @@ sudo sysctl kernel.perf_event_paranoid=1
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip3 install -e '.[dev]'
-pip3 install -r mlir_requirements.txt  # Optional: MLIR backend
-pip3 install -r tvm_requirements.txt   # Optional: TVM backend
-make test                              # Run minimal unit tests
+# Linux
+pip3 install -r mlir_requirements.txt        # Optional: MLIR backend
+pip3 install -r tvm_requirements.txt         # Optional: TVM backend
+# MacOS 
+pip3 install -r macos_mlir_requirements.txt  # Optional: MLIR backend
+pip3 install -r macos_tvm_requirements.txt   # Optional: TVM backend
+make test                                    # Run minimal unit tests
 ```
 
 ### Code quality

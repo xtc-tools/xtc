@@ -5,6 +5,7 @@
 from pathlib import Path
 import subprocess
 import shlex
+import platform
 
 
 def target_arch(arch: str = "") -> str:
@@ -73,9 +74,12 @@ def disassemble(
         "--no-addresses",
         "--no-show-raw-insn",
     ]
-    jumps_opts = [
-        "--visualize-jumps",
-    ]
+    if platform.system() == "Darwin":
+        jumps_opts = []
+        disass_symbol_opt = ["--disassemble-symbols=ltmp0"]
+    else:
+        jumps_opts = []
+        disass_symbol_opt = [f"--disassemble={function}"]
     color_opts = [
         "--disassembler-color=on",
     ]
@@ -83,7 +87,7 @@ def disassemble(
     obj_path = Path(obj_path)
     args = [
         *base_opts,
-        *([f"--disassemble={function}"] if function else ["--disassemble"]),
+        *(disass_symbol_opt if function else ["--disassemble"]),
         *(jumps_opts if visualize_jumps else []),
         *(color_opts if color else []),
         str(obj_path),
