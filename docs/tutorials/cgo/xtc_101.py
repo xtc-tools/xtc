@@ -31,78 +31,7 @@ def _():
     ## 1. Installation
 
     Before starting, ensure you have XTC properly installed on your system.
-
-    ### System Requirements
-
-    XTC supports the following platforms:
-    - **Linux x86_64** (recommended)
-    - **MacOS M1+**
-
-    ### System Dependencies
-
-    Install the required system packages:
-
-    **For Debian/Ubuntu:**
-    ```bash
-    sudo apt install python3 python3-dev build-essential libomp5 binutils binutils-aarch64-linux-gnu binutils-x86-64-linux-gnu
-    sudo apt install libpfm4-dev  # Optional: for PMU counters on CPU
-    ```
-
-    **For Fedora:**
-    ```bash
-    sudo dnf install python3 python3-devel libomp binutils binutils-aarch64-linux-gnu binutils-x86_64-linux-gnu
-    sudo dnf group install c-development development-tools
-    sudo dnf install libpfm-devel
-    ```
-
-    ### Python Environment Setup
-
-    Create and activate a virtual environment (Python version must be >=3.10 and <3.13):
-
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    ```
-
-    ### Installing XTC
-
-    Install the XTC package for development/testing:
-
-    ```bash
-    pip3 install -e '.[dev]'
-    ```
-
-    ### Backend Requirements
-
-    XTC supports multiple backends. Install the MLIR and and TVM ones:
-
-    **MLIR Backend** (recommended for this tutorial):
-    ```bash
-    pip3 install -r mlir_requirements.txt
-    ```
-
-    **TVM Backend**:
-    ```bash
-    pip3 install -r tvm_requirements.txt
-    ```
-
-    ### PMU Counters (Optional)
-
-    To use hardware performance counters for detailed profiling (on Linux), configure your system:
-
-    ```bash
-    sudo sysctl kernel.perf_event_paranoid=1
-    ```
-
-    ### Verify Installation
-
-    Run the minimal test suite to verify your installation:
-
-    ```bash
-    make test
-    ```
-
-    If all tests pass, you're ready to proceed with the tutorial!
+    Please [follow the README](https://github.com/xtc-tools/xtc/blob/main/README.md).
     """)
     return
 
@@ -192,6 +121,8 @@ def __(def_editor):
     mo.md(f"**Output:**\n```\n{_output}\n```")
     return _captured_output, _old_stdout, _output
 
+## Section 3 - Compile and Evaluate
+
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
@@ -201,29 +132,9 @@ def _():
 
     The compilation pipeline in XTC follows these steps:
     1. **Create a Backend**: In XTC, the backend corresponds to an existing framework such as MLIR or TVM that, given a schedule, can generate the code for a specific target
-    2. **Get a Scheduler**: In XTC, a scheduler is a builder that creates a schedule. Even without optimizations, we need a scheduler to get a default loop structure. To perform further optimizations we need to name the loop dimensions (e.g., `i`, `j`, `k` for matmul)
+    2. **Get a Scheduler**: In XTC, a scheduler is a builder that creates a schedule. Even without optimizations, we need a scheduler to get a default loop structure.
     3. **Compile**: Generate executable code
     4. **Evaluate**: Run the compiled code and measure performance
-
-    ```python
-    from xtc.backends.mlir import Backend
-
-    # 1. Create a backend
-    backend = Backend(graph)
-
-    # 2. Get a scheduler (no transformations)
-    sch = backend.get_scheduler()
-    sch.set_dims(['i', 'j', 'k'])
-    sched = sch.schedule()
-
-    # 3. Compile
-    comp = backend.get_compiler(shared_lib=True)
-    module = comp.compile(sched)
-
-    # 4. Evaluate
-    evaluator = module.get_evaluator()
-    results, _, _ = evaluator.evaluate()
-    ```
     """)
     return
 
@@ -238,22 +149,75 @@ def _():
     return
 
 @app.cell
-def _():
+def _(compile_backend_radio, compile_output_radio):
+    # Build editor content based on backend selection
+    if compile_backend_radio.value == "MLIR":
+        _backend_import = "from xtc.backends.mlir import Backend"
+    else:
+        _backend_import = "from xtc.backends.tvm import Backend"
+
+    # Build print options based on output radio
+    _print_opts = []
+    if compile_output_radio.value == "Source IR":
+        _print_opts.append("print_source_ir=True")
+    elif compile_output_radio.value == "Transformed IR":
+        _print_opts.append("print_transformed_ir=True")
+    elif compile_output_radio.value == "Lowered IR":
+        _print_opts.append("print_lowered_ir=True")
+    elif compile_output_radio.value == "Assembly":
+        _print_opts.append("print_assembly=True")
+    _print_opts_str = ", ".join(_print_opts)
+
     compile_editor = mo.ui.code_editor(
-        value=
-'''# === Problem Definition ===
+        value=f'''import xtc.graphs.xtc.op as O
+from xtc.graphs.xtc.graph import XTCGraph
+{_backend_import}
+import xtc.runtimes.host.runtime as rt
+
+# Problem setup
 I, J, K, dtype = 4, 32, 512, "float32"
+
+def matmul_graph(I: int, J: int, K: int, dtype: str) -> XTCGraph:
+   """Create a graph computing C = A @ B."""
+   a = O.tensor((I, K), dtype, name="A")
+   b = O.tensor((K, J), dtype, name="B")
+   with O.graph(name="matmul") as gb:
+         O.matmul(a, b, name="C")
+   return gb.graph
+
+graph = matmul_graph(I, J, K, dtype)
+backend = Backend(graph)
+
+# Compile (no transformations, just default loop structure)
+scheduler = backend.get_scheduler()
+scheduler.set_dims(['i','j','k'])
+schedule = scheduler.schedule()
+
+compiler = backend.get_compiler(dump_file="matmul", shared_lib=True, {_print_opts_str})
+module = compiler.compile(schedule)
+
+# Evaluate and display results
+peak_flops = rt.evaluate_flops(dtype)
+evaluator = module.get_evaluator()
+results, _, _ = evaluator.evaluate()
+perf = (I * J * K) / min(results) / peak_flops * 100
+
+display_results(perf)
 ''',
         language="python",
         label=""
     )
+    compile_editor
+    return compile_editor,
+
+@app.cell
+def _():
     compile_backend_radio = mo.ui.radio(
         options=["MLIR", "TVM"],
         value="MLIR",
         label="Backend:"
     )
-    compile_editor
-    return compile_editor, compile_backend_radio
+    return compile_backend_radio,
 
 @app.cell
 def _(compile_backend_radio):
@@ -268,90 +232,43 @@ def _(compile_backend_radio):
         value="Assembly",
         label="Output options:"
     )
-    # Display radios immediately (before compilation runs)
+    # Display radios after the editor
     mo.hstack([compile_backend_radio, compile_output_radio], justify="start", gap=4)
     return compile_output_radio,
 
 @app.cell
-def _(compile_editor, compile_output_radio, compile_backend_radio):
+def _(compile_editor):
     import traceback as _traceback
     from io import StringIO as _StringIO
     from contextlib import redirect_stderr as _redirect_stderr, redirect_stdout as _redirect_stdout
-    import xtc.graphs.xtc.op as _O
-    from xtc.graphs.xtc.graph import XTCGraph as _XTCGraph
-    import xtc.runtimes.host.runtime as _rt
 
-    # Import backend based on radio selection
-    if compile_backend_radio.value == "MLIR":
-        from xtc.backends.mlir import Backend as _Backend
-    else:
-        from xtc.backends.tvm import Backend as _Backend
+    _captured = {"perf": 0.0}
 
-    # Define helper functions
-    def _matmul_graph(I: int, J: int, K: int, dtype: str) -> _XTCGraph:
-        a = _O.tensor((I, K), dtype, name="A")
-        b = _O.tensor((K, J), dtype, name="B")
-        with _O.graph(name="matmul") as gb:
-            _O.matmul(a, b, name="C")
-        return gb.graph
+    def _display_results(perf):
+        _captured["perf"] = perf
 
-    # Parse configuration from editor
-    _namespace = {}
+    # Execute the editor code with display_results available
+    _namespace = {"display_results": _display_results}
+    _code_output_stderr = _StringIO()
+    _code_output_stdout = _StringIO()
     try:
-        exec(compile_editor.value, _namespace)
+        with _redirect_stderr(_code_output_stderr), _redirect_stdout(_code_output_stdout):
+            exec(compile_editor.value, _namespace)
     except Exception as e:
         mo.stop(True, mo.md(f"**Code error:**\n```\n{_traceback.format_exc()}\n```"))
 
-    _I = _namespace.get("I", 4)
-    _J = _namespace.get("J", 32)
-    _K = _namespace.get("K", 512)
-    _dtype = _namespace.get("dtype", "float32")
-    _print_source_ir = compile_output_radio.value == "Source IR"
-    _print_transformed_ir = compile_output_radio.value == "Transformed IR"
-    _print_lowered_ir = compile_output_radio.value == "Lowered IR"
-    _print_assembly = compile_output_radio.value == "Assembly"
-
-    # Create graph and compile without optimizations
-    _graph = _matmul_graph(_I, _J, _K, _dtype)
-    _backend = _Backend(_graph)
-    _scheduler = _backend.get_scheduler()
-    _scheduler.set_dims(['i', 'j', 'k'])
-    _sched = _scheduler.schedule()
-
-    # Build compiler options (print_lowered_ir only for MLIR)
-    _compiler_opts = {
-        "dump_file": "test_mlir",
-        "shared_lib": True,
-        "print_source_ir": _print_source_ir,
-        "print_transformed_ir": _print_transformed_ir,
-        "print_assembly": _print_assembly
-    }
-    if compile_backend_radio.value == "MLIR":
-        _compiler_opts["print_lowered_ir"] = _print_lowered_ir
-
-    _comp = _backend.get_compiler(**_compiler_opts)
-    _code_output_stderr = _StringIO()
-    _code_output_stdout = _StringIO()
-    with _redirect_stderr(_code_output_stderr), _redirect_stdout(_code_output_stdout):
-        _module = _comp.compile(_sched)
-
     _code_output = _code_output_stderr.getvalue() + _code_output_stdout.getvalue()
 
-    # Evaluate performance
-    _peak_flops = _rt.evaluate_flops(_dtype)
-    _evaluator = _module.get_evaluator()
-    _results, _, _ = _evaluator.evaluate()
-    _result = min(_results)
-    _time_flops = (_I * _J * _K) / _result
-    _perf = _time_flops / _peak_flops * 100
-
     # Build output
-    _perf_display = mo.md(f"**Performance:** {_perf:.2f}% of peak")
+    _perf_display = mo.md(f"**Performance:** {_captured['perf']:.2f}% of peak")
     _code_content = mo.md(f"```asm\n{_code_output}\n```") if _code_output else mo.md("*No IR output.*")
     _code_accordion = mo.accordion({"Generated Code": _code_content})
 
     mo.vstack([_perf_display, _code_accordion])
     return
+
+
+## Section 4 - Optimize with Scheduling
 
 @app.cell(hide_code=True)
 def _():
@@ -366,25 +283,6 @@ def _():
     - To perform actual tiling, `sch.tile` must be combined with `sch.interchange`. As an example `sch.tile("j", {"j1": 16})` followed by `sch.tile("k", {"k1": 16})` followed by `sch.interchange(["i", "j", "k", "j1", "k1"])` would create tiles of size $j_1\times k_1=16\times 16$.
     - `sch.vectorize(["j1"])` vectorizes the computation along the loop `j1`. Vectorization uses SIMD instructions to process multiple elements in parallel, significantly increasing throughput on modern CPUs.
     - `sch.unroll({"j1":1})` unrolls the loop `j1` with an unroll factor of 1 (useless too). Unrolling reduces loop overhead (fewer branches) and exposes more instruction-level parallelism to the hardware.
-
-    ```python
-    from xtc.backends.mlir import Backend
-
-    backend = Backend(graph)
-    sch = backend.get_scheduler()
-
-    # Apply transformations
-    sch.set_dims(['i', 'j', 'k'])
-    sch.tile("j", {"j1": 16})
-    sch.vectorize(["j1"])
-    sched = sch.schedule()
-
-    # Compile and evaluate
-    comp = backend.get_compiler(shared_lib=True)
-    module = comp.compile(sched)
-    evaluator = module.get_evaluator()
-    results, _, _ = evaluator.evaluate()
-    ```
     """)
     return
 
@@ -400,30 +298,84 @@ def _():
     return
 
 @app.cell
-def _():
+def _(sched_backend_radio, sched_output_radio):
+    # Build editor content based on backend selection
+    if sched_backend_radio.value == "MLIR":
+        _backend_import = "from xtc.backends.mlir import Backend"
+    else:
+        _backend_import = "from xtc.backends.tvm import Backend"
+
+    # Build print options based on output radio
+    _print_opts = []
+    if sched_output_radio.value == "Source IR":
+        _print_opts.append("print_source_ir=True")
+    elif sched_output_radio.value == "Transformed IR":
+        _print_opts.append("print_transformed_ir=True")
+    elif sched_output_radio.value == "Lowered IR":
+        _print_opts.append("print_lowered_ir=True")
+    elif sched_output_radio.value == "Assembly":
+        _print_opts.append("print_assembly=True")
+    _print_opts_str = ", ".join(_print_opts)
+
     sched_editor = mo.ui.code_editor(
-        value=
-'''# === Problem Definition ===
+        value=f'''import xtc.graphs.xtc.op as O
+from xtc.graphs.xtc.graph import XTCGraph
+{_backend_import}
+import xtc.runtimes.host.runtime as rt
+
+# Problem setup
 I, J, K, dtype = 4, 32, 512, "float32"
 
-# === Schedule (imperative) ===
+def matmul_graph(I: int, J: int, K: int, dtype: str) -> XTCGraph:
+   """Create a graph computing C = A @ B."""
+   a = O.tensor((I, K), dtype, name="A")
+   b = O.tensor((K, J), dtype, name="B")
+   with O.graph(name="matmul") as gb:
+         O.matmul(a, b, name="C")
+   return gb.graph
+
+graph = matmul_graph(I, J, K, dtype)
+backend = Backend(graph)
+
+# Schedule definition
 def schedule(sch):
+   """Apply transformations to the scheduler."""
    sch.set_dims(['i','j','k'])
    # Add transformations here, e.g.:
-   # sch.tile("j", {"j1": 16})
+   # sch.tile("j", {{"j1": 16}})
    # sch.vectorize(["j1"])
    # sch.interchange(["i", "k", "j", "j1"])
+
+# Compile
+scheduler = backend.get_scheduler()
+schedule(scheduler)
+sched = scheduler.schedule()
+
+compiler = backend.get_compiler(dump_file="matmul", shared_lib=True, {_print_opts_str})
+module = compiler.compile(sched)
+
+# Evaluate and display results
+peak_flops = rt.evaluate_flops(dtype)
+evaluator = module.get_evaluator()
+results, _, _ = evaluator.evaluate()
+perf = (I * J * K) / min(results) / peak_flops * 100
+
+display_results(perf)
 ''',
         language="python",
         label=""
     )
+    sched_editor
+    return sched_editor,
+
+@app.cell
+def _():
     sched_backend_radio = mo.ui.radio(
         options=["MLIR", "TVM"],
         value="MLIR",
         label="Backend:"
     )
-    sched_editor
-    return sched_editor, sched_backend_radio
+    return sched_backend_radio,
 
 @app.cell
 def _(sched_backend_radio):
@@ -438,93 +390,35 @@ def _(sched_backend_radio):
         value="Assembly",
         label="Output options:"
     )
-    # Display radios immediately (before compilation runs)
+    # Display radios after the editor
     mo.hstack([sched_backend_radio, sched_output_radio], justify="start", gap=4)
     return sched_output_radio,
 
 @app.cell
-def _(sched_editor, sched_output_radio, sched_backend_radio):
+def _(sched_editor):
     import traceback as _traceback
     from io import StringIO as _StringIO
     from contextlib import redirect_stderr as _redirect_stderr, redirect_stdout as _redirect_stdout
-    import xtc.graphs.xtc.op as _O
-    from xtc.graphs.xtc.graph import XTCGraph as _XTCGraph
-    import xtc.runtimes.host.runtime as _rt
 
-    # Import backend based on radio selection
-    if sched_backend_radio.value == "MLIR":
-        from xtc.backends.mlir import Backend as _Backend
-    else:
-        from xtc.backends.tvm import Backend as _Backend
+    _captured = {"perf": 0.0}
 
-    # Define helper functions
-    def _matmul_graph(I: int, J: int, K: int, dtype: str) -> _XTCGraph:
-        a = _O.tensor((I, K), dtype, name="A")
-        b = _O.tensor((K, J), dtype, name="B")
-        with _O.graph(name="matmul") as gb:
-            _O.matmul(a, b, name="C")
-        return gb.graph
+    def _display_results(perf):
+        _captured["perf"] = perf
 
-    # Parse configuration from editor
-    _namespace = {}
+    # Execute the editor code with display_results available
+    _namespace = {"display_results": _display_results}
+    _code_output_stderr = _StringIO()
+    _code_output_stdout = _StringIO()
     try:
-        exec(sched_editor.value, _namespace)
+        with _redirect_stderr(_code_output_stderr), _redirect_stdout(_code_output_stdout):
+            exec(sched_editor.value, _namespace)
     except Exception as e:
         mo.stop(True, mo.md(f"**Code error:**\n```\n{_traceback.format_exc()}\n```"))
 
-    _I = _namespace.get("I", 4)
-    _J = _namespace.get("J", 32)
-    _K = _namespace.get("K", 512)
-    _dtype = _namespace.get("dtype", "float32")
-    _schedule_fn = _namespace.get("schedule")
-    _print_source_ir = sched_output_radio.value == "Source IR"
-    _print_transformed_ir = sched_output_radio.value == "Transformed IR"
-    _print_lowered_ir = sched_output_radio.value == "Lowered IR"
-    _print_assembly = sched_output_radio.value == "Assembly"
-
-    # Create graph and apply schedule
-    _graph = _matmul_graph(_I, _J, _K, _dtype)
-    _backend = _Backend(_graph)
-    _scheduler = _backend.get_scheduler()
-
-    # Apply user-defined schedule function
-    if _schedule_fn is not None:
-        try:
-            _schedule_fn(_scheduler)
-        except Exception as e:
-            mo.stop(True, mo.md(f"**Schedule error:**\n```\n{_traceback.format_exc()}\n```"))
-
-    _sched = _scheduler.schedule()
-
-    # Build compiler options (TVM doesn't support print_lowered_ir)
-    _compiler_opts = {
-        "dump_file": "test_mlir",
-        "shared_lib": True,
-        "print_source_ir": _print_source_ir,
-        "print_transformed_ir": _print_transformed_ir,
-        "print_assembly": _print_assembly
-    }
-    if sched_backend_radio.value == "MLIR":
-        _compiler_opts["print_lowered_ir"] = _print_lowered_ir
-
-    _comp = _backend.get_compiler(**_compiler_opts)
-    _code_output_stderr = _StringIO()
-    _code_output_stdout = _StringIO()
-    with _redirect_stderr(_code_output_stderr), _redirect_stdout(_code_output_stdout):
-        _module = _comp.compile(_sched)
-
     _code_output = _code_output_stderr.getvalue() + _code_output_stdout.getvalue()
 
-    # Evaluate performance
-    _peak_flops = _rt.evaluate_flops(_dtype)
-    _evaluator = _module.get_evaluator()
-    _results, _, _ = _evaluator.evaluate()
-    _result = min(_results)
-    _time_flops = (_I * _J * _K) / _result
-    _perf = _time_flops / _peak_flops * 100
-
     # Build output
-    _perf_display = mo.md(f"**Performance:** {_perf:.2f}% of peak")
+    _perf_display = mo.md(f"**Performance:** {_captured['perf']:.2f}% of peak")
     _code_content = mo.md(f"```asm\n{_code_output}\n```") if _code_output else mo.md("*No IR output.*")
     _code_accordion = mo.accordion({"Generated Code": _code_content})
 
@@ -577,128 +471,131 @@ def _():
     return
 
 @app.cell
-def _():
+def _(descript_backend_radio, descript_output_radio):
+    # Build editor content based on backend selection
+    if descript_backend_radio.value == "MLIR":
+        _backend_import = "from xtc.backends.mlir import Backend"
+    else:
+        _backend_import = "from xtc.backends.tvm import Backend"
+
+    # Build print options based on output radio
+    _print_opts = []
+    if descript_output_radio.value == "Source IR":
+        _print_opts.append("print_source_ir=True")
+    elif descript_output_radio.value == "Transformed IR":
+        _print_opts.append("print_transformed_ir=True")
+    elif descript_output_radio.value == "Lowered IR":
+        _print_opts.append("print_lowered_ir=True")
+    elif descript_output_radio.value == "Assembly":
+        _print_opts.append("print_assembly=True")
+    _print_opts_str = ", ".join(_print_opts)
+
     descript_editor = mo.ui.code_editor(
-        value=
-'''# === Problem Definition ===
+        value=f'''import xtc.graphs.xtc.op as O
+from xtc.graphs.xtc.graph import XTCGraph
+{_backend_import}
+from xtc.schedules.descript import descript_scheduler
+import xtc.runtimes.host.runtime as rt
+
+# Problem setup
 I, J, K, dtype = 4, 32, 512, "float32"
 
-# === Schedule Specification ===
-schedule_spec = {
-   "i": {},
-   "j": {},
-   "k": {}
-}''',
+def matmul_graph(I: int, J: int, K: int, dtype: str) -> XTCGraph:
+   """Create a graph computing C = A @ B."""
+   a = O.tensor((I, K), dtype, name="A")
+   b = O.tensor((K, J), dtype, name="B")
+   with O.graph(name="matmul") as gb:
+         O.matmul(a, b, name="C")
+   return gb.graph
+
+graph = matmul_graph(I, J, K, dtype)
+backend = Backend(graph)
+
+# Schedule specification
+schedule_spec = {{
+   "i": {{}},
+   "j": {{}},
+   "k": {{}}
+}}
+
+# Compile
+scheduler = backend.get_scheduler()
+descript_scheduler(
+   scheduler=scheduler,
+   node_name="C",
+   abstract_axis=["i", "j", "k"],
+   spec=schedule_spec
+)
+schedule = scheduler.schedule()
+
+compiler = backend.get_compiler(dump_file="matmul", shared_lib=True, {_print_opts_str})
+module = compiler.compile(schedule)
+
+# Evaluate and display results
+peak_flops = rt.evaluate_flops(dtype)
+evaluator = module.get_evaluator()
+results, _, _ = evaluator.evaluate()
+perf = (I * J * K) / min(results) / peak_flops * 100
+
+display_results(perf)
+''',
         language="python",
         label=""
     )
-    backend_radio = mo.ui.radio(
+    descript_editor
+    return descript_editor,
+
+@app.cell
+def _():
+    descript_backend_radio = mo.ui.radio(
         options=["MLIR", "TVM"],
         value="MLIR",
         label="Backend:"
     )
-    descript_editor
-    return descript_editor, backend_radio
+    return descript_backend_radio,
 
 @app.cell
-def _(backend_radio):
+def _(descript_backend_radio):
     # Output options depend on backend (TVM doesn't support Lowered IR)
-    if backend_radio.value == "TVM":
+    if descript_backend_radio.value == "TVM":
         _output_options = ["Source IR", "Transformed IR", "Assembly"]
     else:
         _output_options = ["Source IR", "Transformed IR", "Lowered IR", "Assembly"]
 
-    output_radio = mo.ui.radio(
+    descript_output_radio = mo.ui.radio(
         options=_output_options,
         value="Assembly",
         label="Output options:"
     )
-    # Display radios immediately (before compilation runs)
-    mo.hstack([backend_radio, output_radio], justify="start", gap=4)
-    return output_radio,
+    # Display radios after the editor
+    mo.hstack([descript_backend_radio, descript_output_radio], justify="start", gap=4)
+    return descript_output_radio,
 
 @app.cell
-def _(descript_editor, output_radio, backend_radio):
+def _(descript_editor):
     import traceback as _traceback
     from io import StringIO as _StringIO
     from contextlib import redirect_stderr as _redirect_stderr, redirect_stdout as _redirect_stdout
-    import xtc.graphs.xtc.op as _O
-    from xtc.graphs.xtc.graph import XTCGraph as _XTCGraph
-    from xtc.schedules.descript import descript_scheduler as _descript_scheduler
-    import xtc.runtimes.host.runtime as _rt
 
-    # Import backend based on radio selection
-    if backend_radio.value == "MLIR":
-        from xtc.backends.mlir import Backend as _Backend
-    else:
-        from xtc.backends.tvm import Backend as _Backend
+    _captured = {"perf": 0.0}
 
-    # Define helper functions
-    def _matmul_graph(I: int, J: int, K: int, dtype: str) -> _XTCGraph:
-        a = _O.tensor((I, K), dtype, name="A")
-        b = _O.tensor((K, J), dtype, name="B")
-        with _O.graph(name="matmul") as gb:
-            _O.matmul(a, b, name="C")
-        return gb.graph
+    def _display_results(perf):
+        _captured["perf"] = perf
 
-    # Parse configuration from editor
-    _namespace = {"matmul_graph": _matmul_graph}
+    # Execute the editor code with display_results available
+    _namespace = {"display_results": _display_results}
+    _code_output_stderr = _StringIO()
+    _code_output_stdout = _StringIO()
     try:
-        exec(descript_editor.value, _namespace)
+        with _redirect_stderr(_code_output_stderr), _redirect_stdout(_code_output_stdout):
+            exec(descript_editor.value, _namespace)
     except Exception as e:
         mo.stop(True, mo.md(f"**Code error:**\n```\n{_traceback.format_exc()}\n```"))
 
-    _I = _namespace.get("I", 4)
-    _J = _namespace.get("J", 32)
-    _K = _namespace.get("K", 512)
-    _dtype = _namespace.get("dtype", "float32")
-    _spec = _namespace.get("schedule_spec", {})
-    _print_source_ir = output_radio.value == "Source IR"
-    _print_transformed_ir = output_radio.value == "Transformed IR"
-    _print_lowered_ir = output_radio.value == "Lowered IR"
-    _print_assembly = output_radio.value == "Assembly"
-
-    # Create graph and apply schedule
-    _graph = _matmul_graph(_I, _J, _K, _dtype)
-    _backend = _Backend(_graph)
-    _scheduler = _backend.get_scheduler()
-    _descript_scheduler(
-        scheduler=_scheduler,
-        node_name="C",
-        abstract_axis=["i", "j", "k"],
-        spec=_spec
-    )
-    _schedule = _scheduler.schedule()
-
-    # Build compiler options (TVM doesn't support print_lowered_ir)
-    _compiler_opts = {
-        "dump_file": "test_mlir",
-        "shared_lib": True,
-        "print_source_ir": _print_source_ir,
-        "print_transformed_ir": _print_transformed_ir,
-        "print_assembly": _print_assembly
-    }
-    if backend_radio.value == "MLIR":
-        _compiler_opts["print_lowered_ir"] = _print_lowered_ir
-
-    _comp = _backend.get_compiler(**_compiler_opts)
-    _code_output_stderr = _StringIO()
-    _code_output_stdout = _StringIO()
-    with _redirect_stderr(_code_output_stderr), _redirect_stdout(_code_output_stdout):
-        _module = _comp.compile(_schedule)
-
     _code_output = _code_output_stderr.getvalue() + _code_output_stdout.getvalue()
 
-    # Evaluate performance
-    _peak_flops = _rt.evaluate_flops(_dtype)
-    _evaluator = _module.get_evaluator()
-    _results, _, _ = _evaluator.evaluate()
-    _result = min(_results)
-    _time_flops = (_I * _J * _K) / _result
-    _perf = _time_flops / _peak_flops * 100
-
     # Build output
-    _perf_display = mo.md(f"**Performance:** {_perf:.2f}% of peak")
+    _perf_display = mo.md(f"**Performance:** {_captured['perf']:.2f}% of peak")
     _code_content = mo.md(f"```asm\n{_code_output}\n```") if _code_output else mo.md("*No IR output.*")
     _code_accordion = mo.accordion({"Generated Code": _code_content})
 
@@ -735,17 +632,57 @@ def _():
 def _():
     explore_schedules_code = mo.ui.code_editor(
         value=
-'''from xtc.backends.tvm import Backend as TVM_Backend
+'''import xtc.graphs.xtc.op as O
+from xtc.graphs.xtc.graph import XTCGraph
+from xtc.backends.tvm import Backend as TVM_Backend
 from xtc.backends.mlir import Backend as MLIR_Backend
+from xtc.schedules.descript import descript_scheduler
 import xtc.runtimes.host.runtime as rt
+from io import StringIO
+from contextlib import redirect_stderr
 import itertools
 
-# === Problem Definition ===
+# Problem setup
 I, J, K, dtype = 256, 256, 512, "float32"
+
+def matmul_graph(I: int, J: int, K: int, dtype: str) -> XTCGraph:
+   """Create a graph computing C = A @ B."""
+   a = O.tensor((I, K), dtype, name="A")
+   b = O.tensor((K, J), dtype, name="B")
+   with O.graph(name="matmul") as gb:
+         O.matmul(a, b, name="C")
+   return gb.graph
+
 graph = matmul_graph(I=I, J=J, K=K, dtype=dtype)
 peak_flops = rt.evaluate_flops(dtype)
 
-# === Acquisition Function ===
+# Evaluation helpers
+def apply_schedule(graph, backend_cls, spec):
+   """Apply a declarative schedule specification and compile."""
+   backend = backend_cls(graph)
+   scheduler = backend.get_scheduler()
+   descript_scheduler(
+         scheduler=scheduler,
+         node_name="C",
+         abstract_axis=["i", "j", "k"],
+         spec=spec
+   )
+   schedule = scheduler.schedule()
+   comp = backend.get_compiler(dump_file="test_mlir", shared_lib=True)
+   code = StringIO()
+   with redirect_stderr(code):
+         module = comp.compile(schedule)
+   return module, code.getvalue()
+
+def evaluate(module, peak_flops, nfmadds):
+   """Evaluate module performance as percentage of peak."""
+   evaluator = module.get_evaluator()
+   results, _, _ = evaluator.evaluate()
+   result = min(results)
+   time_flops = nfmadds / result
+   perf = time_flops / peak_flops * 100
+   return perf
+
 def acquire(i1: int, j1: int, backend):
    """Evaluate a single configuration and return its performance."""
    module, _ = apply_schedule(
@@ -754,32 +691,31 @@ def acquire(i1: int, j1: int, backend):
          spec={
                "i": {},
                "j": {},
-               "k": {}, 
-               f"i#{i1}": {"unroll": True}, 
+               "k": {},
+               f"i#{i1}": {"unroll": True},
                f"j#{j1}": {"vectorize": True}
          },
    )
-   perf = evaluate(module, peak_flops, I*J*K)
-   return perf
+   return evaluate(module, peak_flops, I*J*K)
 
-# === Exploration Loop ===
+# Exploration loop
 def explore():
    """Generator that yields (index, total, name, perf) for each evaluation."""
-
-   i1_range = range(1,5)
-   j1_range = [8,6,24,32]
-   configurations = list(itertools.product(i1_range,j1_range))
+   i1_range = range(1, 5)
+   j1_range = [8, 16, 24, 32]
+   configurations = list(itertools.product(i1_range, j1_range))
    total = len(configurations)
 
-   for idx, (i1,j1) in enumerate(configurations):
+   for idx, (i1, j1) in enumerate(configurations):
          perf = acquire(i1=i1, j1=j1, backend=MLIR_Backend)
          yield (idx, total, f"mlir:{i1}x{j1}", perf)
 
-# === Metadata for Results Display ===
-exploration_info = {
-   "dims": f"{I}x{J}x{K}",
-   "dtype": dtype,
-}''',
+# Run exploration (displays a progress bar and returns sorted results)
+def get_info():
+   return {"dims": f"{I}x{J}x{K}", "dtype": dtype}
+
+results = run_exploration(explore(), get_info)
+''',
         language="python",
         label=""
     )
@@ -790,133 +726,69 @@ exploration_info = {
 @app.cell
 def _(explore_schedules_code, run_explore_button):
     import traceback as _traceback
-    from io import StringIO as _StringIO
-    from contextlib import redirect_stderr as _redirect_stderr
-    import xtc.graphs.xtc.op as _O
-    from xtc.graphs.xtc.graph import XTCGraph as _XTCGraph
-    from xtc.schedules.descript import descript_scheduler as _descript_scheduler
 
     mo.stop(not run_explore_button.value, mo.md("*Click 'Run exploration' to execute the code.*"))
 
-    # Define helper functions
-    def _matmul_graph(I: int, J: int, K: int, dtype: str) -> _XTCGraph:
-        a = _O.tensor((I, K), dtype, name="A")
-        b = _O.tensor((K, J), dtype, name="B")
-        with _O.graph(name="matmul") as gb:
-            _O.matmul(a, b, name="C")
-        return gb.graph
+    # Define run_exploration helper that will be available in the editor
+    _captured_info = {}
 
-    def _apply_schedule(graph, backend_cls, spec, print_source_ir=False,
-                        print_transformed_ir=False, print_lowered_ir=False, print_assembly=False):
-        backend = backend_cls(graph)
-        scheduler = backend.get_scheduler()
-        _descript_scheduler(
-            scheduler=scheduler,
-            node_name="C",
-            abstract_axis=["i", "j", "k"],
-            spec=spec
-        )
-        schedule = scheduler.schedule()
-        comp = backend.get_compiler(
-            dump_file="test_mlir",
-            shared_lib=True,
-            print_source_ir=print_source_ir,
-            print_transformed_ir=print_transformed_ir,
-            print_lowered_ir=print_lowered_ir,
-            print_assembly=print_assembly
-        )
-        code = _StringIO()
-        with _redirect_stderr(code):
-            module = comp.compile(schedule)
-        return module, code.getvalue()
+    def _run_exploration(generator, get_info=None):
+        """Run exploration with progress bar. Returns sorted results."""
+        results = []
+        best_name = None
+        best_perf = 0.0
 
-    def _compile(backend, sched, print_source_ir=False, print_transformed_ir=False,
-                 print_lowered_ir=False, print_assembly=False):
-        comp = backend.get_compiler(
-            dump_file="test_mlir",
-            shared_lib=True,
-            print_source_ir=print_source_ir,
-            print_transformed_ir=print_transformed_ir,
-            print_lowered_ir=print_lowered_ir,
-            print_assembly=print_assembly
-        )
-        code = _StringIO()
-        with _redirect_stderr(code):
-            module = comp.compile(sched)
-        return (module, code.getvalue())
+        first_result = next(generator, None)
+        if first_result is None:
+            return []
 
-    def _evaluate(module, peak_flops, nfmadds):
-        evaluator = module.get_evaluator()
-        results, _, _ = evaluator.evaluate()
-        result = min(results)
-        time_flops = nfmadds / result
-        perf = time_flops / peak_flops * 100
-        return perf
+        idx, total, name, perf = first_result
+        results.append({"name": name, "perf": perf})
+        if perf > best_perf:
+            best_perf = perf
+            best_name = name
 
-    # Execute the user's code with helper functions in namespace
-    _namespace = {
-        "matmul_graph": _matmul_graph,
-        "apply_schedule": _apply_schedule,
-        "compile": _compile,
-        "evaluate": _evaluate,
-        "StringIO": _StringIO,
-        "redirect_stderr": _redirect_stderr,
-    }
+        with mo.status.progress_bar(total=total, title="Exploring schedules...", remove_on_exit=False) as progress:
+            progress.update(
+                title=f"Exploring schedules... (best: {best_perf:.1f}%)",
+                subtitle=f"Config {idx + 1}/{total}: {name} -> {perf:.1f}%"
+            )
+
+            for idx, total, name, perf in generator:
+                results.append({"name": name, "perf": perf})
+
+                if perf > best_perf:
+                    best_perf = perf
+                    best_name = name
+
+                progress.update(
+                    title=f"Exploring schedules... (best: {best_perf:.1f}%)",
+                    subtitle=f"Config {idx + 1}/{total}: {name} -> {perf:.1f}%"
+                )
+
+        # Call get_info after exploration to capture dynamic values
+        if get_info:
+            _captured_info.update(get_info())
+
+        return sorted(results, key=lambda x: x["perf"], reverse=True)
+
+    # Execute the user's code with run_exploration available
+    _namespace = {"run_exploration": _run_exploration}
     try:
         exec(explore_schedules_code.value, _namespace)
     except Exception as e:
         mo.stop(True, mo.md(f"**Code error:**\n```\n{_traceback.format_exc()}\n```"))
 
-    _explore_fn = _namespace.get("explore")
-    _info = _namespace.get("exploration_info", {})
-
-    if _explore_fn is None:
-        mo.stop(True, mo.md("**Error:** The code must define an `explore()` generator function."))
-
-    # Run exploration with progress bar
-    _results = []
-    _best_name = None
-    _best_perf = 0.0
-    _total = None
-
-    try:
-        _generator = _explore_fn()
-        _first_result = next(_generator, None)
-
-        if _first_result is None:
-            mo.stop(True, mo.md("**Error:** The `explore()` generator yielded no results."))
-
-        _idx, _total, _name, _perf = _first_result
-        _results.append({"name": _name, "perf": _perf})
-        if _perf > _best_perf:
-            _best_perf = _perf
-            _best_name = _name
-
-        with mo.status.progress_bar(total=_total, title="Exploring schedules...", remove_on_exit=False) as _progress:
-            _progress.update(
-                title=f"Exploring schedules... (best: {_best_perf:.1f}%)",
-                subtitle=f"Config {_idx + 1}/{_total}: {_name} -> {_perf:.1f}%"
-            )
-
-            for _idx, _total, _name, _perf in _generator:
-                _results.append({"name": _name, "perf": _perf})
-
-                if _perf > _best_perf:
-                    _best_perf = _perf
-                    _best_name = _name
-
-                _progress.update(
-                    title=f"Exploring schedules... (best: {_best_perf:.1f}%)",
-                    subtitle=f"Config {_idx + 1}/{_total}: {_name} -> {_perf:.1f}%"
-                )
-
-    except Exception as e:
-        mo.stop(True, mo.md(f"**Exploration error:**\n```\n{_traceback.format_exc()}\n```"))
+    _results = _namespace.get("results", [])
 
     # Build results summary
-    _dims = _info.get("dims", "?")
-    _dtype = _info.get("dtype", "?")
-    _baseline_perf = _results[0]["perf"] if _results else 1.0
+    if not _results:
+        mo.stop(True, mo.md("**Error:** No results returned. Make sure to call `results = run_exploration(explore(), get_info)`"))
+
+    _dims = _captured_info.get("dims", "?")
+    _dtype = _captured_info.get("dtype", "?")
+    _baseline_perf = _results[-1]["perf"] if _results else 1.0
+    _best = _results[0]
 
     _summary_lines = [
         f"### Descript Schedule Exploration Results",
@@ -931,14 +803,13 @@ def _(explore_schedules_code, run_explore_button):
         f"|------|---------------|-------------|-------------|",
     ]
 
-    _sorted_results = sorted(_results, key=lambda x: x["perf"], reverse=True)
-    for _rank, _r in enumerate(_sorted_results, 1):
+    for _rank, _r in enumerate(_results, 1):
         _speedup = _r["perf"] / _baseline_perf if _baseline_perf > 0 else 0
         _summary_lines.append(f"| {_rank} | {_r['name']} | {_r['perf']:.2f}% | {_speedup:.2f}x |")
 
     _summary_lines.extend([
         f"",
-        f"#### Best configuration: **{_best_name}** ({_best_perf:.2f}% of peak)",
+        f"#### Best configuration: **{_best['name']}** ({_best['perf']:.2f}% of peak)",
     ])
 
     mo.md("\n".join(_summary_lines))
@@ -957,20 +828,13 @@ def _():
     3. **Support exhaustive and random sampling**: You can enumerate all valid schedules or sample randomly for faster exploration.
     4. **Encode best practices**: Each strategy implements proven optimization patterns from the literature (e.g., Goto-style for BLAS, Ansor-style for auto-scheduling).
 
-    ### Why Use Strategies?
+    **Why Use Strategies?**
 
-    - **Efficiency**: A strategy like `Strategy_OO` reduces a matmul's search space from millions of arbitrary combinations to ~100-1000 valid, hardware-aware configurations.
-    - **Reproducibility**: Strategies provide a systematic way to explore and compare optimizations.
-    - **Automation**: Strategies integrate with XTC's search infrastructure to find optimal schedules automatically.
-    """)
-    return
-
-@app.cell(hide_code=True)
-def _():
-    mo.md(r"""
-    ### Available Strategies and Naming Convention
-
-    Strategies are named following a pattern that describes the **tiling scheme**:
+    - *Efficiency*: A strategy like `Strategy_OO` reduces a matmul's search space from millions of arbitrary combinations to ~100-1000 valid, hardware-aware configurations.
+    - *Reproducibility*: Strategies provide a systematic way to explore and compare optimizations.
+    - *Automation*: Strategies integrate with XTC's search infrastructure to find optimal schedules automatically.
+    
+    **Available strategies:**
 
     | Strategy Name                       | Description                                                       | Use Case                          |
     |-------------------------------------|-------------------------------------------------------------------|-----------------------------------|
@@ -990,26 +854,6 @@ def _():
     - `W` = Write buffer insertion point
     - `_v` suffix = Vectorization constraint (inner axis must be vectorizable)
     - `_vr` suffix = Vectorization + register/cache constraints
-
-    ### How to Use a Strategy
-
-    ```python
-    from xtc.search.strategies import Strategy_OO
-
-    # Create a strategy for your graph
-    strategy = Strategy_OO(graph, max_unroll=256, vec_size=16)
-
-    # Get all valid schedules (exhaustive)
-    for sample in strategy.exhaustive():
-        print(sample)  # e.g., [1, 16, 1] for [i1_tile, j1_tile, k1_tile]
-
-    # Or sample randomly
-    for sample in strategy.sample(num=10, seed=42):
-        print(sample)
-
-    # Apply a sample to a scheduler
-    strategy.generate(scheduler, sample)
-    ```
     """)
     return
 
@@ -1030,57 +874,81 @@ def _():
 def _():
     strategy_editor = mo.ui.code_editor(
         value=
-'''from xtc.backends.mlir import Backend
+'''import xtc.graphs.xtc.op as O
+from xtc.graphs.xtc.graph import XTCGraph
+from xtc.backends.mlir import Backend
 from xtc.search.strategies import Strategy_OO
 import xtc.runtimes.host.runtime as rt
+from io import StringIO
+from contextlib import redirect_stderr
 
-# === Problem Definition ===
+# Problem setup
 I, J, K, dtype = 64, 128, 256, "float32"
+
+def matmul_graph(I: int, J: int, K: int, dtype: str) -> XTCGraph:
+   """Create a graph computing C = A @ B."""
+   a = O.tensor((I, K), dtype, name="A")
+   b = O.tensor((K, J), dtype, name="B")
+   with O.graph(name="matmul") as gb:
+         O.matmul(a, b, name="C")
+   return gb.graph
+
 graph = matmul_graph(I=I, J=J, K=K, dtype=dtype)
 peak_flops = rt.evaluate_flops(dtype)
 
-# === Strategy Selection ===
-# Available: Strategy_OO, Strategy_PRP, Strategy_PPRPRP, Strategy_GOTO, etc.
+# Strategy selection (try: Strategy_PRP, Strategy_PPRPRP, Strategy_GOTO, etc.)
 strategy = Strategy_OO(graph, max_unroll=64, vec_size=16)
 
-# === Acquisition Function ===
+# Evaluation helpers
+def compile_schedule(backend, sched):
+   """Compile a schedule and return the module."""
+   comp = backend.get_compiler(dump_file="test_mlir", shared_lib=True)
+   code = StringIO()
+   with redirect_stderr(code):
+         module = comp.compile(sched)
+   return module, code.getvalue()
+
+def evaluate(module, peak_flops, nfmadds):
+   """Evaluate module performance as percentage of peak."""
+   evaluator = module.get_evaluator()
+   results, _, _ = evaluator.evaluate()
+   result = min(results)
+   time_flops = nfmadds / result
+   perf = time_flops / peak_flops * 100
+   return perf
+
 def acquire(sample):
    """Evaluate a single sample and return its performance."""
    impl = Backend(graph)
    scheduler = impl.get_scheduler()
    strategy.generate(scheduler, sample)
    schedule = scheduler.schedule()
-   module, _ = compile(backend=impl, sched=schedule)
-   perf = evaluate(module, peak_flops, I*J*K)
-   return perf
+   module, _ = compile_schedule(backend=impl, sched=schedule)
+   return evaluate(module, peak_flops, I*J*K)
 
-# === Exploration Loop ===
+# Exploration loop
 def explore():
    """Generator that yields (index, total, sample, perf) for each evaluation."""
-   # Choose search mode: exhaustive() or sample(num=N, seed=S)
+   # Choose: strategy.exhaustive() or strategy.sample(num=N, seed=S)
    samples = list(strategy.exhaustive())
-   # samples = list(strategy.sample(num=30, seed=42))  # Alternative: random sampling
-
    total = len(samples)
 
    for idx, sample in enumerate(samples):
          perf = acquire(sample)
          yield (idx, total, sample, perf)
 
-         # Optional: early stopping if we find a good enough solution
-         # if perf > 90.0:
-         #     break
+# Run exploration (displays a progress bar and returns sorted results)
+def get_info():
+   return {
+         "dims": f"{I}x{J}x{K}",
+         "dtype": dtype,
+         "strategy": strategy.__class__.__name__,
+         "strategy_params": "max_unroll=64, vec_size=16",
+         "stats": dict(strategy.stats),
+   }
 
-# === Metadata for Results Display ===
-exploration_info = {
-   "dims": f"{I}x{J}x{K}",
-   "dtype": dtype,
-   "strategy": strategy.__class__.__name__,
-   "strategy_params": f"max_unroll=64, vec_size=16",
-   "sample_names": strategy.sample_names,
-   "stats_fn": lambda: dict(strategy.stats),
-   "sample_to_dict_fn": strategy.sample_to_dict,
-}''',
+results = run_exploration(explore(), get_info)
+''',
         language="python",
         label=""
     )
@@ -1091,118 +959,78 @@ exploration_info = {
 @app.cell
 def _(strategy_editor, run_strategy_button):
     import traceback as _traceback
-    from io import StringIO as _StringIO
-    from contextlib import redirect_stderr as _redirect_stderr
-    import xtc.graphs.xtc.op as _O
-    from xtc.graphs.xtc.graph import XTCGraph as _XTCGraph
-    from xtc.itf.comp import Module as _Module
-    from xtc.itf.schd import Schedule as _Schedule
 
     mo.stop(not run_strategy_button.value, mo.md("*Click 'Run strategy exploration' to execute the code.*"))
 
-    # Define helper functions that will be available in the editor's namespace
-    def _matmul_graph(I: int, J: int, K: int, dtype: str) -> _XTCGraph:
-        a = _O.tensor((I, K), dtype, name="A")
-        b = _O.tensor((K, J), dtype, name="B")
-        with _O.graph(name="matmul") as gb:
-            _O.matmul(a, b, name="C")
-        return gb.graph
+    # Define run_exploration helper that will be available in the editor
+    _captured_info = {}
 
-    def _compile(backend, sched, print_source_ir=False, print_transformed_ir=False,
-                 print_lowered_ir=False, print_assembly=False):
-        comp = backend.get_compiler(
-            dump_file="test_mlir",
-            shared_lib=True,
-            print_source_ir=print_source_ir,
-            print_transformed_ir=print_transformed_ir,
-            print_lowered_ir=print_lowered_ir,
-            print_assembly=print_assembly
-        )
-        code = _StringIO()
-        with _redirect_stderr(code):
-            module = comp.compile(sched)
-        return (module, code.getvalue())
+    def _run_exploration(generator, get_info=None):
+        """Run exploration with progress bar. Returns sorted results."""
+        results = []
+        best_sample = None
+        best_perf = 0.0
 
-    def _evaluate(module, peak_flops, nfmadds):
-        evaluator = module.get_evaluator()
-        results, _, _ = evaluator.evaluate()
-        result = min(results)
-        time_flops = nfmadds / result
-        perf = time_flops / peak_flops * 100
-        return perf
+        first_result = next(generator, None)
+        if first_result is None:
+            return []
 
-    # Execute the user's code with helper functions in namespace
-    _namespace = {
-        "matmul_graph": _matmul_graph,
-        "compile": _compile,
-        "evaluate": _evaluate,
-        "StringIO": _StringIO,
-        "redirect_stderr": _redirect_stderr,
-    }
+        idx, total, sample, perf = first_result
+        results.append({"sample": sample, "perf": perf})
+        if perf > best_perf:
+            best_perf = perf
+            best_sample = sample
+
+        with mo.status.progress_bar(total=total, title="Exploring schedules...", remove_on_exit=False) as progress:
+            progress.update(
+                title=f"Exploring schedules... (best: {best_perf:.1f}%)",
+                subtitle=f"Sample {idx + 1}/{total}: {sample} -> {perf:.1f}%"
+            )
+
+            for idx, total, sample, perf in generator:
+                results.append({"sample": sample, "perf": perf})
+
+                if perf > best_perf:
+                    best_perf = perf
+                    best_sample = sample
+
+                progress.update(
+                    title=f"Exploring schedules... (best: {best_perf:.1f}%)",
+                    subtitle=f"Sample {idx + 1}/{total}: {sample} -> {perf:.1f}%"
+                )
+
+        # Call get_info after exploration to capture dynamic values
+        if get_info:
+            _captured_info.update(get_info())
+
+        return sorted(results, key=lambda x: x["perf"], reverse=True)
+
+    # Execute the user's code with run_exploration available
+    _namespace = {"run_exploration": _run_exploration}
     try:
         exec(strategy_editor.value, _namespace)
     except Exception as e:
         mo.stop(True, mo.md(f"**Code error:**\n```\n{_traceback.format_exc()}\n```"))
 
-    _explore_fn = _namespace.get("explore")
-    _info = _namespace.get("exploration_info", {})
-
-    if _explore_fn is None:
-        mo.stop(True, mo.md("**Error:** The code must define an `explore()` generator function."))
-
-    # Run exploration with progress bar
-    _results = []
-    _best_sample = None
-    _best_perf = 0.0
-    _total = None
-
-    try:
-        # First, peek at the generator to get total count
-        _generator = _explore_fn()
-        _first_result = next(_generator, None)
-
-        if _first_result is None:
-            mo.stop(True, mo.md("**Error:** The `explore()` generator yielded no results."))
-
-        _idx, _total, _sample, _perf = _first_result
-        _results.append({"sample": _sample, "perf": _perf})
-        _best_perf = _perf
-        _best_sample = _sample
-
-        with mo.status.progress_bar(total=_total, title="Exploring schedules...", remove_on_exit=False) as _progress:
-            _progress.update(
-                title=f"Exploring schedules... (best: {_best_perf:.1f}%)",
-                subtitle=f"Sample {_idx + 1}/{_total}: {_sample} -> {_perf:.1f}%"
-            )
-
-            for _idx, _total, _sample, _perf in _generator:
-                _results.append({"sample": _sample, "perf": _perf})
-
-                if _perf > _best_perf:
-                    _best_perf = _perf
-                    _best_sample = _sample
-
-                _progress.update(
-                    title=f"Exploring schedules... (best: {_best_perf:.1f}%)",
-                    subtitle=f"Sample {_idx + 1}/{_total}: {_sample} -> {_perf:.1f}%"
-                )
-
-    except Exception as e:
-        mo.stop(True, mo.md(f"**Exploration error:**\n```\n{_traceback.format_exc()}\n```"))
+    _results = _namespace.get("results", [])
 
     # Build results summary
-    _dims = _info.get("dims", "?")
-    _dtype = _info.get("dtype", "?")
-    _strategy_name = _info.get("strategy", "?")
-    _strategy_params = _info.get("strategy_params", "")
-    _stats_fn = _info.get("stats_fn", lambda: {})
+    if not _results:
+        mo.stop(True, mo.md("**Error:** No results returned. Make sure to call `results = run_exploration(explore(), get_info)`"))
+
+    _dims = _captured_info.get("dims", "?")
+    _dtype = _captured_info.get("dtype", "?")
+    _strategy_name = _captured_info.get("strategy", "?")
+    _strategy_params = _captured_info.get("strategy_params", "")
+    _stats = _captured_info.get("stats", {})
+    _best = _results[0]
 
     _summary_lines = [
         f"### Strategy Exploration Results",
         f"",
         f"- **Problem name:** {_dims} matmul, {_dtype}",
         f"- **Strategy:** {_strategy_name} ({_strategy_params})",
-        f"- **Search space stats:** {_stats_fn()}",
+        f"- **Search space stats:** {_stats}",
         f"",
         f"**Total configurations evaluated:** {len(_results)}",
         f"",
@@ -1212,16 +1040,15 @@ def _(strategy_editor, run_strategy_button):
         f"|------|--------|-------------|",
     ]
 
-    _sorted_results = sorted(_results, key=lambda x: x["perf"], reverse=True)[:10]
-    for _rank, _r in enumerate(_sorted_results, 1):
+    for _rank, _r in enumerate(_results[:10], 1):
         _summary_lines.append(f"| {_rank} | `{_r['sample']}` | {_r['perf']:.2f}% |")
 
     _summary_lines.extend([
         f"",
         f"#### Best schedule found:",
         f"",
-        f"- **Sample:** `{_best_sample}`",
-        f"- **Performance:** {_best_perf:.2f}% of peak",
+        f"- **Sample:** `{_best['sample']}`",
+        f"- **Performance:** {_best['perf']:.2f}% of peak",
     ])
 
     mo.md("\n".join(_summary_lines))
