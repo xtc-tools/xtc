@@ -112,19 +112,21 @@ def _():
     ## 2. Define Your First Graph with XTC
 
     In XTC, computations are represented as **dataflow graphs**. A graph consists of:
-    - **Tensors**: Multi-dimensional arrays that hold data
-    - **Operators**: Operations that transform tensors (e.g., matrix multiplication, convolution)
-    - **Nodes**: Individual operations within the graph
+    - **Nodes** representing operations each implementing a specific computation (Operators)
+    - **Edges** representing data dependencies between operations (through Tensors)
+    Where:
+    - **Tensors** are multi-dimensional arrays that hold data
+    - **Operators** are tensor operations (e.g., matrix multiplication, convolution)
 
-    Let's start by creating a simple matrix multiplication graph. Matrix multiplication (matmul) computes $C = A \times B$ where:
+    Let us start by creating a simple matrix multiplication graph. Matrix multiplication (matmul) computes $C = A \times B$ where:
     - $A$ is an $I \times K$ matrix
     - $B$ is a $K \times J$ matrix
     - $C$ is the resulting $I \times J$ matrix
 
     The code below demonstrates how to:
     1. Define input tensors with their shapes and data types
-    2. Create a graph context and add the matmul operation
-    3. Serialize the resulting graph.
+    2. Create a graph context and add a matmul operation
+    3. Print the resulting graph in a serialized form
     """)
     return
 
@@ -195,11 +197,11 @@ def _():
     mo.md(r"""
     ## 3. Compile and Evaluate
 
-    Now that we have a graph, let's compile it and measure its baseline performance — without any optimization.
+    Now that we have a graph, we can compile it and measure its baseline performance (without any optimization).
 
     The compilation pipeline in XTC follows these steps:
-    1. **Create a Backend**: The backend handles code generation for a specific target (MLIR, TVM)
-    2. **Get a Scheduler**: Even without optimizations, we need a scheduler to define the loop structure
+    1. **Create a Backend**: In XTC, the backend corresponds to an existing framework such as MLIR or TVM that, given a schedule, can generate the code for a specific target
+    2. **Get a Scheduler**: In XTC, a scheduler is a builder that creates a schedule. Even without optimizations, we need a scheduler to get a default loop structure. To perform further optimizations we need to name the loop dimensions (e.g., `i`, `j`, `k` for matmul)
     3. **Compile**: Generate executable code
     4. **Evaluate**: Run the compiled code and measure performance
 
@@ -231,7 +233,7 @@ def _():
     **Practice.** The code below compiles the matmul graph without any optimization. Use the radio buttons to select the backend (MLIR or TVM) and which IR to display. Performance is measured as a percentage of peak (the theoretical FLOP/s of the CPU).
 
     1. *Inspect the generated code.* Look at the Source IR, Transformed IR, Lowered IR, and Assembly. What do you notice?
-    2. *Observe the performance.* In your opinion, why is it so poor? This is the baseline to compare against when we add optimizations in the next section!
+    2. *Observe the performance.* In your opinion, why is it so poor? This is the baseline to compare against when we will add optimizations in the next section!
     """)
     return
 
@@ -351,11 +353,12 @@ def _():
 
     The baseline compilation produces correct but unoptimized code. To improve performance, XTC exposes a **scheduler** with imperative primitives that transform the loop nest:
 
-    - `sch.tile("j", {"j1": 16})` creates a tile of size 16 along `j`. Tiling breaks a large loop into smaller chunks. This helps in two ways: (1) smaller chunks fit better in CPU cache, reducing slow memory accesses due to cache misses, and (2) choosing the right tile size (e.g., 8 for AVX with float32) allows the inner loop to map directly onto vector registers.
     - `sch.split("j", {"j1": 16})` splits `j` into two segments at position 16, creating `j` (iterations 0-15) and `j1` (iterations 16+). Splitting is useful for applying different transformations to different parts of a loop (e.g., vectorize the main part, handle the remainder separately).
+    - `sch.interchange(["i", "k", "j"])` reorders the loops. Interchange improves memory access patterns by ensuring stride-1 access (contiguous memory) rather than strided access, maximizing cache efficiency. Along with primitive `sch.tile` (see below) this allows to actually tile the loop body.
+    - `sch.tile("j", {"j1": 16})` breaks loop `j` with smaller chunks of size 16. This transformation originally called strip-mining can also be seen as a 1d-tiling (thus the name used by most compiler factory).
+    - To perform actual tiling, `sch.tile` must be combined with `sch.interchange`. As an example `sch.tile("j", {"j1": 16})` followed by `sch.tile("k", {"k1": 16})` followed by `sch.interchange(["i", "j", "k", "j1", "k1"])` would create tiles of size $j_1\times k_1=16\times 16$.
     - `sch.vectorize(["j1"])` vectorizes the computation along the loop `j1`. Vectorization uses SIMD instructions to process multiple elements in parallel, significantly increasing throughput on modern CPUs.
     - `sch.unroll({"j1":1})` unrolls the loop `j1` with an unroll factor of 1 (useless too). Unrolling reduces loop overhead (fewer branches) and exposes more instruction-level parallelism to the hardware.
-    - `sch.interchange(["i", "k", "j", "j1"])` reorders the loops. Interchange improves memory access patterns by ensuring stride-1 access (contiguous memory) rather than strided access, maximizing cache efficiency.
 
     ```python
     from xtc.backends.mlir import Backend
@@ -711,45 +714,29 @@ def _():
 def _():
     explore_schedules_code = mo.ui.code_editor(
         value=
-'''from xtc.backends.mlir import Backend
+'''from xtc.backends.tvm import Backend as TVM_Backend
+from xtc.backends.mlir import Backend as MLIR_Backend
 import xtc.runtimes.host.runtime as rt
+import itertools
 
 # === Problem Definition ===
 I, J, K, dtype = 256, 256, 512, "float32"
 graph = matmul_graph(I=I, J=J, K=K, dtype=dtype)
 peak_flops = rt.evaluate_flops(dtype)
 
-# === Schedule Configurations ===
-configurations = [
-   {
-      "name": "Baseline (no opts)",
-      "spec": {"i": {}, "j": {}, "k": {}},
-   },
-   {
-      "name": "Interchange j and k",
-      "spec": {"i": {}, "k": {}, "j": {}},
-   },
-   {
-      "name": "Vectorize along k",
-      "spec": {"i": {}, "j": {}, "k": {"vectorize": True}},
-   },
-   {
-      "name": "Tile j (64)",
-      "spec": {"i": {}, "j": {}, "j#64": {}, "k": {}},
-   },
-   {
-      "name": "Tile and unroll j",
-      "spec": {"i": {}, "j": {}, "j#64": {"unroll": True}, "k": {}},
-   },
-]
-
 # === Acquisition Function ===
-def acquire(config):
+def acquire(i1: int, j1: int, backend):
    """Evaluate a single configuration and return its performance."""
    module, _ = apply_schedule(
          graph=graph,
-         backend_cls=Backend,
-         spec=config["spec"],
+         backend_cls=backend,
+         spec={
+               "i": {},
+               "j": {},
+               "k": {}, 
+               f"i#{i1}": {"unroll": True}, 
+               f"j#{j1}": {"vectorize": True}
+         },
    )
    perf = evaluate(module, peak_flops, I*J*K)
    return perf
@@ -757,11 +744,15 @@ def acquire(config):
 # === Exploration Loop ===
 def explore():
    """Generator that yields (index, total, name, perf) for each evaluation."""
+
+   i1_range = range(1,5)
+   j1_range = [8,6,24,32]
+   configurations = list(itertools.product(i1_range,j1_range))
    total = len(configurations)
 
-   for idx, config in enumerate(configurations):
-         perf = acquire(config)
-         yield (idx, total, config["name"], perf)
+   for idx, (i1,j1) in enumerate(configurations):
+         perf = acquire(i1=i1, j1=j1, backend=MLIR_Backend)
+         yield (idx, total, f"mlir:{i1}x{j1}", perf)
 
 # === Metadata for Results Display ===
 exploration_info = {
@@ -960,16 +951,16 @@ def _():
 
     Strategies are named following a pattern that describes the **tiling scheme**:
 
-    | Strategy Name         | Description                                                                 | Use Case                              |
-    |-----------------------|-----------------------------------------------------------------------------|---------------------------------------|
-    | `tile_oo`             | One-level tiling in O order (outer P, R, inner P)                           | Simple exploration, good baseline     |
-    | `tile_prp`            | P-R-P tiling (parallels, reductions, parallels)                             | Cache-friendly matmul                 |
-    | `tile_p1` / `tile_p1_v` | One-level tiling with permutation (v = vectorization constrained)         | Exploring loop orderings              |
-    | `tile_pprprp`         | Ansor-style multi-level tiling                                              | Advanced auto-tuning                  |
-    | `tile_pprprp_v`       | Ansor-style with vectorization constraint                                   | Ensuring SIMD usage                   |
-    | `tile_pprprp_vr`      | Ansor-style with register and cache constraints                             | Hardware-aware tuning                 |
-    | `tile_ppwrprp`        | Ansor-style with write buffer                                               | Reducing memory traffic               |
-    | `tile_goto` / `tile_goto_r` | Goto-style BLAS tiling (r = reduced search space)                     | High-performance GEMM                 |
+    | Strategy Name                       | Description                                                       | Use Case                          |
+    |-------------------------------------|-------------------------------------------------------------------|-----------------------------------|
+    | `Strategy_OO`                       | One-level tiling in O order (outer P, R, inner P)                 | Simple exploration, good baseline |
+    | `Strategy_PRP`                      | P-R-P tiling (parallels, reductions, parallels)                   | Cache-friendly matmul             |
+    | `Strategy_P1` / `Strategy_P1_v`     | One-level tiling with permutation (v = vectorization constrained) | Exploring loop orderings          |
+    | `Strategy_PPRPRP`                   | Ansor-style multi-level tiling                                    | Advanced auto-tuning              |
+    | `Strategy_PPRPRPv`                  | Ansor-style with vectorization constraint                         | Ensuring SIMD usage               |
+    | `Strategy_PPRPRP_vr`                | Ansor-style with register and cache constraints                   | Hardware-aware tuning             |
+    | `Strategy_PPWRPRP`                  | Ansor-style with write buffer                                     | Reducing memory traffic           |
+    | `Strategy_GOTO` / `Strategy_GOTO_R` | Goto-style BLAS tiling (r = reduced search space)                 | High-performance GEMM             |
 
     **Naming convention**:
     - `P` = Parallel axes (e.g., i, j in matmul)
