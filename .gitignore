@@ -1,4 +1,5 @@
 __pycache__
+__marimo__
 *.so
 *.csv
 venv
