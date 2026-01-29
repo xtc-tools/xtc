@@ -183,16 +183,16 @@ def _compile_runtime(out_dll: str, tdir: str, runtime_type: RuntimeType):
         assert p.returncode == 0, f"unable to compile runtime: {cmd}"
 
     # Link runtime
-    mlir_lib_dir = get_mlir_prefix() / "lib"
     if has_gpu:
+        mlir_lib_dir = get_mlir_prefix() / "lib"
         cuda_install_dir = get_cuda_prefix() / "lib64"
-        cuda_libs = f"-L{cuda_install_dir} -lgpu_runtime_extension -lmlir_cuda_runtime -lcupti -lcuda -lcudart"
+        cuda_libs = f"-L{mlir_lib_dir} -L{cuda_install_dir} -lgpu_runtime_extension -lmlir_cuda_runtime -lcupti -lcuda -lcudart"
     else:
         cuda_libs = ""
     cmd = (
         "c++ --shared -O2 -march=native -fPIC "
         f"-o {out_dll} {' '.join(obj_files)} "
-        f"-L{tdir} -L{mlir_lib_dir} "
+        f"-L{tdir} "
         f"{pfm_libs} "
         f"{cuda_libs} "
     )
