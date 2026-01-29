@@ -32,6 +32,7 @@ class TVMPlainSchedule:
     vectorization: list[str]
     write_caches: list[str]
     read_buffers: list[tuple[str, int, bool]]
+    fused: list[tuple[str, int]]
 
 
 class TVMScheduleEmitter:
@@ -109,6 +110,7 @@ class TVMScheduleEmitter:
             vectorization=adjusted_vectorization,
             write_caches=deepcopy(sch.write_caches),
             read_buffers=deepcopy(sch.read_buffers),
+            fused=deepcopy(sch.fused),
         )
         return adjusted
 
@@ -132,6 +134,12 @@ class TVMScheduleEmitter:
             factor, offset = factor_offset(input_idx, pad)
             packs[axis] = (input_idx, factor, offset)
         return packs
+
+    def _full_fuses(self, sched: TVMPlainSchedule) -> dict[str, tuple[int]]:
+        fuses = {}
+        for axis, input_idx in sched.fused:
+            fuses[axis] = (input_idx,)
+        return fuses
 
     def _full_tilings(self, sched: TVMPlainSchedule) -> dict[str, tuple[str, str, int]]:
         order = sched.permutation
@@ -230,6 +238,7 @@ class TVMScheduleEmitter:
     def _dump_schedule(self, sched: TVMPlainSchedule):
         tilings = self._full_write_buffers(sched)
         packings = self._full_packs(sched)
+        fuses = self._full_fuses(sched)
         obj = self._obj_var
         sch = self._sch_var
         outf = self._outf
@@ -246,6 +255,11 @@ class TVMScheduleEmitter:
                     print(
                         f'I_R{inp_idx} = {sch}.cache_read(INPS[{inp_idx}], "local", [{tens}])',
                         file=outf,
+                    )
+                if tile_axis in fuses:
+                    (inp_idx,) = fuses[tile_axis]
+                    print(
+                        f"I_F{inp_idx} = {tens}.op.input_tensors[{inp_idx}]", file=outf
                     )
         for idx, ((tens, parent, axis), tiles) in enumerate(tilings.items()):
             if parent:
@@ -264,6 +278,12 @@ class TVMScheduleEmitter:
                             f"{sch}[I_R{inp_idx}].storage_align(I_R{inp_idx}.op.axis[-2], factor={factor}, offset={offset})",
                             file=outf,
                         )
+                if tile_axis in fuses:
+                    (inp_idx,) = fuses[tile_axis]
+                    print(
+                        f"{sch}[I_F{inp_idx}].compute_at({sch}[{tens}], {tile_axis})",
+                        file=outf,
+                    )
             for u_axis in sched.unrolling:
                 if u_axis in tiles:
                     print(f"{sch}[{tens}].unroll({u_axis})", file=outf)
@@ -321,6 +341,7 @@ class TVMScheduler(itf.schd.Scheduler):
         self.unrolling: dict[str, int] = {}
         self.write_caches: list[str] = []
         self.read_buffers: list[tuple[str, int, bool]] = []
+        self.fused: list[tuple[str, int]] = []
         self._update_loops()
 
     @property
@@ -442,8 +463,8 @@ class TVMScheduler(itf.schd.Scheduler):
     def fuse_producer_at(
         self, axis: str, input_idx: int, root: str = DEFAULT_ROOT
     ) -> None:
-        # TODO: not implemented for now
-        pass
+        assert input_idx >= 0 and input_idx < len(self._op.np_inputs_spec())
+        self.fused.append((axis, input_idx))
 
     @override
     def define_memory_mesh(self, axes: dict[str, int]) -> None:
@@ -483,6 +504,7 @@ class TVMScheduler(itf.schd.Scheduler):
             vectorization=self.vectorization,
             write_caches=deepcopy(self.write_caches),
             read_buffers=deepcopy(self.read_buffers),
+            fused=deepcopy(self.fused),
         )
 
     @override
