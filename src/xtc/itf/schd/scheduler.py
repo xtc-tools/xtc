@@ -79,18 +79,38 @@ class Scheduler(ABC):
         """
         ...
 
-    @abstractmethod
-    def tile(self, dim: str, tiles: dict[str, int], root: str = DEFAULT_ROOT) -> None:
-        """Apply a multi level tiling operation on a dimension.
+    def strip_mine(
+        self, dim: str, tiles: dict[str, int], root: str = DEFAULT_ROOT
+    ) -> None:
+        """Apply a multi level strip mining transformation on the given dimension.
 
-        The given tile sizes is interpreter outer to inner.
+        The strip mining can be seen as a multi level 1D tiling where the
+        given tile sizes are interpreter outer to inner.
         After this transformation, the number of axis for the given initial
         dimension is `1 + len(tiles)` where the first axis inherits
         the name of the dimension, and the remaining axis names are
         given by the given tiles keys.
-        Each tile size must be greater or equal to the inner tile sizes.
+        Each 1D tile size must be greater or equal to the inner tile sizes.
         Some backend may not support non-divisible tile sizes, in which
         case an assertion is raised.
+
+        Args:
+            dim: name of the dimension to strip mine
+            tiles: dict outer to inner of axis name and tile size
+            root: the parent split (or the operator's absolute root)
+        """
+        self.tile(dim=dim, tiles=tiles, root=root)
+
+    @abstractmethod
+    def tile(self, dim: str, tiles: dict[str, int], root: str = DEFAULT_ROOT) -> None:
+        """Apply a multi level tiling operation.
+
+        As of now the interface is limited to a single dimension tiling,
+        hence it is equivalent to strip mining the given dimension.
+
+        In order to create multi dimensional tiles, strip mine each dimension
+        with tile or stip_mine and use interchange to reorder generated axes
+        accordingly.
 
         Args:
             dim: name of the dimension to tile
