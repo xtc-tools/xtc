@@ -16,7 +16,7 @@ def target_arch(arch: str = "") -> str:
     match arch:
         case "x86_64" | "x86-64":
             return "x86_64"
-        case "aarch64" | "native" | "":
+        case "arm64" | "aarch64" | "native" | "":
             return arch
         case _:
             raise ValueError(f"target triple: unknown arch: {arch}")
@@ -31,7 +31,7 @@ def target_triple(arch: str = "") -> str:
     match arch:
         case "aarch64" | "x86_64":
             return f"{arch}-linux-gnu"
-        case "native" | "":
+        case "arm64" | "native" | "":
             return ""
         case _:
             raise ValueError(f"target triple: unknown arch: {arch}")

@@ -38,7 +38,7 @@ def get_tvm_native_target_options() -> str:
 
     info = get_cpu_info()
     arch = info["arch_string_raw"]
-    flags = info["flags"]
+    flags = info["flags"] if "flags" in info else []
     triple = target_triple(arch)
     cpu, attrs = "", ""
     if arch == "x86_64":

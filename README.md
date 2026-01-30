@@ -60,9 +60,9 @@ pip install -r tvm_requirements.txt         # Optional: TVM backend
 make test                                   # Run minimal unit tests
 ```
 
-MacOs M1+ (Python: 3.10 to 3.13 inclusive):
+MacOs M1+ (Python: 3.10 to 3.12 inclusive, wheels only available for macOS Sequoia):
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate  # Beware about Python version!
 pip install -e '.[dev]'
 pip install -r macos_mlir_requirements.txt  # Optional: MLIR backend
 pip install -r macos_tvm_requirements.txt   # Optional: TVM backend

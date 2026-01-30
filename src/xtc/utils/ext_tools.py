@@ -7,8 +7,20 @@ import subprocess
 import re
 import platform
 
+import os
+import platform
+import ctypes.util
+import subprocess
+import re
+
 
 def get_library_path(libname: str) -> str:
+    # Check Homebrew path for macOS first
+    if platform.system() == "Darwin":
+        homebrew_path = f"/opt/homebrew/opt/libomp/lib/lib{libname}.dylib"
+        if os.path.exists(homebrew_path):
+            return homebrew_path
+
     libfile = ctypes.util.find_library(libname)
     assert libfile, (
         f"ctypes.util.find_library: can't find library: {libname}, please install corresponding package"

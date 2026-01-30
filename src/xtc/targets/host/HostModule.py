@@ -36,10 +36,10 @@ class HostModule(itf.comp.Module):
         self._file_name = file_name
         self._file_type = file_type
         assert self._file_type == "shlib", "only support shlib for JIR Module"
-        lib_suffix = "so"
-        if sys.platform == "darwin":
-            lib_suffix = "dylib"
-        assert self._file_name.endswith(f".{lib_suffix}"), "file name is not a shlib"
+        lib_suffixes = ("so", "dylib")
+        assert self._file_name.endswith(lib_suffixes), (
+            f"file name {self._file_name} is not a shlib"
+        )
 
         self._bare_ptr = kwargs.get("bare_ptr", True)
         self._graph = graph
