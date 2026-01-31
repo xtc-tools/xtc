@@ -18,56 +18,32 @@ XTC is a domain-specific dataflow graph compiler for linear algebra operations. 
 
 ## Build & Development
 
-### System requirements
-
-Debian-like distributions:
-```bash
-sudo apt install python3 python3-dev build-essential libomp5 binutils binutils-aarch64-linux-gnu binutils-x86-64-linux-gnu
-
-# Optionally if using PMU counters on CPU for evaluation
-sudo apt install libpfm4-dev 
-sudo sysctl kernel.perf_event_paranoid=1
-```
-
-Fedora:
-```bash
-sudo dnf install python3 python3-devel libomp binutils binutils-aarch64-linux-gnu binutils-x86_64-linux-gnu
-
-# For Fedora 40+
-sudo dnf group install c-development development-tools # For Fedora 40+
-
-# Optionally if using PMU counters on CPU for evaluation
-sudo dnf install libpfm-devel
-sudo sysctl kernel.perf_event_paranoid=1
-```
-
-MacOS:
-```bash
-brew install libomp
-export DYLD_LIBRARY_PATH="/opt/homebrew/opt/libomp/lib:$DYLD_LIBRARY_PATH"
-```
-
 ### Installation
 
-Linux (Python: 3.10 to 3.14 inclusive):
+If needed, install uv following the instructions [here](https://docs.astral.sh/uv/).
+
+Debian-like Linux distributions (Python: 3.10 to 3.14 inclusive):
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
-pip install -r mlir_requirements.txt        # Optional: MLIR backend
-pip install -r tvm_requirements.txt         # Optional: TVM backend
-make test                                   # Run minimal unit tests
+sudo apt install python3 python3-dev build-essential libomp5 binutils binutils-aarch64-linux-gnu binutils-x86-64-linux-gnu
+sudo apt install libpfm4-dev # Optional: interface to Linux perf counters
+sudo sysctl kernel.perf_event_paranoid=1 # Optional: give access to hardware counters
+uv venv -p 3.12 && source .venv/bin/activate
+uv pip install -e '.[dev]'
+uv pip install -r mlir_requirements.txt
+uv pip install -r tvm_requirements.txt
+make test
 ```
 
 MacOs M1+ (Python: 3.10 to 3.12 inclusive, wheels only available for macOS Sequoia):
 ```bash
-python3 -m venv .venv && source .venv/bin/activate  # Beware about Python version!
-pip install -e '.[dev]'
-pip install -r macos_mlir_requirements.txt  # Optional: MLIR backend
-pip install -r macos_tvm_requirements.txt   # Optional: TVM backend
-make test                                   # Run minimal unit tests
+brew install libomp
+export DYLD_LIBRARY_PATH="/opt/homebrew/opt/libomp/lib:$DYLD_LIBRARY_PATH"
+uv venv -p 3.12 && source .venv/bin/activate
+uv pip install -e '.[dev]'
+uv pip install -r macos_mlir_requirements.txt
+uv pip install -r macos_tvm_requirements.txt
+make test
 ```
-
-**Note:** The macOS distribution is experimental and not fully integrated or tested. We expose it for development purposes (feel free to contribute!).
 
 ### Code quality
 

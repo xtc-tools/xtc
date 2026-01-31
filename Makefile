@@ -66,7 +66,7 @@ format-license:
 	scripts/licensing/licensing.py --apply
 
 claude:
-	scripts/llms/init_claude.py README.md "Links" "System requirements" "AI assistants" > CLAUDE.md
+	scripts/llms/init_claude.py README.md "Links" "AI assistants" > CLAUDE.md
 
 run-tutorial:
 	marimo run docs/tutorials/xtc_101.py
