@@ -4,7 +4,7 @@
 #
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Generic, TypeVar
 from dataclasses import dataclass, field
 import re
 from typing_extensions import override
@@ -99,9 +99,6 @@ class ScheduleParser:
     """Parses a dict-based schedule specification into an AST."""
 
     _SPLIT_PATTERN = re.compile(r"^(.*)\[(-\d+|\d*)?:(-\d+|\d*)?\]$")
-
-    def __init__(self, abstract_axis: list[str]):
-        self.abstract_axis = abstract_axis
 
     def parse(self, spec: dict[str, Any]) -> ScheduleSpec:
         """Parse a schedule specification dict into an AST."""
@@ -216,255 +213,79 @@ class ScheduleParser:
         return prefix, x, y
 
 
-class ScheduleInterpreter:
-    """Interprets a parsed ScheduleSpec AST into a LoopNest."""
-
-    def __init__(self, abstract_axis: list[str]):
-        self.abstract_axis = abstract_axis
-
-    def interpret(self, spec: ScheduleSpec, root: str) -> LoopNest:
-        """Interpret a schedule specification into a LoopNest."""
-        return self._interpret_spec(spec, root, head=[])
-
-    def _interpret_spec(
-        self, spec: ScheduleSpec, root: str, head: list[str]
-    ) -> LoopNest:
-        """Interpret a schedule spec recursively."""
-        loop_nest = LoopNest(abstract_dims=self.abstract_axis)
-        slice = loop_nest.build_slice(root)
-
-        # Track state during interpretation
-        sizes: dict[str, int] = {}
-        previous_cut: dict[str, int | None] = {a: 0 for a in self.abstract_axis}
-        interchange: list[str] = list(head)
-
-        for item in spec.items:
-            if isinstance(item, SplitDecl):
-                self._interpret_split(
-                    item, slice, loop_nest, root, interchange, previous_cut
-                )
-            elif isinstance(item, TileDecl):
-                loop_name = self._interpret_tile(item, slice, interchange, sizes)
-                self._apply_annotations(item.annotations, loop_name, sizes, slice)
-            elif isinstance(item, AxisDecl):
-                loop_name = self._interpret_axis(item, interchange)
-                self._apply_annotations(item.annotations, loop_name, sizes, slice)
-
-        # Check that all splits are complete
-        for axis, cut in previous_cut.items():
-            if cut is not None and cut != 0:
-                raise ScheduleInterpretError(
-                    f"Splitting of {axis} unachieved (stops at {cut})."
-                )
-
-        slice.interchange = interchange
-        return loop_nest
-
-    def _interpret_split(
-        self,
-        item: SplitDecl,
-        slice: LoopNestSlice,
-        loop_nest: LoopNest,
-        root: str,
-        interchange: list[str],
-        previous_cut: dict[str, int | None],
-    ) -> None:
-        """Interpret a split declaration."""
-        axis_name = item.axis
-        self._check_axis_existence(axis_name)
-        x = item.start
-        y = item.end
-
-        # The only declaration where y (the cut) is None is the
-        # last one, so it cannot be the previous one.
-        cut = previous_cut[axis_name]
-
-        # When x (the starting point of the slice) is not specified,
-        # it is the previous cut
-        if x is None:
-            x = cut
-        assert x is not None
-
-        self._check_splitting_intervals(item, cut, x)
-
-        # Update the previous cut
-        previous_cut[axis_name] = y
-
-        # Save the cutting points of the new dimensions
-        if axis_name not in slice.splits:
-            slice.splits[axis_name] = {}
-        new_dim_index = len(slice.splits[axis_name])
-        new_dim_name = f"{axis_name}[{new_dim_index}]"
-        new_root_name = f"{root}/{new_dim_name}"
-        slice.splits[axis_name][new_dim_name] = x
-        interchange.append(new_dim_name)
-
-        # Recursively interpret the nested schedule
-        inner_nest = self._interpret_spec(item.body, new_root_name, head=[axis_name])
-        loop_nest.slices += inner_nest.slices
-
-    def _interpret_tile(
-        self,
-        item: TileDecl,
-        slice: LoopNestSlice,
-        interchange: list[str],
-        sizes: dict[str, int],
-    ) -> str:
-        """Interpret a tile declaration. Returns the loop name."""
-        self._check_axis_existence(item.axis)
-        tile_num = len(slice.tiles[item.axis])
-        loop_name = f"{item.axis}{tile_num}"
-        if item.size <= 0:
-            raise ScheduleInterpretError(
-                f"`{item}`: tile sizes should be strictly positive."
-            )
-        slice.tiles[item.axis][loop_name] = item.size
-        sizes[loop_name] = item.size
-        interchange.append(loop_name)
-
-        return loop_name
-
-    def _interpret_axis(
-        self,
-        item: AxisDecl,
-        interchange: list[str],
-    ) -> str:
-        """Interpret a direct axis reference. Returns the loop name."""
-        axis_name = item.axis
-        self._check_axis_existence(axis_name)
-
-        # Unreachable when built from a Python dict (because keys
-        # can't be duplicated).
-        if axis_name in interchange:
-            raise ScheduleInterpretError(
-                f"Axis {axis_name} is scheduled twice (or more)."
-            )
-
-        interchange.append(axis_name)
-        return axis_name
-
-    def _check_axis_existence(self, axis: str) -> None:
-        """Check that an axis is defined."""
-        if axis not in self.abstract_axis:
-            raise ScheduleInterpretError(
-                f"Axis {axis} is not a defined axis (defined axis: {self.abstract_axis})."
-            )
-
-    def _apply_annotations(
-        self,
-        annotations: Annotations,
-        loop_name: str,
-        sizes: dict[str, int],
-        slice: LoopNestSlice,
-    ) -> None:
-        """Apply annotations to a loop in the slice."""
-        if annotations.unroll_specified:
-            unroll_factor = annotations.unroll_factor
-            if unroll_factor is None:
-                # None means "unroll fully" - use the loop size
-                if loop_name not in sizes:
-                    raise ScheduleInterpretError(
-                        f"{loop_name}'s size being unknown, an unroll factor is needed."
-                    )
-                unroll_factor = sizes[loop_name]
-            elif unroll_factor <= 0:
-                raise ScheduleInterpretError(
-                    f'`{{"unroll" = {unroll_factor}}}`: unroll parameter should be strictly positive.'
-                )
-            slice.unroll[loop_name] = unroll_factor
-
-        if annotations.vectorize:
-            slice.vectorize.append(loop_name)
-
-        if annotations.parallelize:
-            slice.parallelize.append(loop_name)
-
-    def _check_splitting_intervals(
-        self,
-        item: SplitDecl,
-        cut: int | None,
-        x: int,
-    ) -> None:
-        """Check that split intervals are valid and contiguous."""
-
-        if cut is None:
-            raise ScheduleInterpretError(f"{item}: {item.axis} already covered.")
-
-        if x > cut:
-            raise ScheduleInterpretError(
-                f"{item}: splitting doesn't fully cover {item.axis} (jumps from {cut} to {x})."
-            )
-        elif x < cut:
-            raise ScheduleInterpretError(
-                f"{item}: the segment begins at {x} but the previous one ends at {cut}."
-            )
-
-        if item.end is not None and x >= item.end:
-            raise ScheduleInterpretError(
-                f"{item}: the ending point should be greater than the starting point."
-            )
-
-
 @dataclass
-class LoopsDimsMapper:
-    """Maps loop names to their corresponding axis names.
-
-    This class tracks the relationship between loop identifiers (from tiling
-    and splitting transformations) and the original dimension axes they
-    derive from.
+class SplitOrigin:
+    """Describes how a node was created via a split from its parent.
 
     Attributes:
-        tiles_to_axis: Maps tile loop names to their parent axis.
-        splits_to_axis: Maps split loop names to their parent axis.
-        dims: List of original dimension names.
+        axis: The axis that was split to create this node.
+        start: The starting position of the split (inclusive), or None if unbounded.
+        end: The ending position of the split (exclusive), or None if unbounded.
     """
 
-    tiles_to_axis: dict[str, str]
-    splits_to_axis: dict[str, str]
-    dims: list[str]
+    axis: str
+    start: int | None
+    end: int | None
+
+
+NodeT = TypeVar("NodeT", bound="Node")
+
+
+@dataclass(kw_only=True)
+class Node(Generic[NodeT]):
+    """Base class for tree nodes with parent/child relationships.
+
+    Provides tree structure and traversal operations. Subclasses add
+    domain-specific data.
+
+    Attributes:
+        parent: Reference to the parent node, or None for the root.
+        split_origin: Metadata describing how this node was created from
+            its parent via a split. None for the root node.
+        children: List of child nodes.
+    """
+
+    parent: NodeT | None = None
+    split_origin: SplitOrigin | None = None
+    children: list[NodeT] = field(default_factory=list)
 
     @property
-    def loops_to_axis(self) -> dict[str, str]:
-        loops_to_axis = (
-            self.tiles_to_axis | self.splits_to_axis | dict(zip(self.dims, self.dims))
-        )
-        return loops_to_axis
+    def is_root(self) -> bool:
+        """Returns True if this node is the root (has no parent)."""
+        return self.parent is None
 
-    @staticmethod
-    def build_from_slices(slices: list["LoopNestSlice"]) -> "LoopsDimsMapper":
-        tiles_to_axis = {}
-        splits_to_axis = {}
-        dims = set()
-        for slice in slices:
-            tiles_to_axis.update(LoopsDimsMapper._get_subloops_to_axis(slice.tiles))
-            splits_to_axis.update(LoopsDimsMapper._get_subloops_to_axis(slice.splits))
-        refined_loops = list(tiles_to_axis) + list(splits_to_axis)
-        for slice in slices:
-            dims.update(
-                [loop for loop in slice.interchange if loop not in refined_loops]
-            )
-            dims.update(tiles_to_axis.values())
-            dims.update(splits_to_axis.values())
-        return LoopsDimsMapper(tiles_to_axis, splits_to_axis, list(dims))
+    def add_child(self, child: NodeT) -> None:
+        """Add a child node and set its parent to this node."""
+        child.parent = self  # type: ignore[assignment]
+        self.children.append(child)
 
-    @staticmethod
-    def _get_subloops_to_axis(subloops: dict[str, dict[str, Any]]) -> dict[str, str]:
-        loop_to_axis: dict[str, str] = {}
-        for axis_name, subloops in subloops.items():
-            for loop_name in subloops:
-                loop_to_axis[loop_name] = axis_name
-        return loop_to_axis
+    def ancestors(self) -> list[NodeT]:
+        """Return list of ancestors from parent to root."""
+        result: list[NodeT] = []
+        current = self.parent
+        while current is not None:
+            result.append(current)
+            current = current.parent
+        return result
+
+    def descendants_dfs(self) -> list[NodeT]:
+        """Return all descendants in depth-first order."""
+        result: list[NodeT] = []
+        for child in self.children:
+            result.append(child)
+            result.extend(child.descendants_dfs())
+        return result
 
 
 @dataclass
-class LoopNestSlice:
-    """Represents a single slice of a loop nest with its transformations.
+class LoopNestNode(Node["LoopNestNode"]):
+    """Represents a node in the loop nest tree with its transformations.
 
-    A slice describes the loops attached to a single root and
+    Describes the loops attached to a single root and
     contains all the scheduling transformations applied to these loops.
 
     Attributes:
-        root: Identifier of the the slice (either the base operation or
+        root: Identifier of the node (either the base operation or
             the content of a split).
         tiles: Tiling configuration per axis. Maps axis names to dicts of
             tile loop names and their sizes.
@@ -506,28 +327,91 @@ class LoopNestSlice:
 
 
 @dataclass
+class LoopsDimsMapper:
+    """Maps loop names to their corresponding axis names.
+
+    This class tracks the relationship between loop identifiers (from tiling
+    and splitting transformations) and the original dimension axes they
+    derive from.
+
+    Attributes:
+        tiles_to_axis: Maps tile loop names to their parent axis.
+        splits_to_axis: Maps split loop names to their parent axis.
+        dims: List of original dimension names.
+    """
+
+    tiles_to_axis: dict[str, str]
+    splits_to_axis: dict[str, str]
+    dims: list[str]
+
+    @property
+    def loops_to_axis(self) -> dict[str, str]:
+        loops_to_axis = (
+            self.tiles_to_axis | self.splits_to_axis | dict(zip(self.dims, self.dims))
+        )
+        return loops_to_axis
+
+    @staticmethod
+    def build_from_nodes(nodes: list[LoopNestNode]) -> LoopsDimsMapper:
+        tiles_to_axis = {}
+        splits_to_axis = {}
+        dims = set()
+        for node in nodes:
+            tiles_to_axis.update(LoopsDimsMapper._get_subloops_to_axis(node.tiles))
+            splits_to_axis.update(LoopsDimsMapper._get_subloops_to_axis(node.splits))
+        refined_loops = list(tiles_to_axis) + list(splits_to_axis)
+        for node in nodes:
+            dims.update(
+                [loop for loop in node.interchange if loop not in refined_loops]
+            )
+            dims.update(tiles_to_axis.values())
+            dims.update(splits_to_axis.values())
+        return LoopsDimsMapper(tiles_to_axis, splits_to_axis, list(dims))
+
+    @staticmethod
+    def _get_subloops_to_axis(subloops: dict[str, dict[str, Any]]) -> dict[str, str]:
+        loop_to_axis: dict[str, str] = {}
+        for axis_name, subloops in subloops.items():
+            for loop_name in subloops:
+                loop_to_axis[loop_name] = axis_name
+        return loop_to_axis
+
+
+@dataclass
 class LoopNest:
     """Represents a complete loop nest structure for scheduling.
 
-    A loop nest contains abstract dimensions and a collection of slices/
-    It provides validation to ensure consistency across all slices.
+    A loop nest contains abstract dimensions and a tree of nodes representing
+    the schedule. Splits create child nodes, forming an explicit tree structure.
 
     Attributes:
         abstract_dims: List of abstract dimension names for the loop nest.
-        slices: List of LoopNestSlice objects, one per scheduled operation.
+        root_node: The root node of the loop nest tree, or None if empty.
     """
 
     abstract_dims: list[str]
-    slices: list[LoopNestSlice] = field(default_factory=list)
+    root_node: LoopNestNode | None = None
 
     @property
-    def empty(self):
-        return not self.slices
+    def empty(self) -> bool:
+        return self.root_node is None
 
-    def build_slice(self, root: str) -> LoopNestSlice:
-        slice = LoopNestSlice(root=root, tiles={a: {} for a in self.abstract_dims})
-        self.slices = [slice] + self.slices
-        return slice
+    @property
+    def nodes(self) -> list[LoopNestNode]:
+        """Flatten the tree into a list of nodes.
+
+        Returns nodes in depth-first order, with the root node first,
+        followed by children in the order they were created.
+        """
+        if self.root_node is None:
+            return []
+        return [self.root_node] + self.root_node.descendants_dfs()
+
+    def build_root_node(self, root: str) -> LoopNestNode:
+        """Build and set the root node of the loop nest tree."""
+        node = LoopNestNode(root=root, tiles={a: {} for a in self.abstract_dims})
+        self.root_node = node
+        return node
 
     def check(self):
         self._check_use_defined_dims()
@@ -536,13 +420,13 @@ class LoopNest:
         self._check_sizes()
 
     def _check_use_defined_dims(self):
-        mapper = LoopsDimsMapper.build_from_slices(self.slices)
+        mapper = LoopsDimsMapper.build_from_nodes(self.nodes)
         for dim in self.abstract_dims:
             if dim not in mapper.dims:
                 raise ScheduleValidationError(f"{dim} defined but never used")
 
     def _check_vectorization_consistency(self):
-        for sched in self.slices:
+        for sched in self.nodes:
             vect_above = False
             for loop_name in sched.interchange:
                 if loop_name in sched.vectorize:
@@ -553,9 +437,9 @@ class LoopNest:
                     )
 
     def _check_tiling_consistency(self) -> None:
-        mapper = LoopsDimsMapper.build_from_slices(self.slices)
+        mapper = LoopsDimsMapper.build_from_nodes(self.nodes)
         seen_axes: dict[str, int | None] = {}
-        for sched in self.slices:
+        for sched in self.nodes:
             for loop_name in sched.interchange:
                 if loop_name in mapper.dims:
                     seen_axes[loop_name] = None
@@ -571,9 +455,9 @@ class LoopNest:
                     seen_axes[axis] = sched.tiles[axis][loop_name]
 
     def _check_sizes(self):
-        mapper = LoopsDimsMapper.build_from_slices(self.slices)
+        mapper = LoopsDimsMapper.build_from_nodes(self.nodes)
         current_size_of_split: dict[str, int | None] = {}
-        for sched in self.slices:
+        for sched in self.nodes:
             current_size_of_tile: dict[str, int] = {}
 
             for loop_name in sched.interchange:
@@ -649,6 +533,204 @@ def descript_scheduler(
     descript.apply(node_name=node_name, spec=spec)
 
 
+class ScheduleInterpreter:
+    """Interprets a parsed ScheduleSpec AST into a LoopNest."""
+
+    def __init__(self, abstract_axis: list[str]):
+        self.abstract_axis = abstract_axis
+
+    def interpret(self, spec: ScheduleSpec, root: str) -> LoopNest:
+        """Interpret a schedule specification into a LoopNest."""
+        loop_nest = LoopNest(abstract_dims=self.abstract_axis)
+        root_node = loop_nest.build_root_node(root)
+        self._interpret_spec_into_node(spec, root_node, root, head=[])
+        return loop_nest
+
+    def _interpret_spec_into_node(
+        self,
+        spec: ScheduleSpec,
+        node: LoopNestNode,
+        root: str,
+        head: list[str],
+    ) -> None:
+        """Interpret a schedule spec into an existing node (mutates node)."""
+        # Track state during interpretation
+        sizes: dict[str, int] = {}
+        previous_cut: dict[str, int | None] = {a: 0 for a in self.abstract_axis}
+        interchange: list[str] = list(head)
+
+        for item in spec.items:
+            if isinstance(item, SplitDecl):
+                self._interpret_split(item, node, root, interchange, previous_cut)
+            elif isinstance(item, TileDecl):
+                loop_name = self._interpret_tile(item, node, interchange, sizes)
+                self._apply_annotations(item.annotations, loop_name, sizes, node)
+            elif isinstance(item, AxisDecl):
+                loop_name = self._interpret_axis(item, interchange)
+                self._apply_annotations(item.annotations, loop_name, sizes, node)
+
+        # Check that all splits are complete
+        for axis, cut in previous_cut.items():
+            if cut is not None and cut != 0:
+                raise ScheduleInterpretError(
+                    f"Splitting of {axis} unachieved (stops at {cut})."
+                )
+
+        node.interchange = interchange
+
+    def _interpret_split(
+        self,
+        item: SplitDecl,
+        node: LoopNestNode,
+        root: str,
+        interchange: list[str],
+        previous_cut: dict[str, int | None],
+    ) -> None:
+        """Interpret a split declaration."""
+        axis_name = item.axis
+        self._check_axis_existence(axis_name)
+        x = item.start
+        y = item.end
+
+        # The only declaration where y (the cut) is None is the
+        # last one, so it cannot be the previous one.
+        cut = previous_cut[axis_name]
+
+        # When x (the starting point of the split) is not specified,
+        # it is the previous cut
+        if x is None:
+            x = cut
+        assert x is not None
+
+        self._check_splitting_intervals(item, cut, x)
+
+        # Update the previous cut
+        previous_cut[axis_name] = y
+
+        # Save the cutting points of the new dimensions
+        if axis_name not in node.splits:
+            node.splits[axis_name] = {}
+        new_dim_index = len(node.splits[axis_name])
+        new_dim_name = f"{axis_name}[{new_dim_index}]"
+        new_root_name = f"{root}/{new_dim_name}"
+        node.splits[axis_name][new_dim_name] = x
+        interchange.append(new_dim_name)
+
+        # Create a child node for the nested schedule
+        child_node = LoopNestNode(
+            root=new_root_name,
+            tiles={a: {} for a in self.abstract_axis},
+            split_origin=SplitOrigin(axis=axis_name, start=x, end=y),
+        )
+        node.add_child(child_node)
+
+        # Recursively interpret the nested schedule into the child node
+        self._interpret_spec_into_node(
+            item.body, child_node, new_root_name, head=[axis_name]
+        )
+
+    def _interpret_tile(
+        self,
+        item: TileDecl,
+        node: LoopNestNode,
+        interchange: list[str],
+        sizes: dict[str, int],
+    ) -> str:
+        """Interpret a tile declaration. Returns the loop name."""
+        self._check_axis_existence(item.axis)
+        tile_num = len(node.tiles[item.axis])
+        loop_name = f"{item.axis}{tile_num}"
+        if item.size <= 0:
+            raise ScheduleInterpretError(
+                f"`{item}`: tile sizes should be strictly positive."
+            )
+        node.tiles[item.axis][loop_name] = item.size
+        sizes[loop_name] = item.size
+        interchange.append(loop_name)
+
+        return loop_name
+
+    def _interpret_axis(
+        self,
+        item: AxisDecl,
+        interchange: list[str],
+    ) -> str:
+        """Interpret a direct axis reference. Returns the loop name."""
+        axis_name = item.axis
+        self._check_axis_existence(axis_name)
+
+        # Unreachable when built from a Python dict (because keys
+        # can't be duplicated).
+        if axis_name in interchange:
+            raise ScheduleInterpretError(
+                f"Axis {axis_name} is scheduled twice (or more)."
+            )
+
+        interchange.append(axis_name)
+        return axis_name
+
+    def _check_axis_existence(self, axis: str) -> None:
+        """Check that an axis is defined."""
+        if axis not in self.abstract_axis:
+            raise ScheduleInterpretError(
+                f"Axis {axis} is not a defined axis (defined axis: {self.abstract_axis})."
+            )
+
+    def _apply_annotations(
+        self,
+        annotations: Annotations,
+        loop_name: str,
+        sizes: dict[str, int],
+        node: LoopNestNode,
+    ) -> None:
+        """Apply annotations to a loop in the node."""
+        if annotations.unroll_specified:
+            unroll_factor = annotations.unroll_factor
+            if unroll_factor is None:
+                # None means "unroll fully" - use the loop size
+                if loop_name not in sizes:
+                    raise ScheduleInterpretError(
+                        f"{loop_name}'s size being unknown, an unroll factor is needed."
+                    )
+                unroll_factor = sizes[loop_name]
+            elif unroll_factor <= 0:
+                raise ScheduleInterpretError(
+                    f'`{{"unroll" = {unroll_factor}}}`: unroll parameter should be strictly positive.'
+                )
+            node.unroll[loop_name] = unroll_factor
+
+        if annotations.vectorize:
+            node.vectorize.append(loop_name)
+
+        if annotations.parallelize:
+            node.parallelize.append(loop_name)
+
+    def _check_splitting_intervals(
+        self,
+        item: SplitDecl,
+        cut: int | None,
+        x: int,
+    ) -> None:
+        """Check that split intervals are valid and contiguous."""
+
+        if cut is None:
+            raise ScheduleInterpretError(f"{item}: {item.axis} already covered.")
+
+        if x > cut:
+            raise ScheduleInterpretError(
+                f"{item}: splitting doesn't fully cover {item.axis} (jumps from {cut} to {x})."
+            )
+        elif x < cut:
+            raise ScheduleInterpretError(
+                f"{item}: the segment begins at {x} but the previous one ends at {cut}."
+            )
+
+        if item.end is not None and x >= item.end:
+            raise ScheduleInterpretError(
+                f"{item}: the ending point should be greater than the starting point."
+            )
+
+
 @dataclass(frozen=True)
 class Descript:
     """Applies a parsed and interpreted schedule to a Scheduler.
@@ -677,7 +759,7 @@ class Descript:
             ScheduleValidationError: If the resulting schedule is invalid.
         """
         # Parse the specification into an AST
-        parser = ScheduleParser(self.abstract_axis)
+        parser = ScheduleParser()
         ast = parser.parse(spec)
 
         # Interpret the AST into a LoopNest
@@ -694,16 +776,24 @@ class Descript:
         """Apply a LoopNest to the scheduler."""
         self.scheduler.set_dims(self.abstract_axis)
 
-        for slice in loop_nest.slices:
-            root = slice.root
+        if loop_nest.root_node is not None:
+            self._apply_node(loop_nest.root_node)
 
-            for d, s in slice.splits.items():
-                self.scheduler.split(d, s, root=root)
+    def _apply_node(self, node: LoopNestNode) -> None:
+        """Recursively apply a LoopNestNode and its children to the scheduler."""
+        root = node.root
 
-            for d, s in slice.tiles.items():
-                self.scheduler.tile(d, s, root=root)
+        for d, s in node.splits.items():
+            self.scheduler.split(d, s, root=root)
 
-            self.scheduler.interchange(slice.interchange, root=root)
-            self.scheduler.vectorize(slice.vectorize, root=root)
-            self.scheduler.parallelize(slice.parallelize, root=root)
-            self.scheduler.unroll(slice.unroll, root=root)
+        for d, s in node.tiles.items():
+            self.scheduler.tile(d, s, root=root)
+
+        self.scheduler.interchange(node.interchange, root=root)
+        self.scheduler.vectorize(node.vectorize, root=root)
+        self.scheduler.parallelize(node.parallelize, root=root)
+        self.scheduler.unroll(node.unroll, root=root)
+
+        # Recursively apply children
+        for child in node.children:
+            self._apply_node(child)
