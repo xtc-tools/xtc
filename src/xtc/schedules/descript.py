@@ -249,7 +249,6 @@ class ScheduleInterpreter:
             elif isinstance(item, AxisDecl):
                 loop_name = self._interpret_axis(item, interchange)
                 self._apply_annotations(item.annotations, loop_name, sizes, slice)
-
         # Check that all splits are complete
         for axis, cut in previous_cut.items():
             if cut is not None and cut != 0:
@@ -300,7 +299,7 @@ class ScheduleInterpreter:
         interchange.append(new_dim_name)
 
         # Recursively interpret the nested schedule
-        inner_nest = self._interpret_spec(item.body, new_root_name, head=[axis_name])
+        inner_nest = self._interpret_spec(item.body, new_root_name, head=[new_dim_name])
         loop_nest.slices += inner_nest.slices
 
     def _interpret_tile(
@@ -321,7 +320,6 @@ class ScheduleInterpreter:
         slice.tiles[item.axis][loop_name] = item.size
         sizes[loop_name] = item.size
         interchange.append(loop_name)
-
         return loop_name
 
     def _interpret_axis(
@@ -478,21 +476,23 @@ class LoopNestSlice:
 
     root: str
     tiles: dict[str, dict[str, int]]
-    splits: dict[str, dict[str, int]] = field(default_factory=dict)
+    splits: dict[str, dict[str, int | None]] = field(default_factory=dict)
     interchange: list[str] = field(default_factory=list)
     vectorize: list[str] = field(default_factory=list)
     parallelize: list[str] = field(default_factory=list)
     unroll: dict[str, int] = field(default_factory=dict)
 
     @property
-    def splits_to_sizes(self) -> dict[str, int]:
-        splits_to_sizes: dict[str, int] = {}
+    def splits_to_sizes(self) -> dict[str, int | None]:
+        splits_to_sizes: dict[str, int | None] = {}
         for axis in self.splits:
             last_start = None
             for loop_name, start in reversed(self.splits[axis].items()):
-                if last_start is not None:
+                if last_start is not None and start is not None:
                     size_of_split = last_start - start
                     splits_to_sizes[loop_name] = size_of_split
+                else:
+                    splits_to_sizes[loop_name] = None
                 last_start = start
         return splits_to_sizes
 
@@ -535,6 +535,21 @@ class LoopNest:
         self._check_tiling_consistency()
         self._check_sizes()
 
+    def remove_excess_interchange(self):
+        for sched in self.slices:
+            seen = set()
+            new_interchange = []
+            for loop_name in sched.interchange:
+                if not loop_name in sched.splits_to_sizes:
+                    loop_name = re.sub(r"\[.*?\]$", "", loop_name)
+                if loop_name in seen:
+                    raise ScheduleInterpretError(
+                        f"Axis {loop_name} is scheduled twice (or more)."
+                    )
+                new_interchange.append(loop_name)
+                seen.add(loop_name)
+            sched.interchange = new_interchange
+
     def _check_use_defined_dims(self):
         mapper = LoopsDimsMapper.build_from_slices(self.slices)
         for dim in self.abstract_dims:
@@ -557,6 +572,8 @@ class LoopNest:
         seen_axes: dict[str, int | None] = {}
         for sched in self.slices:
             for loop_name in sched.interchange:
+                if not loop_name in sched.splits_to_sizes:
+                    loop_name = re.sub(r"\[.*?\]$", "", loop_name)
                 if loop_name in mapper.dims:
                     seen_axes[loop_name] = None
                 elif loop_name in mapper.tiles_to_axis:
@@ -575,7 +592,6 @@ class LoopNest:
         current_size_of_split: dict[str, int | None] = {}
         for sched in self.slices:
             current_size_of_tile: dict[str, int] = {}
-
             for loop_name in sched.interchange:
                 axis = mapper.loops_to_axis[loop_name]
                 current_sizes = (
@@ -607,7 +623,9 @@ class LoopNest:
                         loop_name=loop_name,
                         axis=axis,
                     )
-                    current_size_of_split[axis] = loop_size
+                    current_size_of_split[loop_name] = loop_size
+                elif loop_name in current_size_of_split:
+                    current_size_of_split[axis] = current_size_of_split[loop_name]
 
                 if loop_name in sched.unroll:
                     unroll_factor = sched.unroll[loop_name]
@@ -683,10 +701,10 @@ class Descript:
         # Interpret the AST into a LoopNest
         interpreter = ScheduleInterpreter(self.abstract_axis)
         loop_nest = interpreter.interpret(ast, root=node_name)
-
         # Validate the loop nest
         loop_nest.check()
-
+        # Remove from the loop nest slice interchange any name[number]
+        loop_nest.remove_excess_interchange()
         # Apply the schedule to the scheduler
         self._apply_loop_nest(loop_nest)
 
