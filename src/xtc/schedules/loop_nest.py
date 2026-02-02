@@ -122,6 +122,127 @@ class LoopNestNode(Node["LoopNestNode"]):
                 tiles_to_sizes[loop] = size
         return tiles_to_sizes
 
+    def pretty_print(self, indent: int = 0) -> str:
+        """Return a human-readable representation of the loop nest.
+
+        The output format uses a compact notation:
+            - `loop X` for a regular loop over dimension X
+            - `tile(X, N)` for a tile of size N on dimension X
+            - `split(X, start, end)` for a split segment on dimension X
+            - `// annotation` for vectorized, parallelized, unroll(N)
+            - `...` for the innermost body
+
+        Example output:
+            loop i  // parallelized
+              loop k
+                loop j
+                  tile(j, 16)  // vectorized
+                    ...
+
+        Args:
+            indent: The initial indentation level (number of spaces).
+
+        Returns:
+            A multi-line string representing the loop nest structure.
+        """
+        lines: list[str] = []
+
+        # Build mapping from tile loop name to (axis, size)
+        tiles_info: dict[str, tuple[str, int]] = {}
+        for axis, tile_loops in self.tiles.items():
+            for loop_name, size in tile_loops.items():
+                tiles_info[loop_name] = (axis, size)
+
+        # Build mapping from split loop name to (axis, start, end)
+        splits_info: dict[str, tuple[str, int, int | None]] = {}
+        for axis, axis_splits in self.splits.items():
+            split_starts = list(axis_splits.values())
+            for i, (loop_name, start) in enumerate(axis_splits.items()):
+                end = split_starts[i + 1] if i + 1 < len(split_starts) else None
+                splits_info[loop_name] = (axis, start, end)
+
+        # Map split loop names to their child nodes
+        split_to_child: dict[str, LoopNestNode] = {}
+        for child in self.children:
+            if child.split_origin is not None:
+                axis = child.split_origin.axis
+                if axis in self.splits:
+                    for loop_name, start in self.splits[axis].items():
+                        if start == child.split_origin.start:
+                            split_to_child[loop_name] = child
+                            break
+
+        # Group splits by axis for same-level printing
+        axis_to_splits: dict[str, list[str]] = {}
+        for loop_name, (axis, _, _) in splits_info.items():
+            if loop_name in self.interchange:
+                if axis not in axis_to_splits:
+                    axis_to_splits[axis] = []
+                axis_to_splits[axis].append(loop_name)
+
+        processed_splits: set[str] = set()
+        current_indent = indent
+
+        for loop_name in self.interchange:
+            # Skip already processed splits
+            if loop_name in processed_splits:
+                continue
+
+            # Check if this is a split
+            if loop_name in splits_info:
+                axis, _, _ = splits_info[loop_name]
+                axis_split_names = axis_to_splits.get(axis, [loop_name])
+                processed_splits.update(axis_split_names)
+
+                # Print all splits of this axis at the same level
+                for split_name in axis_split_names:
+                    split_axis, start, end = splits_info[split_name]
+                    end_str = str(end) if end is not None else "..."
+                    line = f"split({split_axis}, {start}, {end_str})"
+                    line = self._add_annotations(line, split_name)
+                    lines.append(" " * current_indent + line)
+
+                    # Use child's pretty_print if available
+                    if split_name in split_to_child:
+                        child_output = split_to_child[split_name].pretty_print(
+                            current_indent + 2
+                        )
+                        lines.append(child_output)
+                    else:
+                        lines.append(" " * (current_indent + 2) + "...")
+            else:
+                # Regular loop (tile or base dimension)
+                if loop_name in tiles_info:
+                    axis, size = tiles_info[loop_name]
+                    line = f"tile({axis}, {size})"
+                else:
+                    # Extract basename (last part after /)
+                    basename = loop_name.split("/")[-1]
+                    line = f"loop {basename}"
+
+                line = self._add_annotations(line, loop_name)
+                lines.append(" " * current_indent + line)
+                current_indent += 2
+
+        # Add body if no splits were encountered
+        if not processed_splits:
+            lines.append(" " * current_indent + "...")
+
+        return "\n".join(lines)
+
+    def _add_annotations(self, line: str, loop_name: str) -> str:
+        """Add annotations (parallelized, vectorized, unroll) to a loop line."""
+        annotations: list[str] = []
+        if loop_name in self.parallelize:
+            annotations.append("parallelized")
+        if loop_name in self.vectorize:
+            annotations.append("vectorized")
+        if loop_name in self.unroll:
+            annotations.append(f"unroll({self.unroll[loop_name]})")
+        if annotations:
+            line += "  // " + ", ".join(annotations)
+        return line
+
 
 @dataclass
 class LoopsDimsMapper:
