@@ -7,6 +7,7 @@ from typing import Any
 
 import xtc.itf as itf
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
+from xtc.schedules.loop_nest import LoopNest
 import xtc.backends.jir as backend
 
 __all__ = [
@@ -347,3 +348,32 @@ class JIRScheduler(itf.schd.Scheduler):
 
     def get_schedule_str(self) -> str:
         return str(JIRSchedule(scheduler=self))
+
+    @override
+    def get_loop_nest(self) -> LoopNest:
+        transformer = self._transformer
+        dims = list(transformer.dims.keys())
+
+        loop_nest = LoopNest(abstract_dims=dims)
+        root_node = loop_nest.build_root_node(self._backend.payload_name)
+
+        # Build tiles mapping
+        for axis, axis_tiles in transformer.tiles.items():
+            for tile_name, size in axis_tiles.items():
+                root_node.tiles[axis][tile_name] = size
+
+        # Build interchange
+        root_node.interchange = (
+            list(transformer.order) if transformer.order else dims[:]
+        )
+
+        # Build vectorization list
+        root_node.vectorize = list(transformer.vectorized)
+
+        # Build parallelization list
+        root_node.parallelize = list(transformer.parallelized)
+
+        # Build unroll mapping
+        root_node.unroll = dict(transformer.unrolled)
+
+        return loop_nest
