@@ -5,7 +5,7 @@
 from typing_extensions import override
 
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
-from xtc.schedules.loop_nest import LoopNest, LoopNestNode, SplitOrigin
+from xtc.schedules.loop_nest import LoopNest, LoopNestNode, LoopInfo, SplitOrigin
 import xtc.itf as itf
 import xtc.backends.mlir as backend
 
@@ -212,13 +212,12 @@ class MlirScheduler(itf.schd.Scheduler):
         loop_nest = LoopNest(abstract_dims=dims)
         root_node = loop_nest.build_root_node(node_sched.node_name)
 
-        # Collect all split names and their info (axis, start, end)
-        split_info: dict[str, tuple[str, int, int | None]] = {}
+        # Assign splits to root_node first
         for axis, axis_splits in node_sched.splits.items():
-            split_starts = list(axis_splits.values())
-            for i, (split_name, start) in enumerate(axis_splits.items()):
-                end = split_starts[i + 1] if i + 1 < len(split_starts) else None
-                split_info[split_name] = (axis, start, end)
+            root_node.splits[axis] = dict(axis_splits)
+
+        # Build mapper to get splits_info
+        mapper = LoopInfo.build_from_node(root_node)
 
         def populate_node(node: LoopNestNode, perm: list[str]) -> None:
             """Populate node with data for loops in its permutation."""
@@ -238,9 +237,9 @@ class MlirScheduler(itf.schd.Scheduler):
 
         # Process each root in permutation
         for root, perm in node_sched.permutation.items():
-            if root in split_info:
+            if root in mapper.splits_info:
                 # This root is a split - create child node
-                axis, start, end = split_info[root]
+                axis, start, end = mapper.splits_info[root]
                 child = LoopNestNode(
                     root=root,
                     tiles={d: {} for d in dims},
@@ -251,8 +250,6 @@ class MlirScheduler(itf.schd.Scheduler):
             else:
                 # This is the main root
                 populate_node(root_node, perm)
-                for axis, axis_splits in node_sched.splits.items():
-                    root_node.splits[axis] = dict(axis_splits)
 
         return loop_nest
 

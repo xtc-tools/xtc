@@ -4,7 +4,7 @@
 #
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 from dataclasses import dataclass, field
 
 from .exceptions import ScheduleValidationError
@@ -102,26 +102,6 @@ class LoopNestNode(Node["LoopNestNode"]):
     parallelize: list[str] = field(default_factory=list)
     unroll: dict[str, int] = field(default_factory=dict)
 
-    @property
-    def splits_to_sizes(self) -> dict[str, int]:
-        splits_to_sizes: dict[str, int] = {}
-        for axis in self.splits:
-            last_start = None
-            for loop_name, start in reversed(self.splits[axis].items()):
-                if last_start is not None:
-                    size_of_split = last_start - start
-                    splits_to_sizes[loop_name] = size_of_split
-                last_start = start
-        return splits_to_sizes
-
-    @property
-    def tiles_to_sizes(self) -> dict[str, int]:
-        tiles_to_sizes: dict[str, int] = {}
-        for tiles in self.tiles.values():
-            for loop, size in tiles.items():
-                tiles_to_sizes[loop] = size
-        return tiles_to_sizes
-
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
 
@@ -147,19 +127,9 @@ class LoopNestNode(Node["LoopNestNode"]):
         """
         lines: list[str] = []
 
-        # Build mapping from tile loop name to (axis, size)
-        tiles_info: dict[str, tuple[str, int]] = {}
-        for axis, tile_loops in self.tiles.items():
-            for loop_name, size in tile_loops.items():
-                tiles_info[loop_name] = (axis, size)
-
-        # Build mapping from split loop name to (axis, start, end)
-        splits_info: dict[str, tuple[str, int, int | None]] = {}
-        for axis, axis_splits in self.splits.items():
-            split_starts = list(axis_splits.values())
-            for i, (loop_name, start) in enumerate(axis_splits.items()):
-                end = split_starts[i + 1] if i + 1 < len(split_starts) else None
-                splits_info[loop_name] = (axis, start, end)
+        mapper = LoopInfo.build_from_node(self)
+        tiles_info = mapper.tiles_info
+        splits_info = mapper.splits_info
 
         # Map split loop names to their child nodes
         split_to_child: dict[str, LoopNestNode] = {}
@@ -245,54 +215,79 @@ class LoopNestNode(Node["LoopNestNode"]):
 
 
 @dataclass
-class LoopsDimsMapper:
-    """Maps loop names to their corresponding axis names.
+class LoopInfo:
+    """Maps loop names to their corresponding axis names and metadata.
 
     This class tracks the relationship between loop identifiers (from tiling
     and splitting transformations) and the original dimension axes they
-    derive from.
+    derive from, along with their sizes and positions.
 
     Attributes:
-        tiles_to_axis: Maps tile loop names to their parent axis.
-        splits_to_axis: Maps split loop names to their parent axis.
         dims: List of original dimension names.
+        tiles_info: Maps tile loop names to (axis, size) tuples.
+        splits_info: Maps split loop names to (axis, start, end) tuples.
     """
 
-    tiles_to_axis: dict[str, str]
-    splits_to_axis: dict[str, str]
     dims: list[str]
+    tiles_info: dict[str, tuple[str, int]] = field(default_factory=dict)
+    splits_info: dict[str, tuple[str, int, int | None]] = field(default_factory=dict)
+
+    @property
+    def tiles_to_axis(self) -> dict[str, str]:
+        return {name: axis for name, (axis, _) in self.tiles_info.items()}
+
+    @property
+    def splits_to_axis(self) -> dict[str, str]:
+        return {name: axis for name, (axis, _, _) in self.splits_info.items()}
 
     @property
     def loops_to_axis(self) -> dict[str, str]:
-        loops_to_axis = (
+        return (
             self.tiles_to_axis | self.splits_to_axis | dict(zip(self.dims, self.dims))
         )
-        return loops_to_axis
+
+    @property
+    def splits_to_sizes(self) -> dict[str, int]:
+        return {
+            name: end - start
+            for name, (_, start, end) in self.splits_info.items()
+            if end is not None
+        }
 
     @staticmethod
-    def build_from_nodes(nodes: list[LoopNestNode]) -> LoopsDimsMapper:
-        tiles_to_axis = {}
-        splits_to_axis = {}
-        dims = set()
-        for node in nodes:
-            tiles_to_axis.update(LoopsDimsMapper._get_subloops_to_axis(node.tiles))
-            splits_to_axis.update(LoopsDimsMapper._get_subloops_to_axis(node.splits))
-        refined_loops = list(tiles_to_axis) + list(splits_to_axis)
-        for node in nodes:
-            dims.update(
-                [loop for loop in node.interchange if loop not in refined_loops]
-            )
-            dims.update(tiles_to_axis.values())
-            dims.update(splits_to_axis.values())
-        return LoopsDimsMapper(tiles_to_axis, splits_to_axis, list(dims))
+    def build_from_node(node: LoopNestNode) -> LoopInfo:
+        tiles_info: dict[str, tuple[str, int]] = {}
+        splits_info: dict[str, tuple[str, int, int | None]] = {}
+        dims: set[str] = set()
 
-    @staticmethod
-    def _get_subloops_to_axis(subloops: dict[str, dict[str, Any]]) -> dict[str, str]:
-        loop_to_axis: dict[str, str] = {}
-        for axis_name, subloops in subloops.items():
-            for loop_name in subloops:
-                loop_to_axis[loop_name] = axis_name
-        return loop_to_axis
+        def collect(n: LoopNestNode) -> None:
+            nonlocal dims
+
+            # Build tiles_info: tile_name -> (axis, size)
+            for axis, tile_loops in n.tiles.items():
+                for loop_name, size in tile_loops.items():
+                    tiles_info[loop_name] = (axis, size)
+
+            # Build splits_info: split_name -> (axis, start, end)
+            for axis, axis_splits in n.splits.items():
+                split_starts = list(axis_splits.values())
+                for i, (loop_name, start) in enumerate(axis_splits.items()):
+                    end = split_starts[i + 1] if i + 1 < len(split_starts) else None
+                    splits_info[loop_name] = (axis, start, end)
+
+            # Collect dims
+            refined_loops = set(tiles_info) | set(splits_info)
+            dims.update(loop for loop in n.interchange if loop not in refined_loops)
+            dims.update(axis for axis, _ in tiles_info.values())
+            dims.update(axis for axis, _, _ in splits_info.values())
+
+            # Recurse on children
+            for child in n.children:
+                collect(child)
+
+        collect(node)
+
+        return LoopInfo(list(dims), tiles_info, splits_info)
 
 
 @dataclass
@@ -332,15 +327,16 @@ class LoopNest:
         return node
 
     def check(self):
-        self._check_use_defined_dims()
+        assert self.root_node is not None
+        info = LoopInfo.build_from_node(self.root_node)
+        self._check_use_defined_dims(info)
         self._check_vectorization_consistency()
-        self._check_tiling_consistency()
-        self._check_sizes()
+        self._check_tiling_consistency(info)
+        self._check_sizes(info)
 
-    def _check_use_defined_dims(self):
-        mapper = LoopsDimsMapper.build_from_nodes(self.nodes)
+    def _check_use_defined_dims(self, info: LoopInfo):
         for dim in self.abstract_dims:
-            if dim not in mapper.dims:
+            if dim not in info.dims:
                 raise ScheduleValidationError(f"{dim} defined but never used")
 
     def _check_vectorization_consistency(self):
@@ -354,42 +350,43 @@ class LoopNest:
                         f"Inner loop {loop_name} isn't vectorized but an outer one is."
                     )
 
-    def _check_tiling_consistency(self) -> None:
-        mapper = LoopsDimsMapper.build_from_nodes(self.nodes)
+    def _check_tiling_consistency(self, info: LoopInfo) -> None:
         seen_axes: dict[str, int | None] = {}
         for sched in self.nodes:
             for loop_name in sched.interchange:
-                if loop_name in mapper.dims:
+                if loop_name in info.dims:
                     seen_axes[loop_name] = None
-                elif loop_name in mapper.tiles_to_axis:
-                    axis = mapper.tiles_to_axis[loop_name]
-                    size = sched.tiles_to_sizes[loop_name]
+                elif loop_name in info.splits_to_axis:
+                    axis = info.splits_to_axis[loop_name]
+                    seen_axes[axis] = sched.splits[axis][loop_name]
+                elif loop_name in info.tiles_to_axis:
+                    axis = info.tiles_to_axis[loop_name]
+                    size = sched.tiles[axis][loop_name]
                     if axis not in seen_axes:
                         raise ScheduleValidationError(
                             f"""
                             `{axis}#{size}`: {axis} has not been materialized yet.
                             """
                         )
-                    seen_axes[axis] = sched.tiles[axis][loop_name]
+                    seen_axes[axis] = size
 
-    def _check_sizes(self):
-        mapper = LoopsDimsMapper.build_from_nodes(self.nodes)
+    def _check_sizes(self, info: LoopInfo):
         current_size_of_split: dict[str, int | None] = {}
         for sched in self.nodes:
             current_size_of_tile: dict[str, int] = {}
 
             for loop_name in sched.interchange:
-                axis = mapper.loops_to_axis[loop_name]
+                axis = info.loops_to_axis[loop_name]
                 current_sizes = (
-                    {d: None for d in mapper.dims}
+                    {d: None for d in info.dims}
                     | current_size_of_split
                     | current_size_of_tile
                 )
                 loop_size = None
-                if loop_name in mapper.dims:
+                if loop_name in info.dims:
                     if loop_name not in current_size_of_split:
                         current_size_of_split[loop_name] = None
-                elif loop_name in mapper.tiles_to_axis:
+                elif loop_name in info.tiles_to_axis:
                     loop_size = sched.tiles[axis][loop_name]
                     LoopNest._must_be_smaller_routine(
                         new_size=loop_size,
@@ -399,10 +396,10 @@ class LoopNest:
                     )
                     current_size_of_tile[axis] = loop_size
                 elif (
-                    loop_name in mapper.splits_to_axis
-                    and loop_name in sched.splits_to_sizes
+                    loop_name in info.splits_to_axis
+                    and loop_name in info.splits_to_sizes
                 ):
-                    loop_size = sched.splits_to_sizes[loop_name]
+                    loop_size = info.splits_to_sizes[loop_name]
                     LoopNest._must_be_smaller_routine(
                         new_size=loop_size,
                         current_sizes=current_sizes,
