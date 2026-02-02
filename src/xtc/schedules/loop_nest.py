@@ -306,10 +306,6 @@ class LoopNest:
     root_node: LoopNestNode | None = None
 
     @property
-    def empty(self) -> bool:
-        return self.root_node is None
-
-    @property
     def nodes(self) -> list[LoopNestNode]:
         """Flatten the tree into a list of nodes.
 

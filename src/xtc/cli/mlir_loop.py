@@ -135,7 +135,7 @@ def build_node_scheduler(
         descript_scheduler(
             scheduler=scheduler,
             node_name=node_name,
-            abstract_axis=scheduler.backend.dims,
+            abstract_dims=scheduler.backend.dims,
             spec=normal_schedule,
         )
         op.attributes.pop("loop.schedule", None)

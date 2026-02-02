@@ -21,7 +21,7 @@ from .loop_nest import LoopNestNode, LoopNest, SplitOrigin
 def descript_scheduler(
     scheduler: Scheduler,
     node_name: str,
-    abstract_axis: list[str],
+    abstract_dims: list[str],
     spec: dict[str, dict[str, Any]],
 ) -> None:
     """Apply a schedule specification to a scheduler.
@@ -31,22 +31,22 @@ def descript_scheduler(
     Args:
         scheduler: The scheduler to apply the schedule to.
         node_name: The name of the root node to schedule.
-        abstract_axis: The list of abstract axis names (e.g., ["m", "n", "k"]).
+        abstract_dims: The list of abstract axis names (e.g., ["m", "n", "k"]).
         spec: The schedule specification as a nested dict.
     """
-    descript = Descript(scheduler=scheduler, abstract_axis=abstract_axis)
+    descript = Descript(scheduler=scheduler, abstract_dims=abstract_dims)
     descript.apply(node_name=node_name, spec=spec)
 
 
 class ScheduleInterpreter:
     """Interprets a parsed ScheduleSpec AST into a LoopNest."""
 
-    def __init__(self, abstract_axis: list[str]):
-        self.abstract_axis = abstract_axis
+    def __init__(self, abstract_dims: list[str]):
+        self.abstract_dims = abstract_dims
 
     def interpret(self, spec: ScheduleSpec, root: str) -> LoopNest:
         """Interpret a schedule specification into a LoopNest."""
-        loop_nest = LoopNest(abstract_dims=self.abstract_axis)
+        loop_nest = LoopNest(abstract_dims=self.abstract_dims)
         root_node = loop_nest.build_root_node(root)
         self._interpret_spec_into_node(spec, root_node, root, head=[])
         return loop_nest
@@ -61,7 +61,7 @@ class ScheduleInterpreter:
         """Interpret a schedule spec into an existing node (mutates node)."""
         # Track state during interpretation
         sizes: dict[str, int] = {}
-        previous_cut: dict[str, int | None] = {a: 0 for a in self.abstract_axis}
+        previous_cut: dict[str, int | None] = {a: 0 for a in self.abstract_dims}
         interchange: list[str] = list(head)
 
         for item in spec.items:
@@ -124,7 +124,7 @@ class ScheduleInterpreter:
         # Create a child node for the nested schedule
         child_node = LoopNestNode(
             root=new_root_name,
-            tiles={a: {} for a in self.abstract_axis},
+            tiles={a: {} for a in self.abstract_dims},
             split_origin=SplitOrigin(axis=axis_name, start=x, end=y),
         )
         node.add_child(child_node)
@@ -176,9 +176,9 @@ class ScheduleInterpreter:
 
     def _check_axis_existence(self, axis: str) -> None:
         """Check that an axis is defined."""
-        if axis not in self.abstract_axis:
+        if axis not in self.abstract_dims:
             raise ScheduleInterpretError(
-                f"Axis {axis} is not a defined axis (defined axis: {self.abstract_axis})."
+                f"Axis {axis} is not a defined axis (defined axis: {self.abstract_dims})."
             )
 
     def _apply_annotations(
@@ -249,7 +249,7 @@ class Descript:
     """
 
     scheduler: Scheduler
-    abstract_axis: list[str]
+    abstract_dims: list[str]
 
     def apply(self, node_name: str, spec: dict[str, dict[str, Any]]) -> None:
         """Parse, interpret, validate, and apply a schedule specification.
@@ -268,7 +268,7 @@ class Descript:
         ast = parser.parse(spec)
 
         # Interpret the AST into a LoopNest
-        interpreter = ScheduleInterpreter(self.abstract_axis)
+        interpreter = ScheduleInterpreter(self.abstract_dims)
         loop_nest = interpreter.interpret(ast, root=node_name)
 
         # Validate the loop nest
@@ -279,7 +279,7 @@ class Descript:
 
     def _apply_loop_nest(self, loop_nest: LoopNest) -> None:
         """Apply a LoopNest to the scheduler."""
-        self.scheduler.set_dims(self.abstract_axis)
+        self.scheduler.set_dims(self.abstract_dims)
 
         if loop_nest.root_node is not None:
             self._apply_node(loop_nest.root_node)
