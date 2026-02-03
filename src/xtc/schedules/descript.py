@@ -333,6 +333,12 @@ class ScheduleInterpreter:
 
         # Unreachable when built from a Python dict (because keys
         # can't be duplicated).
+        for loop_name in interchange:
+            loop_name = re.sub(r"\[.*?\]$", "", loop_name)
+            if loop_name == axis_name:
+                raise ScheduleInterpretError(
+                    f"Axis {axis_name} is scheduled twice (or more)."
+                )
         if axis_name in interchange:
             raise ScheduleInterpretError(
                 f"Axis {axis_name} is scheduled twice (or more)."
@@ -537,17 +543,11 @@ class LoopNest:
 
     def remove_excess_interchange(self):
         for sched in self.slices:
-            seen = set()
             new_interchange = []
             for loop_name in sched.interchange:
                 if not loop_name in sched.splits_to_sizes:
                     loop_name = re.sub(r"\[.*?\]$", "", loop_name)
-                if loop_name in seen:
-                    raise ScheduleInterpretError(
-                        f"Axis {loop_name} is scheduled twice (or more)."
-                    )
                 new_interchange.append(loop_name)
-                seen.add(loop_name)
             sched.interchange = new_interchange
 
     def _check_use_defined_dims(self):
