@@ -20,6 +20,7 @@ from xtc.backends.mlir.MlirConfig import MlirConfig
 from xtc.backends.mlir.MlirCompilerPasses import (
     MlirProgramInsertTransformPass,
     MlirProgramApplyTransformPass,
+    MlirProgramApplyPasses,
 )
 
 from xtc.backends.mlir.MlirTarget import (
@@ -154,6 +155,22 @@ class MlirProgramCompiler:
         if self._config.print_transformed_ir:
             self.dump_ir("IR Dump After transform")
 
+    def mlir_apply_tensor_lowering_pass(self) -> None:
+        apply_transform_pass = MlirProgramApplyPasses(
+            mlir_program=self._mlir_program,
+        )
+        if self._config.print_bufferization_ir:
+            self.dump_ir("IR Dump Before Tensor Lowering")
+        apply_transform_pass.run(
+            [
+                "eliminate-empty-tensors",  # causes ops to write directly to out buffer
+                "one-shot-bufferize{bufferize-function-boundaries=1 function-boundary-type-conversion=identity-layout-map buffer-alignment=256}",
+                "func.func(promote-buffers-to-stack)",
+            ]
+        )
+        if self._config.print_bufferization_ir:
+            self.dump_ir("IR Dump After Tensor Lowering")
+
     def _save_temp(self, fname: str, content: Any) -> None:
         if not self._config.save_temps:
             return
@@ -196,6 +213,8 @@ class MlirProgramCompiler:
         mlir_atrn_dump_file = f"{dump_base}.after_trn.mlir"
 
         save_temp(src_ir_dump_file, self._mlir_program.mlir_module)
+
+        self.mlir_apply_tensor_lowering_pass()
 
         self.mlir_insert_transform_pass()
         save_temp(mlir_btrn_dump_file, self._mlir_program.mlir_module)

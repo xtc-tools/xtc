@@ -24,6 +24,7 @@ class MlirConfig:
     print_assembly: bool = False
     visualize_jumps: bool = True
     print_lowered_ir: bool = False
+    print_bufferization_ir: bool = False
     debug: bool = False
     color: bool = False
     concluding_passes: list[str] = field(default_factory=list)

@@ -12,6 +12,7 @@ from xdsl.ir import (
 from xdsl.dialects.arith import ConstantOp
 from xdsl.dialects.builtin import (
     MemRefType,
+    TensorType,
     IntegerAttr,
     FloatAttr,
     IntegerType,
@@ -19,7 +20,7 @@ from xdsl.dialects.builtin import (
 
 from xdsl.context import Context
 from xdsl.parser import Parser
-from xdsl.dialects import func, linalg, arith, memref
+from xdsl.dialects import func, linalg, arith, memref, tensor
 from xdsl.dialects.builtin import ModuleOp
 
 
@@ -29,6 +30,7 @@ def parse_xdsl_module(source: str) -> ModuleOp:
     context.load_dialect(linalg.Linalg)
     context.load_dialect(arith.Arith)
     context.load_dialect(memref.MemRef)
+    context.load_dialect(tensor.Tensor)
     parser = Parser(context, source)
     module = parser.parse_module()
     return module
@@ -39,7 +41,7 @@ def xdsl_operator_to_function(source_op: Operation, name: str) -> func.FuncOp:
     operands = source_op.operands
     shaped_types, scalar_types = [], []
     for o in operands:
-        if isa(o.type, MemRefType):
+        if isa(o.type, MemRefType) or isa(o.type, TensorType):
             shaped_types.append(o.type)
         else:
             scalar_types.append(o.type)
@@ -49,7 +51,7 @@ def xdsl_operator_to_function(source_op: Operation, name: str) -> func.FuncOp:
     concrete_operands = []
     shaped_count, scalar_count = 0, 0
     for o in operands:
-        if isa(o.type, MemRefType):
+        if isa(o.type, MemRefType) or isa(o.type, TensorType):
             concrete_operands.append(payload.args[shaped_count])
             shaped_count += 1
         else:

@@ -563,3 +563,18 @@ class MlirProgramApplyTransformPass:
                 transform_op.erase()
             else:
                 break
+
+
+class MlirProgramApplyPasses:
+    def __init__(
+        self,
+        mlir_program: RawMlirProgram,
+    ) -> None:
+        self._mlir_program = mlir_program
+
+    def run(self, pass_names: list[str]) -> None:
+        ctx = self._mlir_program.mlir_context
+        pm = PassManager(context=ctx)
+        for name in pass_names:
+            pm.add(name)  # type: ignore # no attribute add
+        pm.run(self._mlir_program.mlir_module.operation)
