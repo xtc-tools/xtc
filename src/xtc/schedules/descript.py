@@ -339,10 +339,6 @@ class ScheduleInterpreter:
                 raise ScheduleInterpretError(
                     f"Axis {axis_name} is scheduled twice (or more)."
                 )
-        if axis_name in interchange:
-            raise ScheduleInterpretError(
-                f"Axis {axis_name} is scheduled twice (or more)."
-            )
 
         interchange.append(axis_name)
         return axis_name
