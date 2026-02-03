@@ -541,15 +541,6 @@ class LoopNest:
         self._check_tiling_consistency()
         self._check_sizes()
 
-    def remove_excess_interchange(self):
-        for sched in self.slices:
-            new_interchange = []
-            for loop_name in sched.interchange:
-                if not loop_name in sched.splits_to_sizes:
-                    loop_name = re.sub(r"\[.*?\]$", "", loop_name)
-                new_interchange.append(loop_name)
-            sched.interchange = new_interchange
-
     def _check_use_defined_dims(self):
         mapper = LoopsDimsMapper.build_from_slices(self.slices)
         for dim in self.abstract_dims:
@@ -703,8 +694,6 @@ class Descript:
         loop_nest = interpreter.interpret(ast, root=node_name)
         # Validate the loop nest
         loop_nest.check()
-        # Remove from the loop nest slice interchange any name[number]
-        loop_nest.remove_excess_interchange()
         # Apply the schedule to the scheduler
         self._apply_loop_nest(loop_nest)
 
