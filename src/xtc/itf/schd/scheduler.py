@@ -5,6 +5,7 @@
 from abc import ABC, abstractmethod
 from .schedule import Schedule
 import xtc.itf
+from xtc.schedules.loop_nest import LoopNest
 
 DEFAULT_ROOT = "."
 
@@ -286,5 +287,21 @@ class Scheduler(ABC):
             input_idx: input buffer index for the scheduled computation
             memory_axes: list of memory axes across which to distribute the buffer
             root: the parent split (or the operator's absolute root)
+        """
+        ...
+
+    @abstractmethod
+    def get_loop_nest(self) -> LoopNest:
+        """Return a LoopNest representation of the current schedule.
+
+        This method constructs a LoopNest object that describes the loop
+        structure resulting from the scheduling transformations applied
+        so far. The LoopNest can be used for visualization (via pretty_print)
+        or further analysis.
+
+        Returns:
+            LoopNest: A tree structure representing the scheduled loop nest,
+                including tiles, splits, interchange order, and annotations
+                (vectorization, parallelization, unrolling).
         """
         ...

@@ -723,7 +723,7 @@ def build_schedule_from_ttile(
     )
 
     descript_scheduler(
-        scheduler=sch, node_name=name_op, abstract_axis=ldims, spec=spec_schedule
+        scheduler=sch, node_name=name_op, abstract_dims=ldims, spec=spec_schedule
     )
 
     # And run it!

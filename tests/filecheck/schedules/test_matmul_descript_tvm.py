@@ -21,7 +21,7 @@ sch = impl.get_scheduler()
 descript_scheduler(
     scheduler = sch,
     node_name = "C",
-    abstract_axis = ["I","J","K"],
+    abstract_dims = ["I","J","K"],
     spec = {
         "K": {},
         "I": {},

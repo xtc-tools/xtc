@@ -12,6 +12,7 @@ from copy import deepcopy
 
 from xtc.utils.math import pow2divisor
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
+from xtc.schedules.loop_nest import LoopNest
 import xtc.backends.tvm as backend
 import xtc.itf as itf
 
@@ -510,6 +511,39 @@ class TVMScheduler(itf.schd.Scheduler):
     @override
     def __str__(self) -> str:
         return str(self._get_plain_schedule())
+
+    @override
+    def get_loop_nest(self) -> LoopNest:
+        loop_nest = LoopNest(abstract_dims=self.dims[:])
+        root_node = loop_nest.build_root_node(self._op.name or "op")
+
+        # Build tiles mapping
+        for axis, axis_tiles in self.tiles.items():
+            for tile_name, size in axis_tiles.items():
+                if tile_name != axis:
+                    root_node.tiles[axis][tile_name] = size
+
+        # Build interchange
+        root_node.interchange = list(self.permutation)
+
+        # Build vectorization list
+        root_node.vectorize = list(self.vectorization)
+
+        # Build parallelization list
+        root_node.parallelize = list(self.parallelization)
+
+        # Build unroll mapping
+        root_node.unroll = dict(self.unrolling)
+
+        # Build buffer_at mapping
+        root_node.buffer_at = {axis: None for axis in self.write_caches}
+
+        # Build pack_at mapping
+        root_node.pack_at = {
+            axis: (input_idx, None, pad) for axis, input_idx, pad in self.read_buffers
+        }
+
+        return loop_nest
 
 
 class TVMSchedule(itf.schd.Schedule):
