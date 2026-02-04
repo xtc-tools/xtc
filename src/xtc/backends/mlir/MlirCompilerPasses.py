@@ -34,6 +34,7 @@ except ImportError:
     sdist_transform = None
     pass
 
+from xtc.itf.schd.scheduler import ROOT_SEP, SPLIT_LEFT_SEP
 from xtc.utils.ext_tools import transform_opts
 
 from .MlirProgram import RawMlirProgram
@@ -290,9 +291,9 @@ class MlirProgramInsertTransformPass:
                     schedule=schedule, root=loop_name, sched_state=sched_state
                 )
                 continue
-            loop_name_no_root = loop_name.rsplit("/", 1)[-1]
-            loop_name_no_root = loop_name_no_root.split("[")[0]
-            loop_name = root + "/" + loop_name_no_root
+            loop_name_no_root = loop_name.rsplit(ROOT_SEP, 1)[-1]
+            loop_name_no_root = loop_name_no_root.split(SPLIT_LEFT_SEP)[0]
+            loop_name = root + ROOT_SEP + loop_name_no_root
 
             # Bufferization
             if loop_name in schedule.distributed_buffers.keys():
@@ -347,12 +348,11 @@ class MlirProgramInsertTransformPass:
                 state_of_tiling = candidate_state_of_tiling.copy()
 
             for loop in reversed(permutation):
-                loop_no_root = loop.rsplit("/", 1)[-1]
-                if "[" in loop_no_root and loop_no_root not in loop:
+                loop_no_root = loop.rsplit(ROOT_SEP, 1)[-1]
+                if SPLIT_LEFT_SEP in loop_no_root and loop_no_root not in loop:
                     continue
-                loop_no_root = loop_no_root.split("[")[0]
-                loop = loc_root + "/" + loop_no_root
-
+                loop_no_root = loop_no_root.split(SPLIT_LEFT_SEP)[0]
+                loop = loc_root + ROOT_SEP + loop_no_root
                 # The loop needs to be base or tile
                 if not (schedule.is_tile(loop) or schedule.is_base(loop)):
                     continue
