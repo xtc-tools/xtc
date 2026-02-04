@@ -5,14 +5,12 @@
 from typing_extensions import override
 from dataclasses import dataclass, asdict
 from pprint import pformat
-from xtc.itf.schd.scheduler import DEFAULT_ROOT
+from xtc.itf.schd.scheduler import DEFAULT_ROOT, ROOT_SEP
 
 __all__ = [
     "MlirNodeScheduler",
     "MlirNodeSchedule",
 ]
-
-ROOT_SEP = "/"
 
 
 def basename(loop_name: str) -> str:

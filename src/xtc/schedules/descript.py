@@ -8,7 +8,7 @@ from typing import Any
 from dataclasses import dataclass, field
 import re
 from typing_extensions import override
-from xtc.itf.schd.scheduler import Scheduler
+from xtc.itf.schd.scheduler import Scheduler, ROOT_SEP, SPLIT_LEFT_SEP, SPLIT_RIGHT_SEP
 
 
 class ScheduleParseError(RuntimeError):
@@ -60,7 +60,7 @@ class SplitDecl:
     def __str__(self) -> str:
         start_str = "" if self.start is None else str(self.start)
         end_str = "" if self.end is None else str(self.end)
-        decl = f"{self.axis}[{start_str}:{end_str}]"
+        decl = f"{self.axis}{SPLIT_LEFT_SEP}{start_str}:{end_str}{SPLIT_RIGHT_SEP}"
         return decl
 
 
@@ -224,11 +224,9 @@ class ScheduleInterpreter:
 
     def interpret(self, spec: ScheduleSpec, root: str) -> LoopNest:
         """Interpret a schedule specification into a LoopNest."""
-        return self._interpret_spec(spec, root, head=[])
+        return self._interpret_spec(spec, root)
 
-    def _interpret_spec(
-        self, spec: ScheduleSpec, root: str, head: list[str]
-    ) -> LoopNest:
+    def _interpret_spec(self, spec: ScheduleSpec, root: str) -> LoopNest:
         """Interpret a schedule spec recursively."""
         loop_nest = LoopNest(abstract_dims=self.abstract_axis)
         slice = loop_nest.build_slice(root)
@@ -236,7 +234,10 @@ class ScheduleInterpreter:
         # Track state during interpretation
         sizes: dict[str, int] = {}
         previous_cut: dict[str, int | None] = {a: 0 for a in self.abstract_axis}
-        interchange: list[str] = list(head)
+        rest, sep, axis_root_name = root.rpartition(ROOT_SEP)
+        interchange: list[str] = []
+        if sep:
+            interchange.append(axis_root_name)
 
         for item in spec.items:
             if isinstance(item, SplitDecl):
@@ -249,7 +250,6 @@ class ScheduleInterpreter:
             elif isinstance(item, AxisDecl):
                 loop_name = self._interpret_axis(item, interchange)
                 self._apply_annotations(item.annotations, loop_name, sizes, slice)
-
         # Check that all splits are complete
         for axis, cut in previous_cut.items():
             if cut is not None and cut != 0:
@@ -294,13 +294,13 @@ class ScheduleInterpreter:
         if axis_name not in slice.splits:
             slice.splits[axis_name] = {}
         new_dim_index = len(slice.splits[axis_name])
-        new_dim_name = f"{axis_name}[{new_dim_index}]"
-        new_root_name = f"{root}/{new_dim_name}"
+        new_dim_name = f"{axis_name}{SPLIT_LEFT_SEP}{new_dim_index}{SPLIT_RIGHT_SEP}"
+        new_root_name = f"{root}{ROOT_SEP}{new_dim_name}"
         slice.splits[axis_name][new_dim_name] = x
         interchange.append(new_dim_name)
 
         # Recursively interpret the nested schedule
-        inner_nest = self._interpret_spec(item.body, new_root_name, head=[axis_name])
+        inner_nest = self._interpret_spec(item.body, new_root_name)
         loop_nest.slices += inner_nest.slices
 
     def _interpret_tile(
@@ -321,7 +321,6 @@ class ScheduleInterpreter:
         slice.tiles[item.axis][loop_name] = item.size
         sizes[loop_name] = item.size
         interchange.append(loop_name)
-
         return loop_name
 
     def _interpret_axis(
@@ -332,13 +331,14 @@ class ScheduleInterpreter:
         """Interpret a direct axis reference. Returns the loop name."""
         axis_name = item.axis
         self._check_axis_existence(axis_name)
-
         # Unreachable when built from a Python dict (because keys
         # can't be duplicated).
-        if axis_name in interchange:
-            raise ScheduleInterpretError(
-                f"Axis {axis_name} is scheduled twice (or more)."
-            )
+        for loop_name in interchange:
+            loop_name = loop_name.split(SPLIT_LEFT_SEP)[0]
+            if loop_name == axis_name:
+                raise ScheduleInterpretError(
+                    f"Axis {axis_name} is scheduled twice (or more)."
+                )
 
         interchange.append(axis_name)
         return axis_name
@@ -478,21 +478,23 @@ class LoopNestSlice:
 
     root: str
     tiles: dict[str, dict[str, int]]
-    splits: dict[str, dict[str, int]] = field(default_factory=dict)
+    splits: dict[str, dict[str, int | None]] = field(default_factory=dict)
     interchange: list[str] = field(default_factory=list)
     vectorize: list[str] = field(default_factory=list)
     parallelize: list[str] = field(default_factory=list)
     unroll: dict[str, int] = field(default_factory=dict)
 
     @property
-    def splits_to_sizes(self) -> dict[str, int]:
-        splits_to_sizes: dict[str, int] = {}
+    def splits_to_sizes(self) -> dict[str, int | None]:
+        splits_to_sizes: dict[str, int | None] = {}
         for axis in self.splits:
             last_start = None
             for loop_name, start in reversed(self.splits[axis].items()):
-                if last_start is not None:
+                if last_start is not None and start is not None:
                     size_of_split = last_start - start
                     splits_to_sizes[loop_name] = size_of_split
+                else:
+                    splits_to_sizes[loop_name] = None
                 last_start = start
         return splits_to_sizes
 
@@ -557,6 +559,8 @@ class LoopNest:
         seen_axes: dict[str, int | None] = {}
         for sched in self.slices:
             for loop_name in sched.interchange:
+                if not loop_name in sched.splits_to_sizes:
+                    loop_name = loop_name.split(SPLIT_LEFT_SEP)[0]
                 if loop_name in mapper.dims:
                     seen_axes[loop_name] = None
                 elif loop_name in mapper.tiles_to_axis:
@@ -575,7 +579,6 @@ class LoopNest:
         current_size_of_split: dict[str, int | None] = {}
         for sched in self.slices:
             current_size_of_tile: dict[str, int] = {}
-
             for loop_name in sched.interchange:
                 axis = mapper.loops_to_axis[loop_name]
                 current_sizes = (
@@ -607,7 +610,9 @@ class LoopNest:
                         loop_name=loop_name,
                         axis=axis,
                     )
-                    current_size_of_split[axis] = loop_size
+                    current_size_of_split[loop_name] = loop_size
+                elif loop_name in current_size_of_split:
+                    current_size_of_split[axis] = current_size_of_split[loop_name]
 
                 if loop_name in sched.unroll:
                     unroll_factor = sched.unroll[loop_name]
@@ -683,10 +688,8 @@ class Descript:
         # Interpret the AST into a LoopNest
         interpreter = ScheduleInterpreter(self.abstract_axis)
         loop_nest = interpreter.interpret(ast, root=node_name)
-
         # Validate the loop nest
         loop_nest.check()
-
         # Apply the schedule to the scheduler
         self._apply_loop_nest(loop_nest)
 
