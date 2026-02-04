@@ -94,6 +94,9 @@ class LoopNestNode(Node["LoopNestNode"]):
         unroll: Maps loop names to their unroll factors.
         buffer_at: Buffer configuration per axis. Maps axis names to optional
             memory types (mtype). None means default memory type.
+        pack_at: Pack configuration per axis. Maps axis names to tuples of
+            (input_idx, mtype, pad). input_idx is the input buffer index,
+            mtype is the memory type (None for default), pad enables padding.
     """
 
     root: str
@@ -104,6 +107,7 @@ class LoopNestNode(Node["LoopNestNode"]):
     parallelize: list[str] = field(default_factory=list)
     unroll: dict[str, int] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
+    pack_at: dict[str, tuple[int, str | None, bool]] = field(default_factory=dict)
 
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
@@ -204,7 +208,7 @@ class LoopNestNode(Node["LoopNestNode"]):
         return "\n".join(lines)
 
     def _add_annotations(self, line: str, loop_name: str) -> str:
-        """Add annotations (parallelized, vectorized, unroll, buffer) to a loop line."""
+        """Add annotations (parallelized, vectorized, unroll, buffer, pack) to a loop line."""
         annotations: list[str] = []
         if loop_name in self.parallelize:
             annotations.append("parallelized")
@@ -218,6 +222,14 @@ class LoopNestNode(Node["LoopNestNode"]):
                 annotations.append(f"buffer({mtype})")
             else:
                 annotations.append("buffer")
+        if loop_name in self.pack_at:
+            input_idx, mtype, pad = self.pack_at[loop_name]
+            parts = [str(input_idx)]
+            if mtype is not None:
+                parts.append(mtype)
+            if pad:
+                parts.append("pad")
+            annotations.append(f"pack({', '.join(parts)})")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line

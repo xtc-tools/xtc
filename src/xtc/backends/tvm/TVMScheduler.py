@@ -538,6 +538,11 @@ class TVMScheduler(itf.schd.Scheduler):
         # Build buffer_at mapping
         root_node.buffer_at = {axis: None for axis in self.write_caches}
 
+        # Build pack_at mapping
+        root_node.pack_at = {
+            axis: (input_idx, None, pad) for axis, input_idx, pad in self.read_buffers
+        }
+
         return loop_nest
 
 

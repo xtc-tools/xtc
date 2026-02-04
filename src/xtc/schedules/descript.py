@@ -213,6 +213,9 @@ class ScheduleInterpreter:
         if annotations.buffer_specified:
             node.buffer_at[loop_name] = annotations.buffer
 
+        if annotations.pack_specified and annotations.pack is not None:
+            node.pack_at[loop_name] = annotations.pack
+
     def _check_splitting_intervals(
         self,
         item: SplitDecl,
@@ -304,6 +307,9 @@ class Descript:
 
         for axis, mtype in node.buffer_at.items():
             self.scheduler.buffer_at(axis, mtype=mtype, root=root)
+
+        for axis, (input_idx, mtype, pad) in node.pack_at.items():
+            self.scheduler.pack_at(axis, input_idx, mtype=mtype, pad=pad, root=root)
 
         # Recursively apply children
         for child in node.children:

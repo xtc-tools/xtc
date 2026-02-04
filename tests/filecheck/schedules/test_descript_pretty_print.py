@@ -4,6 +4,7 @@
 # RUN: python %s --full 2>&1 | filecheck %s --check-prefix=CHECK-FULL
 # RUN: python %s --split 2>&1 | filecheck %s --check-prefix=CHECK-SPLIT
 # RUN: python %s --buffer 2>&1 | filecheck %s --check-prefix=CHECK-BUFFER
+# RUN: python %s --pack 2>&1 | filecheck %s --check-prefix=CHECK-PACK
 
 import sys
 from xtc.schedules.parsing import ScheduleParser
@@ -64,6 +65,17 @@ elif "--buffer" in sys.argv:
     loop_nest = interpreter.interpret(ast, root="C")
     print(loop_nest.root_node.pretty_print())
 
+elif "--pack" in sys.argv:
+    spec = {
+        "i": {"parallelize": True},
+        "k": {"pack": (0, "default", False)},
+        "j": {"pack": (1, "shared", True)},
+        "j#16": {"vectorize": True},
+    }
+    ast = parser.parse(spec)
+    loop_nest = interpreter.interpret(ast, root="C")
+    print(loop_nest.root_node.pretty_print())
+
 # CHECK-SIMPLE:      loop i
 # CHECK-SIMPLE-NEXT:   loop k
 # CHECK-SIMPLE-NEXT:     loop j
@@ -105,3 +117,9 @@ elif "--buffer" in sys.argv:
 # CHECK-BUFFER-NEXT:     loop j  // buffer(shared)
 # CHECK-BUFFER-NEXT:       tile(j, 16)  // vectorized
 # CHECK-BUFFER-NEXT:         ...
+
+# CHECK-PACK:      loop i  // parallelized
+# CHECK-PACK-NEXT:   loop k  // pack(0)
+# CHECK-PACK-NEXT:     loop j  // pack(1, shared, pad)
+# CHECK-PACK-NEXT:       tile(j, 16)  // vectorized
+# CHECK-PACK-NEXT:         ...

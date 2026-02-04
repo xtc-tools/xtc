@@ -25,6 +25,9 @@ class Annotations:
         buffer: The memory type for the buffer. None means default memory type.
             Only meaningful when buffer_specified is True.
         buffer_specified: True if buffer was explicitly requested.
+        pack: Pack configuration as (input_idx, mtype, pad). mtype is None for default.
+            Only meaningful when pack_specified is True.
+        pack_specified: True if pack was explicitly requested.
     """
 
     unroll_factor: int | None = None
@@ -33,6 +36,8 @@ class Annotations:
     parallelize: bool = False
     buffer: str | None = None
     buffer_specified: bool = False
+    pack: tuple[int, str | None, bool] | None = None
+    pack_specified: bool = False
 
 
 @dataclass(frozen=True)
@@ -152,6 +157,8 @@ class ScheduleParser:
         parallelize = False
         buffer: str | None = None
         buffer_specified = False
+        pack: tuple[int, str | None, bool] | None = None
+        pack_specified = False
 
         for key, param in value.items():
             if key == "unroll":
@@ -186,6 +193,9 @@ class ScheduleParser:
                     )
                 buffer = None if param == "default" else param
                 buffer_specified = True
+            elif key == "pack":
+                pack = self._parse_pack_param(param, context)
+                pack_specified = True
             else:
                 raise ScheduleParseError(f"Unknown annotation on {context}: {key}")
 
@@ -196,7 +206,41 @@ class ScheduleParser:
             parallelize=parallelize,
             buffer=buffer,
             buffer_specified=buffer_specified,
+            pack=pack,
+            pack_specified=pack_specified,
         )
+
+    def _parse_pack_param(
+        self, param: Any, context: str
+    ) -> tuple[int, str | None, bool]:
+        """Parse pack parameter into (input_idx, mtype, pad) tuple."""
+        if not isinstance(param, (list, tuple)) or len(param) != 3:
+            raise ScheduleParseError(
+                f'`{{"pack" = {param}}}` on {context}: pack parameter should be a tuple (input_idx, mtype, pad).'
+            )
+
+        input_idx, mtype, pad = param
+
+        if not isinstance(input_idx, int):
+            raise ScheduleParseError(
+                f'`{{"pack" = {param}}}` on {context}: input_idx should be an integer.'
+            )
+
+        if mtype is not None and not isinstance(mtype, str):
+            raise ScheduleParseError(
+                f'`{{"pack" = {param}}}` on {context}: mtype should be a string or None.'
+            )
+
+        if not isinstance(pad, bool):
+            raise ScheduleParseError(
+                f'`{{"pack" = {param}}}` on {context}: pad should be a boolean.'
+            )
+
+        # Convert "default" to None for mtype
+        if mtype == "default":
+            mtype = None
+
+        return (input_idx, mtype, pad)
 
     def _parse_split_syntax(
         self, declaration: str
