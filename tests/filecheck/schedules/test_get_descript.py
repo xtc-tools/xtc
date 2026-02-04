@@ -31,6 +31,8 @@ sch.tile("J", {"J0": 16})
 sch.interchange(["K", "I", "J", "I0", "J0"])
 sch.unroll({"I0": 2})
 sch.vectorize(["J0"])
+if "--tvm" in sys.argv:
+    sch.buffer_at("J")
 
 loop_nest = sch.get_loop_nest()
 print(loop_nest.root_node.pretty_print())
@@ -44,7 +46,7 @@ print(loop_nest.root_node.pretty_print())
 
 # CHECK-TVM:      loop K
 # CHECK-TVM-NEXT:   loop I
-# CHECK-TVM-NEXT:     loop J
+# CHECK-TVM-NEXT:     loop J  // buffer
 # CHECK-TVM-NEXT:       tile(I, 2)  // unroll(2)
 # CHECK-TVM-NEXT:         tile(J, 16)  // vectorized
 # CHECK-TVM-NEXT:           ...

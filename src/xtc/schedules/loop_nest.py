@@ -92,6 +92,8 @@ class LoopNestNode(Node["LoopNestNode"]):
         vectorize: List of loops to vectorize.
         parallelize: List of loops to parallelize.
         unroll: Maps loop names to their unroll factors.
+        buffer_at: Buffer configuration per axis. Maps axis names to optional
+            memory types (mtype). None means default memory type.
     """
 
     root: str
@@ -101,6 +103,7 @@ class LoopNestNode(Node["LoopNestNode"]):
     vectorize: list[str] = field(default_factory=list)
     parallelize: list[str] = field(default_factory=list)
     unroll: dict[str, int] = field(default_factory=dict)
+    buffer_at: dict[str, str | None] = field(default_factory=dict)
 
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
@@ -201,7 +204,7 @@ class LoopNestNode(Node["LoopNestNode"]):
         return "\n".join(lines)
 
     def _add_annotations(self, line: str, loop_name: str) -> str:
-        """Add annotations (parallelized, vectorized, unroll) to a loop line."""
+        """Add annotations (parallelized, vectorized, unroll, buffer) to a loop line."""
         annotations: list[str] = []
         if loop_name in self.parallelize:
             annotations.append("parallelized")
@@ -209,6 +212,12 @@ class LoopNestNode(Node["LoopNestNode"]):
             annotations.append("vectorized")
         if loop_name in self.unroll:
             annotations.append(f"unroll({self.unroll[loop_name]})")
+        if loop_name in self.buffer_at:
+            mtype = self.buffer_at[loop_name]
+            if mtype is not None:
+                annotations.append(f"buffer({mtype})")
+            else:
+                annotations.append("buffer")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line

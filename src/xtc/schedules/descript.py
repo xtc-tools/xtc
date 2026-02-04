@@ -210,6 +210,9 @@ class ScheduleInterpreter:
         if annotations.parallelize:
             node.parallelize.append(loop_name)
 
+        if annotations.buffer_specified:
+            node.buffer_at[loop_name] = annotations.buffer
+
     def _check_splitting_intervals(
         self,
         item: SplitDecl,
@@ -298,6 +301,9 @@ class Descript:
         self.scheduler.vectorize(node.vectorize, root=root)
         self.scheduler.parallelize(node.parallelize, root=root)
         self.scheduler.unroll(node.unroll, root=root)
+
+        for axis, mtype in node.buffer_at.items():
+            self.scheduler.buffer_at(axis, mtype=mtype, root=root)
 
         # Recursively apply children
         for child in node.children:

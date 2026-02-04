@@ -22,12 +22,17 @@ class Annotations:
         unroll_specified: True if unroll was explicitly requested.
         vectorize: True if vectorization was requested.
         parallelize: True if parallelization was requested.
+        buffer: The memory type for the buffer. None means default memory type.
+            Only meaningful when buffer_specified is True.
+        buffer_specified: True if buffer was explicitly requested.
     """
 
     unroll_factor: int | None = None
     unroll_specified: bool = False
     vectorize: bool = False
     parallelize: bool = False
+    buffer: str | None = None
+    buffer_specified: bool = False
 
 
 @dataclass(frozen=True)
@@ -145,6 +150,8 @@ class ScheduleParser:
         unroll_specified = False
         vectorize = False
         parallelize = False
+        buffer: str | None = None
+        buffer_specified = False
 
         for key, param in value.items():
             if key == "unroll":
@@ -172,6 +179,13 @@ class ScheduleParser:
                         f'`{{"parallelize" = {param}}}`: parameterized parallelization not implemented.'
                     )
                 parallelize = param
+            elif key == "buffer":
+                if not isinstance(param, str):
+                    raise ScheduleParseError(
+                        f'`{{"buffer" = {param}}}`: buffer parameter should be a string (mtype).'
+                    )
+                buffer = None if param == "default" else param
+                buffer_specified = True
             else:
                 raise ScheduleParseError(f"Unknown annotation on {context}: {key}")
 
@@ -180,6 +194,8 @@ class ScheduleParser:
             unroll_specified=unroll_specified,
             vectorize=vectorize,
             parallelize=parallelize,
+            buffer=buffer,
+            buffer_specified=buffer_specified,
         )
 
     def _parse_split_syntax(

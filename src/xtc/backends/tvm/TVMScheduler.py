@@ -535,6 +535,9 @@ class TVMScheduler(itf.schd.Scheduler):
         # Build unroll mapping
         root_node.unroll = dict(self.unrolling)
 
+        # Build buffer_at mapping
+        root_node.buffer_at = {axis: None for axis in self.write_caches}
+
         return loop_nest
 
 
