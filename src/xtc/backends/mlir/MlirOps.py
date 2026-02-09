@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing_extensions import override
 from typing import Any, Type, TypeAlias, cast
 
-from xdsl.dialects import linalg, arith, builtin, memref
+from xdsl.dialects import linalg, arith, builtin, memref, tensor
 from xdsl.dialects.builtin import (
     MemRefType,
     TensorType,
@@ -391,13 +391,14 @@ class MlirOperatorRelu(MlirOperator):
         elt_type = {"float32": f32, "float64": f64}[dtype]
         elt_size = {"float32": 32, "float64": 64}[dtype]
         if block is None:
-            ops_types = [MemRefType(elt_type, shape) for shape in [[Ki], [Ki]]]
+            ops_types = [self.op_type(elt_type, shape) for shape in [[Ki], [Ki]]]
             block = Block(arg_types=ops_types)
             args = block.args
         assert len(args) == 2
-        assert all(isinstance(arg.type, MemRefType) for arg in args)
+        assert all(isinstance(arg.type, self.op_type) for arg in args)
         inp_shape, out_shape = [
-            list(cast(MemRefType, arg.type).get_shape()) for arg in args
+            list(cast(self.op_type, arg.type).get_shape())  # type: ignore
+            for arg in args
         ]
         inp_size, out_size = [mulall(shape) for shape in [inp_shape, out_shape]]
         assert inp_size == out_size
@@ -416,15 +417,32 @@ class MlirOperatorRelu(MlirOperator):
                     )
                 ]
             )
-            inp = memref.CollapseShapeOp(
-                operands=[args[0]],
-                properties=dict(reassociation=inp_reassociation),
-                result_types=[MemRefType(elt_type, (inp_size,))],
-            )
-            out = memref.CollapseShapeOp(
-                operands=[args[1]],
-                properties=dict(reassociation=out_reassociation),
-                result_types=[MemRefType(elt_type, (out_size,))],
+            if self.op_type == TensorType:
+                inp = tensor.CollapseShapeOp(  # type: ignore
+                    operands=[args[0]],
+                    properties=dict(reassociation=inp_reassociation),
+                    result_types=[self.op_type(elt_type, (inp_size,))],
+                )
+                # create empty tensor for collapsed output shape
+                out_empty = tensor.EmptyOp([], TensorType(elt_type, [out_size]))
+                out_operand = out_empty.tensor
+            else:
+                inp = memref.CollapseShapeOp(  # type: ignore
+                    operands=[args[0]],
+                    properties=dict(reassociation=inp_reassociation),
+                    result_types=[self.op_type(elt_type, (inp_size,))],
+                )
+                out = memref.CollapseShapeOp(
+                    operands=[args[1]],
+                    properties=dict(reassociation=out_reassociation),
+                    result_types=[self.op_type(elt_type, (out_size,))],
+                )
+                out_operand = out.results[0]
+
+            result = (
+                (TensorType(elt_type, [out_size]),)
+                if self.op_type == TensorType
+                else ()
             )
             cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_size))
             iterator_types = [
@@ -436,7 +454,7 @@ class MlirOperatorRelu(MlirOperator):
                 linalg.YieldOp(max)
             relu = linalg.GenericOp(
                 inputs=(inp.results[0], cst0.results[0]),
-                outputs=(out.results[0],),
+                outputs=(out_operand,),
                 body=Region([block_in]),  # type: ignore # mypy issue with dataclass
                 # ignore typing due to xdsl hints limitation
                 indexing_maps=[
@@ -460,12 +478,23 @@ class MlirOperatorRelu(MlirOperator):
                     ),
                 ],
                 iterator_types=iterator_types,
+                result_types=result,
             )
+            relu_result = None
+            if self.op_type == TensorType:
+                relu_result = tensor.ExpandShapeOp(
+                    relu.results[0],
+                    reassociation=out_reassociation,
+                    result_type=TensorType(elt_type, out_shape),
+                    static_output_shape=out_shape,
+                    dynamic_output_shape=[],
+                )
         relu_node_id = f"{self.name}"
         relu.attributes[f"__xtc_id_{relu_node_id}_"] = UnitAttr()
         attrs = {
             "nodes_map": {
                 relu_node_id: relu,
+                "return_node_id": relu_result,
             },
             "dims_sizes": [
                 self.dims_sizes(),

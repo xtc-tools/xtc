@@ -52,13 +52,13 @@ print(f"CODE: {res}")
 # CHECK-NEXT: // -----// IR Dump After Tensor Lowering //----- //
 # CHECK-NEXT: module {
 # CHECK-NEXT:   func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<32x4xf32> {llvm.noalias}, %arg3: memref<32x32xf32> {llvm.noalias}) {
-# CHECK-NEXT:     %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x32xf32>
+# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 64 : i64} : memref<4x32xf32>
 # CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
-# CHECK-NEXT:     linalg.fill {__xtc_id_D_0_} ins(%cst : f32) outs(%alloc : memref<4x32xf32>)
-# CHECK-NEXT:     linalg.matmul {__xtc_id_D_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%alloc : memref<4x32xf32>)
+# CHECK-NEXT:     linalg.fill {__xtc_id_D_0_} ins(%cst : f32) outs(%alloca : memref<4x32xf32>)
+# CHECK-NEXT:     linalg.matmul {__xtc_id_D_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:     %cst_0 = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     linalg.fill {__xtc_id_E_0_} ins(%cst_0 : f32) outs(%arg3 : memref<32x32xf32>)
-# CHECK-NEXT:     linalg.matmul {__xtc_id_E_} ins(%arg2, %alloc : memref<32x4xf32>, memref<4x32xf32>) outs(%arg3 : memref<32x32xf32>)
+# CHECK-NEXT:     linalg.matmul {__xtc_id_E_} ins(%arg2, %alloca : memref<32x4xf32>, memref<4x32xf32>) outs(%arg3 : memref<32x32xf32>)
 # CHECK-NEXT:     memref.copy %arg3, %arg3 : memref<32x32xf32> to memref<32x32xf32>
 # CHECK-NEXT:     return
 # CHECK-NEXT:   }
@@ -67,13 +67,13 @@ print(f"CODE: {res}")
 # CHECK-NEXT: // -----// IR Dump Before transform //----- //
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<32x4xf32> {llvm.noalias}, %arg3: memref<32x32xf32> {llvm.noalias}) {
-# CHECK-NEXT:     %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x32xf32>
+# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 64 : i64} : memref<4x32xf32>
 # CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
-# CHECK-NEXT:     linalg.fill {__xtc_id_D_0_} ins(%cst : f32) outs(%alloc : memref<4x32xf32>)
-# CHECK-NEXT:     linalg.matmul {__xtc_id_D_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%alloc : memref<4x32xf32>)
+# CHECK-NEXT:     linalg.fill {__xtc_id_D_0_} ins(%cst : f32) outs(%alloca : memref<4x32xf32>)
+# CHECK-NEXT:     linalg.matmul {__xtc_id_D_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:     %cst_0 = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     linalg.fill {__xtc_id_E_0_} ins(%cst_0 : f32) outs(%arg3 : memref<32x32xf32>)
-# CHECK-NEXT:     linalg.matmul {__xtc_id_E_} ins(%arg2, %alloc : memref<32x4xf32>, memref<4x32xf32>) outs(%arg3 : memref<32x32xf32>)
+# CHECK-NEXT:     linalg.matmul {__xtc_id_E_} ins(%arg2, %alloca : memref<32x4xf32>, memref<4x32xf32>) outs(%arg3 : memref<32x32xf32>)
 # CHECK-NEXT:     memref.copy %arg3, %arg3 : memref<32x32xf32> to memref<32x32xf32>
 # CHECK-NEXT:     return
 # CHECK-NEXT:   }
@@ -113,13 +113,13 @@ print(f"CODE: {res}")
 # CHECK-NEXT: // -----// IR Dump After transform //----- //
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<32x4xf32> {llvm.noalias}, %arg3: memref<32x32xf32> {llvm.noalias}) {
-# CHECK-NEXT:     %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x32xf32>
+# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 64 : i64} : memref<4x32xf32>
 # CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     %c0 = arith.constant 0 : index
 # CHECK-NEXT:     %c4 = arith.constant 4 : index
 # CHECK-NEXT:     %c1 = arith.constant 1 : index
 # CHECK-NEXT:     scf.for %arg4 = %c0 to %c4 step %c1 {
-# CHECK-NEXT:       %subview = memref.subview %alloc[%arg4, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:       %subview = memref.subview %alloca[%arg4, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:       %c0_9 = arith.constant 0 : index
 # CHECK-NEXT:       %c32_10 = arith.constant 32 : index
 # CHECK-NEXT:       %c1_11 = arith.constant 1 : index
@@ -134,7 +134,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     scf.for %arg4 = %c0_0 to %c4_1 step %c1_2 {
 # CHECK-NEXT:       %subview = memref.subview %arg0[%arg4, 0] [1, 512] [1, 1] : memref<4x512xf32> to memref<1x512xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:       %subview_9 = memref.subview %arg1[0, 0] [512, 32] [1, 1] : memref<512x32xf32> to memref<512x32xf32, strided<[32, 1]>>
-# CHECK-NEXT:       %subview_10 = memref.subview %alloc[%arg4, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:       %subview_10 = memref.subview %alloca[%arg4, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:       %c0_11 = arith.constant 0 : index
 # CHECK-NEXT:       %c32_12 = arith.constant 32 : index
 # CHECK-NEXT:       %c1_13 = arith.constant 1 : index
@@ -172,7 +172,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     %c1_8 = arith.constant 1 : index
 # CHECK-NEXT:     scf.for %arg4 = %c0_6 to %c32_7 step %c1_8 {
 # CHECK-NEXT:       %subview = memref.subview %arg2[%arg4, 0] [1, 4] [1, 1] : memref<32x4xf32> to memref<1x4xf32, strided<[4, 1], offset: ?>>
-# CHECK-NEXT:       %subview_9 = memref.subview %alloc[0, 0] [4, 32] [1, 1] : memref<4x32xf32> to memref<4x32xf32, strided<[32, 1]>>
+# CHECK-NEXT:       %subview_9 = memref.subview %alloca[0, 0] [4, 32] [1, 1] : memref<4x32xf32> to memref<4x32xf32, strided<[32, 1]>>
 # CHECK-NEXT:       %subview_10 = memref.subview %arg3[%arg4, 0] [1, 32] [1, 1] : memref<32x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:       %c0_11 = arith.constant 0 : index
 # CHECK-NEXT:       %c32_12 = arith.constant 32 : index
