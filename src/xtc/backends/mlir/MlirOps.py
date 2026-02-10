@@ -162,15 +162,13 @@ class MlirOperatorMatmul(MlirOperator):
         elt_size = {"float32": 32, "float64": 64}[dtype]
         if block is None:
             ops_types = [
-                self.op_type(elt_type, shape) for shape in [[Ki, Kk], [Kk, Kj]]
+                self.op_type(elt_type, shape)
+                for shape in [[Ki, Kk], [Kk, Kj], [Ki, Kj]]
             ]
-            ops_types.append(TensorType(elt_type, [Ki, Kj]))
             block = Block(arg_types=ops_types)
             args = block.args
-        has_tensor_result = isinstance(args[-1].type, TensorType)
         assert len(args) == 3
-        assert all(isinstance(arg.type, self.op_type) for arg in args[:-1])
-        assert not (has_tensor_result and self.op_type == MemRefType)
+        assert all(isinstance(arg.type, self.op_type) for arg in args)
         with ImplicitBuilder(block):
             cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_size))
             result = (args[2].type,) if self.op_type == TensorType else ()
@@ -250,7 +248,7 @@ class MlirOperatorConv2D(MlirOperator):
         op_type: Type[MemRefType] | Type[TensorType] = MemRefType,
     ) -> None:
         attrs = {"stride": self.DEFAULT_STRIDE, **attrs}
-        super().__init__(args, attrs, name)
+        super().__init__(args, attrs, name, op_type)
 
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
@@ -274,16 +272,17 @@ class MlirOperatorConv2D(MlirOperator):
         elt_size = {"float32": 32, "float64": 64}[dtype]
         if block is None:
             ops_types = [
-                MemRefType(elt_type, shape) for shape in [*inps_dims, out_dims]
+                self.op_type(elt_type, shape) for shape in [*inps_dims, out_dims]
             ]
             block = Block(arg_types=ops_types)
             args = block.args
         assert len(args) == 3
-        assert all(isinstance(arg.type, MemRefType) for arg in args)
+        assert all(isinstance(arg.type, self.op_type) for arg in args)
         with ImplicitBuilder(block):
+            result = (args[2].type,) if self.op_type == TensorType else ()
             cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_size))
             fill = linalg.FillOp(
-                res=(),
+                res=result,
                 inputs=(cst0.results[0],),
                 outputs=(args[2],),
             )
@@ -306,7 +305,9 @@ class MlirOperatorConv2D(MlirOperator):
                 linalg.YieldOp(add)
             reduce = linalg.GenericOp(
                 inputs=(args[0], args[1]),
-                outputs=(args[2],),
+                outputs=(fill.results[0],)
+                if self.op_type == TensorType
+                else (args[2],),
                 body=Region([block_in]),  # type: ignore # mypy issue with dataclass
                 # ignore typing due to xdsl hints limitation
                 indexing_maps=[
@@ -330,6 +331,7 @@ class MlirOperatorConv2D(MlirOperator):
                     ),
                 ],
                 iterator_types=iterator_types,
+                result_types=result,
             )
         fill_node_id = f"{self.name}_0"
         reduce_node_id = f"{self.name}"
@@ -339,6 +341,7 @@ class MlirOperatorConv2D(MlirOperator):
             "nodes_map": {
                 fill_node_id: fill,
                 reduce_node_id: reduce,
+                "return_node_id": reduce,
             },
             "dims_sizes": [
                 {"b": Kb, "h": Kh, "w": Kw, "f": Kf},
