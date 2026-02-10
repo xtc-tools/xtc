@@ -566,7 +566,7 @@ class MlirOperatorPad(MlirOperator):
             block = Block(arg_types=ops_types)
             args = block.args
         assert len(args) == 2
-        assert all(isinstance(arg.type, MemRefType) for arg in args)
+        assert all(isinstance(arg.type, self.op_type) for arg in args)
         if isinstance(padding, dict):
             offsets = [0 for _ in self.args[:-1]]
             for i, (pad_b, pad_a) in padding.items():
@@ -577,23 +577,33 @@ class MlirOperatorPad(MlirOperator):
         strides = [1 for _ in self.args[:-1]]
         with ImplicitBuilder(block):
             cst0 = arith.ConstantOp(builtin.FloatAttr(constant_value, elt_size))
+            result = (args[1].type,) if self.op_type == TensorType else ()
             fill = linalg.FillOp(
-                res=(),
+                res=result,
                 inputs=(cst0.results[0],),
                 outputs=(args[1],),
             )
-            subview = memref.SubviewOp.from_static_parameters(
-                source=args[1],
-                source_type=args[1].type,  # type: ignore
-                offsets=offsets,
-                sizes=sizes,
-                strides=strides,
-            )
-            copy = linalg.CopyOp(
-                inputs=[args[0]],
-                outputs=[subview.result],
-                res=(),
-            )
+            if self.op_type == TensorType:
+                copy = tensor.InsertSliceOp.from_static_parameters(
+                    source=args[0],
+                    dest=fill.results[0],
+                    offsets=offsets,
+                    sizes=sizes,
+                    strides=strides,
+                )
+            else:
+                subview = memref.SubviewOp.from_static_parameters(
+                    source=args[1],
+                    source_type=args[1].type,  # type: ignore
+                    offsets=offsets,
+                    sizes=sizes,
+                    strides=strides,
+                )
+                copy = linalg.CopyOp(  # type: ignore
+                    inputs=[args[0]],
+                    outputs=[subview.result],
+                    res=result,
+                )
         fill_node_id = f"{self.name}_0"
         fill.attributes[f"__xtc_id_{fill_node_id}_"] = UnitAttr()
         copy_node_id = f"{self.name}"
@@ -602,6 +612,7 @@ class MlirOperatorPad(MlirOperator):
             "nodes_map": {
                 fill_node_id: fill,
                 copy_node_id: copy,
+                "return_node_id": copy,
             },
             "dims_sizes": [
                 self.dims_sizes(),
@@ -674,13 +685,13 @@ class MlirOperatorUnpad(MlirOperator):
         elt_type = {"float32": f32, "float64": f64}[dtype]
         if block is None:
             ops_types = [
-                MemRefType(elt_type, shape)
+                self.op_type(elt_type, shape)
                 for shape in [dims_values_before_unpad, dims_values]
             ]
             block = Block(arg_types=ops_types)
             args = block.args
         assert len(args) == 2
-        assert all(isinstance(arg.type, MemRefType) for arg in args)
+        assert all(isinstance(arg.type, self.op_type) for arg in args)
         if isinstance(padding, dict):
             offsets = [0 for _ in self.args[:-1]]
             for i, (pad_b, _) in padding.items():
@@ -690,23 +701,32 @@ class MlirOperatorUnpad(MlirOperator):
         sizes = dims_values
         strides = [1 for _ in self.args[:-1]]
         with ImplicitBuilder(block):
-            subview = memref.SubviewOp.from_static_parameters(
-                source=args[0],
-                source_type=args[0].type,  # type: ignore
-                offsets=offsets,
-                sizes=sizes,
-                strides=strides,
-            )
-            copy = linalg.CopyOp(
-                inputs=[subview.result],
-                outputs=[args[1]],
-                res=(),
-            )
+            if self.op_type == TensorType:
+                copy = tensor.ExtractSliceOp.from_static_parameters(
+                    source=args[0],
+                    offsets=offsets,
+                    sizes=sizes,
+                    strides=strides,
+                )
+            else:
+                subview = memref.SubviewOp.from_static_parameters(
+                    source=args[0],
+                    source_type=args[0].type,  # type: ignore
+                    offsets=offsets,
+                    sizes=sizes,
+                    strides=strides,
+                )
+                copy = linalg.CopyOp(  # type: ignore
+                    inputs=[subview.result],
+                    outputs=[args[1]],
+                    res=(),
+                )
         copy_node_id = f"{self.name}"
         copy.attributes[f"__xtc_id_{copy_node_id}_"] = UnitAttr()
         attrs = {
             "nodes_map": {
                 copy_node_id: copy,
+                "return_node_id": copy,
             },
             "dims_sizes": [
                 self.dims_sizes(),

@@ -60,12 +60,12 @@ print(f"CODE: {res}")
 # CHECK-NEXT: #map1 = affine_map<(d0) -> ()>
 # CHECK-NEXT: module {
 # CHECK-NEXT:   func.func @matmul_relu(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
-# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 64 : i64} : memref<4x32xf32>
+# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 256 : i64} : memref<4x32xf32>
 # CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     linalg.fill {__xtc_id_matmul_0_} ins(%cst : f32) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:     linalg.matmul {__xtc_id_matmul_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:     %collapse_shape = memref.collapse_shape %alloca [[0, 1]] : memref<4x32xf32> into memref<128xf32>
-# CHECK-NEXT:     %alloca_0 = memref.alloca() {alignment = 64 : i64} : memref<128xf32>
+# CHECK-NEXT:     %alloca_0 = memref.alloca() {alignment = 256 : i64} : memref<128xf32>
 # CHECK-NEXT:     %cst_1 = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel"]} ins(%collapse_shape, %cst_1 : memref<128xf32>, f32) outs(%alloca_0 : memref<128xf32>) attrs =  {__xtc_id_relu_} {
 # CHECK-NEXT:     ^bb0(%in: f32, %in_2: f32, %out: f32):
@@ -83,12 +83,12 @@ print(f"CODE: {res}")
 # CHECK-NEXT: #map1 = affine_map<(d0) -> ()>
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul_relu(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
-# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 64 : i64} : memref<4x32xf32>
+# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 256 : i64} : memref<4x32xf32>
 # CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     linalg.fill {__xtc_id_matmul_0_} ins(%cst : f32) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:     linalg.matmul {__xtc_id_matmul_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:     %collapse_shape = memref.collapse_shape %alloca [[0, 1]] : memref<4x32xf32> into memref<128xf32>
-# CHECK-NEXT:     %alloca_0 = memref.alloca() {alignment = 64 : i64} : memref<128xf32>
+# CHECK-NEXT:     %alloca_0 = memref.alloca() {alignment = 256 : i64} : memref<128xf32>
 # CHECK-NEXT:     %cst_1 = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel"]} ins(%collapse_shape, %cst_1 : memref<128xf32>, f32) outs(%alloca_0 : memref<128xf32>) attrs =  {__xtc_id_relu_} {
 # CHECK-NEXT:     ^bb0(%in: f32, %in_2: f32, %out: f32):
@@ -128,7 +128,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT: #map1 = affine_map<(d0) -> ()>
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul_relu(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
-# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 64 : i64} : memref<4x32xf32>
+# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 256 : i64} : memref<4x32xf32>
 # CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     %c0 = arith.constant 0 : index
 # CHECK-NEXT:     %c4 = arith.constant 4 : index
@@ -169,7 +169,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:       } {"./j"}
 # CHECK-NEXT:     } {"./i"}
 # CHECK-NEXT:     %collapse_shape = memref.collapse_shape %alloca [[0, 1]] : memref<4x32xf32> into memref<128xf32>
-# CHECK-NEXT:     %alloca_3 = memref.alloca() {alignment = 64 : i64} : memref<128xf32>
+# CHECK-NEXT:     %alloca_3 = memref.alloca() {alignment = 256 : i64} : memref<128xf32>
 # CHECK-NEXT:     %cst_4 = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     %c0_5 = arith.constant 0 : index
 # CHECK-NEXT:     %c128 = arith.constant 128 : index
@@ -201,4 +201,3 @@ print(f"CODE: {res}")
 # CHECK-NEXT:   - %3: relu(%2) {name = 'relu'} : [4x32xfloat32] -> [4x32xfloat32]
 # CHECK-NEXT:  
 # CHECK-NEXT: CODE: 0
-

@@ -159,7 +159,7 @@ class MlirProgramCompiler:
         apply_transform_pass.run(
             [
                 "eliminate-empty-tensors",  # causes ops to write directly to out buffer
-                "one-shot-bufferize{bufferize-function-boundaries=1 function-boundary-type-conversion=identity-layout-map}",
+                "one-shot-bufferize{bufferize-function-boundaries=1 function-boundary-type-conversion=identity-layout-map buffer-alignment=256}",
                 "func.func(promote-buffers-to-stack)",
             ]
         )

@@ -17,7 +17,6 @@ graph = gb.graph
 print(graph)
 
 impl = Backend(graph, use_tensor_dialect=True)
-#impl = Backend(graph, use_tensor_dialect=False)
 
 sch = impl.get_scheduler(default_node = "E")
 sched = sch.schedule()
@@ -52,7 +51,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT: // -----// IR Dump After Tensor Lowering //----- //
 # CHECK-NEXT: module {
 # CHECK-NEXT:   func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<32x4xf32> {llvm.noalias}, %arg3: memref<32x32xf32> {llvm.noalias}) {
-# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 64 : i64} : memref<4x32xf32>
+# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 256 : i64} : memref<4x32xf32>
 # CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     linalg.fill {__xtc_id_D_0_} ins(%cst : f32) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:     linalg.matmul {__xtc_id_D_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%alloca : memref<4x32xf32>)
@@ -67,7 +66,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT: // -----// IR Dump Before transform //----- //
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<32x4xf32> {llvm.noalias}, %arg3: memref<32x32xf32> {llvm.noalias}) {
-# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 64 : i64} : memref<4x32xf32>
+# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 256 : i64} : memref<4x32xf32>
 # CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     linalg.fill {__xtc_id_D_0_} ins(%cst : f32) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:     linalg.matmul {__xtc_id_D_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%alloca : memref<4x32xf32>)
@@ -113,7 +112,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT: // -----// IR Dump After transform //----- //
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<32x4xf32> {llvm.noalias}, %arg3: memref<32x32xf32> {llvm.noalias}) {
-# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 64 : i64} : memref<4x32xf32>
+# CHECK-NEXT:     %alloca = memref.alloca() {alignment = 256 : i64} : memref<4x32xf32>
 # CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     %c0 = arith.constant 0 : index
 # CHECK-NEXT:     %c4 = arith.constant 4 : index
@@ -210,4 +209,3 @@ print(f"CODE: {res}")
 # CHECK-NEXT:   - %4: matmul(%2, %3) {name = 'E'} : [32x4xfloat32, 4x32xfloat32] -> [32x32xfloat32]
 # CHECK-NEXT:  
 # CHECK-NEXT: CODE: 0
-
