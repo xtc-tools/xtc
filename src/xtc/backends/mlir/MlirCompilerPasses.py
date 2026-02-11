@@ -26,6 +26,7 @@ from mlir.ir import (
     OpResult,
 )
 from mlir.passmanager import PassManager
+import platform
 
 # Import SDist if available
 try:
@@ -549,3 +550,22 @@ class MlirProgramApplyPasses:
         for name in pass_names:
             pm.add(name)  # type: ignore # no attribute add
         pm.run(self._mlir_program.mlir_module.operation)
+
+
+def apply_bufferization_passes(mlir_program: RawMlirProgram):
+    apply_passes = MlirProgramApplyPasses(mlir_program)
+    bufferize_options = [
+        "bufferize-function-boundaries=1",
+        "function-boundary-type-conversion=identity-layout-map",
+        "buffer-alignment=256",
+    ]
+    # needed for now because macos mlir version needs to be updated
+    if platform.system() != "Darwin":
+        bufferize_options.append("buffer-alignment=256")
+    apply_passes.run(
+        [
+            "eliminate-empty-tensors",  # causes ops to write directly to out buffer
+            f"one-shot-bufferize{{{' '.join(bufferize_options)}}}",
+            "func.func(promote-buffers-to-stack)",
+        ]
+    )
