@@ -192,12 +192,12 @@ class MlirOperatorMatmul(MlirOperator):
             "nodes_map": {
                 fill_node_id: fill,
                 reduce_node_id: reduce,
-                "return_node_id": reduce,
             },
             "dims_sizes": [
                 {"i": Ki, "j": Kj},
                 self.dims_sizes(),
             ],
+            "output_nodes": [reduce],
         }
         return block, attrs
 
@@ -341,12 +341,12 @@ class MlirOperatorConv2D(MlirOperator):
             "nodes_map": {
                 fill_node_id: fill,
                 reduce_node_id: reduce,
-                "return_node_id": reduce,
             },
             "dims_sizes": [
                 {"b": Kb, "h": Kh, "w": Kw, "f": Kf},
                 self.dims_sizes(),
             ],
+            "output_nodes": [reduce],
         }
         return block, attrs
 
@@ -497,11 +497,11 @@ class MlirOperatorRelu(MlirOperator):
         attrs = {
             "nodes_map": {
                 relu_node_id: relu,
-                "return_node_id": relu_result,
             },
             "dims_sizes": [
                 self.dims_sizes(),
             ],
+            "output_nodes": [relu_result],
         }
         return block, attrs
 
@@ -613,12 +613,12 @@ class MlirOperatorPad(MlirOperator):
             "nodes_map": {
                 fill_node_id: fill,
                 copy_node_id: None if using_tensors else copy,
-                "return_node_id": copy,
             },
             "dims_sizes": [
                 self.dims_sizes(),
                 *([] if using_tensors else [self.dims_sizes()]),
             ],
+            "output_nodes": [copy],
         }
         return block, attrs
 
@@ -728,9 +728,9 @@ class MlirOperatorUnpad(MlirOperator):
         attrs = {
             "nodes_map": {
                 copy_node_id: None if using_tensors else copy,
-                "return_node_id": copy,
             },
             "dims_sizes": [*([] if using_tensors else [self.dims_sizes()])],
+            "output_nodes": [copy],
         }
         return block, attrs
 

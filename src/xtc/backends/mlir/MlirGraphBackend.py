@@ -94,13 +94,12 @@ class MlirGraphBackend(MlirBackend):
             variables[name] = alloca.results[0]
         args = [variables[name] for name in names]
         _, attrs = operation.generate(block=block, args=args)
-        last_node = attrs["nodes_map"].get("return_node_id")
         # the tensor dialect needs the result of the op, not the alloca
         if self.xdsl_type == TensorType:
-            # for name in node.outputs:
-            assert len(node.outputs) == 1
-            variables[node.outputs[0]] = last_node.results[0]
-        return attrs, last_node
+            assert len(node.outputs) == len(attrs["output_nodes"])
+            for name, output in zip(node.outputs, attrs["output_nodes"]):
+                variables[name] = output.results[0]
+        return attrs
 
     def _init_from_graph(
         self,
@@ -129,22 +128,21 @@ class MlirGraphBackend(MlirBackend):
             for name, arg in zip([*graph.inputs, *graph.outputs], inlined_block.args)
         }
         block_attrs = []
-        last_node = None
 
         for node in graph.nodes.values():
-            node_attrs, last_node = self._xdsl_generate_node(
-                node, inlined_block, variables
-            )
+            node_attrs = self._xdsl_generate_node(node, inlined_block, variables)
             block_attrs.append(node_attrs)
         with ImplicitBuilder(inlined_block):
             if self.xdsl_type == TensorType:
-                assert last_node
-                # write the final tensor value to the output buffer
-                dest = bufferization.MaterializeInDestinationOp(
-                    operands=((last_node.results[0],), (inlined_block.args[-1],)),
-                    result_types=((),),
-                    attributes={"writable": UnitAttr(), "restrict": UnitAttr()},
-                )
+                # write the final tensor values to the output buffers
+                for name, out_arg in zip(
+                    graph.outputs, inlined_block.args[-len(graph.outputs) :]
+                ):
+                    bufferization.MaterializeInDestinationOp(
+                        operands=((variables[name],), (out_arg,)),
+                        result_types=((),),
+                        attributes={"writable": UnitAttr(), "restrict": UnitAttr()},
+                    )
             func.ReturnOp()
         region = Region([inlined_block])  # type: ignore # issue with mypy
         payload = xdslFuncOp.from_region(
