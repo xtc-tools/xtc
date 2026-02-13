@@ -83,24 +83,23 @@ class MlirGraphBackend(MlirBackend):
                     ).results[0]
             if name in variables:
                 continue
+            assert self.xdsl_type != TensorType
             with ImplicitBuilder(block):
                 elt_type, shape = self._xdsl_elt_shape_from_tensortype(type)
-                result_op = (
-                    tensor.EmptyOp(
-                        dynamic_sizes=[],
-                        tensor_type=TensorType(elt_type, shape),
-                    )
-                    if self.xdsl_type == TensorType
-                    else memref.AllocaOp.get(
-                        return_type=elt_type,
-                        shape=shape,
-                        alignment=256,  # Take the default of dlpack lib
-                    )
+                alloca = memref.AllocaOp.get(
+                    return_type=elt_type,
+                    shape=shape,
+                    alignment=256,  # Take the default of dlpack lib
                 )
-            variables[name] = result_op.results[0]
+            variables[name] = alloca.results[0]
         args = [variables[name] for name in names]
         _, attrs = operation.generate(block=block, args=args)
         last_node = attrs["nodes_map"].get("return_node_id")
+        # the tensor dialect needs the result of the op, not the alloca
+        if self.xdsl_type == TensorType:
+            # for name in node.outputs:
+            assert len(node.outputs) == 1
+            variables[node.outputs[0]] = last_node.results[0]
         return attrs, last_node
 
     def _init_from_graph(
@@ -131,6 +130,7 @@ class MlirGraphBackend(MlirBackend):
         }
         block_attrs = []
         last_node = None
+
         for node in graph.nodes.values():
             node_attrs, last_node = self._xdsl_generate_node(
                 node, inlined_block, variables

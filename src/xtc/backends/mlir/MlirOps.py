@@ -575,15 +575,16 @@ class MlirOperatorPad(MlirOperator):
             offsets = [padding[0] for _ in self.args[:-1]]
         sizes = list(dims_value_before_pad)
         strides = [1 for _ in self.args[:-1]]
+        using_tensors = self.op_type == TensorType
         with ImplicitBuilder(block):
             cst0 = arith.ConstantOp(builtin.FloatAttr(constant_value, elt_size))
-            result = (args[1].type,) if self.op_type == TensorType else ()
+            result = (args[1].type,) if using_tensors else ()
             fill = linalg.FillOp(
                 res=result,
                 inputs=(cst0.results[0],),
                 outputs=(args[1],),
             )
-            if self.op_type == TensorType:
+            if using_tensors:
                 copy = tensor.InsertSliceOp.from_static_parameters(
                     source=args[0],
                     dest=fill.results[0],
@@ -611,12 +612,12 @@ class MlirOperatorPad(MlirOperator):
         attrs = {
             "nodes_map": {
                 fill_node_id: fill,
-                copy_node_id: copy,
+                copy_node_id: None if using_tensors else copy,
                 "return_node_id": copy,
             },
             "dims_sizes": [
                 self.dims_sizes(),
-                self.dims_sizes(),
+                *([] if using_tensors else [self.dims_sizes()]),
             ],
         }
         return block, attrs
@@ -700,8 +701,9 @@ class MlirOperatorUnpad(MlirOperator):
             offsets = [padding[0] for _ in self.args[:-1]]
         sizes = dims_values
         strides = [1 for _ in self.args[:-1]]
+        using_tensors = self.op_type == TensorType
         with ImplicitBuilder(block):
-            if self.op_type == TensorType:
+            if using_tensors:
                 copy = tensor.ExtractSliceOp.from_static_parameters(
                     source=args[0],
                     offsets=offsets,
@@ -725,12 +727,10 @@ class MlirOperatorUnpad(MlirOperator):
         copy.attributes[f"__xtc_id_{copy_node_id}_"] = UnitAttr()
         attrs = {
             "nodes_map": {
-                copy_node_id: copy,
+                copy_node_id: None if using_tensors else copy,
                 "return_node_id": copy,
             },
-            "dims_sizes": [
-                self.dims_sizes(),
-            ],
+            "dims_sizes": [*([] if using_tensors else [self.dims_sizes()])],
         }
         return block, attrs
 

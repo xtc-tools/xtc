@@ -200,12 +200,12 @@ class MlirProgramCompiler:
 
         save_temp(src_ir_dump_file, self._mlir_program.mlir_module)
 
-        self.mlir_apply_tensor_lowering_pass()
-
         self.mlir_insert_transform_pass()
         save_temp(mlir_btrn_dump_file, self._mlir_program.mlir_module)
 
         self.mlir_apply_transform_pass()
         save_temp(mlir_atrn_dump_file, self._mlir_program.mlir_module)
+
+        self.mlir_apply_tensor_lowering_pass()
 
         self._target.generate_code_for_target(self._mlir_program, dump_file=dump_file)

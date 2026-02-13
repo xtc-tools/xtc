@@ -557,15 +557,22 @@ def apply_bufferization_passes(mlir_program: RawMlirProgram):
     bufferize_options = [
         "bufferize-function-boundaries=1",
         "function-boundary-type-conversion=identity-layout-map",
-        "buffer-alignment=256",
     ]
-    # needed for now because macos mlir version needs to be updated
+    # TODO: below is needed until macos mlir is updated
     if platform.system() != "Darwin":
         bufferize_options.append("buffer-alignment=256")
     apply_passes.run(
         [
             "eliminate-empty-tensors",  # causes ops to write directly to out buffer
             f"one-shot-bufferize{{{' '.join(bufferize_options)}}}",
+            "func.func(buffer-hoisting)",
+            "func.func(buffer-loop-hoisting)",
+            "drop-equivalent-buffer-results",
             "func.func(promote-buffers-to-stack)",
         ]
     )
+
+
+def pre_transform_tensor_passes(mlir_program: RawMlirProgram):
+    apply_passes = MlirProgramApplyPasses(mlir_program)
+    # apply_passes.run(["eliminate-empty-tensors"])
