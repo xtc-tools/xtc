@@ -30,6 +30,7 @@ class MlirConfig:
     arch: str = "native"
     cpu: str = "native"
     selected_device: int | None = None
+    required_extensions: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         object.__setattr__(

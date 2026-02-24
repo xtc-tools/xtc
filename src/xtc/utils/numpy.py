@@ -9,7 +9,7 @@ import numpy.typing
 from .math import mulall
 
 
-def np_init(shape: tuple, dtype: str) -> numpy.typing.NDArray[Any]:
+def np_init(shape: tuple, dtype: str, **attrs: Any) -> numpy.typing.NDArray[Any]:
     """
     Initialize and return a NP array filled
     with numbers in [1, 9].

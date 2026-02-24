@@ -5,34 +5,28 @@
 from typing import Any
 from typing_extensions import override
 import numpy as np
-from pathlib import Path
 
-from xtc.runtimes.types.ndarray import NDArray
-from xtc.utils.numpy import (
-    np_init,
-)
-
-from xtc.runtimes.host.HostRuntime import HostRuntime
-
+import xtc.targets.accelerator.aie as aie
 import xtc.itf as itf
-import xtc.targets.host as host
-
-from xtc.utils.loader import LibLoader
 from xtc.utils.evaluation import (
     ensure_ndarray_parameters,
     validate_outputs,
     evaluate_performance,
     copy_outputs,
 )
+from xtc.utils.numpy import np_init
+
+from xtc.runtimes.accelerator.aie import AIEDevice
 
 __all__ = [
-    "HostEvaluator",
-    "HostExecutor",
+    "AIEEvaluator",
+    "AIEExecutor",
 ]
 
 
-class HostEvaluator(itf.exec.Evaluator):
-    def __init__(self, module: "host.HostModule", **kwargs: Any) -> None:
+class AIEEvaluator(itf.exec.Evaluator):
+    def __init__(self, module: "aie.AIEModule", **kwargs: Any) -> None:
+        self._device = AIEDevice()
         self._module = module
         self._repeat = kwargs.get("repeat", 1)
         self._min_repeat_ms = kwargs.get("min_repeat_ms", 100)
@@ -50,54 +44,44 @@ class HostEvaluator(itf.exec.Evaluator):
             "reference_impl", self._module._reference_impl
         )
         self._pmu_counters = kwargs.get("pmu_counters", [])
-        self._runtime = kwargs.get("runtime", HostRuntime())
-        assert self._module.file_type == "shlib", "only support shlib for evaluation"
 
     @override
     def evaluate(self) -> tuple[list[float], int, str]:
-        # Load the module
-        dll = str(Path(self._module.file_name).absolute())
-        lib = LibLoader(dll)
+        assert self._module._bare_ptr, "bare_ptr is not supported for evaluation"
+
+        # Initialize the device and load the module
+        self._device.init_device()
+        self._device.load_module(self._module)
         sym = self._module.payload_name
-        func = getattr(lib.lib, sym)
-        func.packed = not self._module._bare_ptr
+        func = self._device.get_module_function(self._module, sym)
         results: tuple[list[float], int, str] = ([], 0, "")
         validation_failed = False
 
         # Prepare the parameters
-        parameters = ensure_ndarray_parameters(
-            self._parameters,
-            self._np_inputs_spec,
-            self._np_outputs_spec,
-            self._init_zero,
-        )
+        assert self._parameters is None
+        inputs = [np_init(**spec) for spec in self._np_inputs_spec()]
+        out_init = np.zeros if self._init_zero else np.empty
+        outputs = [
+            out_init(**{k: v for k, v in spec.items() if k != "device"})
+            for spec in self._np_outputs_spec()
+        ]
+        parameters = (inputs, outputs)
 
         # Check the correctness of the outputs
         if self._validate:
-            results = validate_outputs(func, parameters, self._reference_impl)
-            validation_failed = results[1] != 0
+            raise NotImplementedError("evaluation is not implemented yet")
 
         # Measure the performance
         if not validation_failed:
-            assert self._runtime is not None
-            results = evaluate_performance(
-                func,
-                parameters,
-                self._pmu_counters,
-                self._repeat,
-                self._number,
-                self._min_repeat_ms,
-                self._runtime,
-            )
-
-        # Unload the module
-        lib.close()
+            print("(XTC: Proper runtime evaluation harness is not supported yet)")
+            res = (func(*parameters[0], *parameters[1]),)
+            assert len(self._pmu_counters) == 0, "PMU counters are not supported yet"
 
         # Copy out outputs
         if self._parameters is not None:
             copy_outputs(parameters, self._parameters)
 
-        return results
+        return res, 0, ""
 
     @property
     @override
@@ -105,9 +89,9 @@ class HostEvaluator(itf.exec.Evaluator):
         return self._module
 
 
-class HostExecutor(itf.exec.Executor):
-    def __init__(self, module: "host.HostModule", **kwargs: Any) -> None:
-        self._evaluator = HostEvaluator(
+class AIEExecutor(itf.exec.Executor):
+    def __init__(self, module: "aie.AIEModule", **kwargs: Any) -> None:
+        self._evaluator = AIEEvaluator(
             module=module,
             repeat=1,
             min_repeat_ms=0,

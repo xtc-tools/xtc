@@ -23,12 +23,12 @@ from xtc.utils.ext_tools import (
     cc_bin,
 )
 from xtc.utils.tools import get_cuda_prefix
-from xtc.targets.gpu import GPUModule
+from xtc.targets.accelerator.gpu import GPUModule
 import xtc.itf as itf
 from xtc.itf.graph import Graph
 
 from mlir.dialects import func
-from mlir.ir import UnitAttr
+from mlir.ir import UnitAttr, OpResult
 from mlir.passmanager import PassManager
 
 from .MlirTarget import MlirTarget
@@ -322,6 +322,14 @@ class MlirNVGPUTarget(MlirTarget):
         **kwargs: Any,
     ) -> itf.comp.Module:
         return GPUModule(name, payload_name, file_name, file_type, graph, **kwargs)
+
+    @override
+    def custom_vectorize(self) -> bool:
+        return False
+
+    @override
+    def apply_custom_vectorize(self, handle: OpResult) -> None:
+        return
 
     @property
     def disassemble_option(self):

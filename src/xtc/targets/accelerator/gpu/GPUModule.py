@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import Any, cast
+from typing import Any
 from typing_extensions import override
 
 import xtc.itf as itf
@@ -12,16 +12,15 @@ from xtc.utils.evaluation import (
     graph_np_outputs_spec,
     graph_reference_impl,
 )
-
-from .HostEvaluator import HostExecutor, HostEvaluator
+from .GPUEvaluator import GPUExecutor, GPUEvaluator
 
 
 __all__ = [
-    "HostModule",
+    "GPUModule",
 ]
 
 
-class HostModule(itf.comp.Module):
+class GPUModule(itf.comp.Module):
     def __init__(
         self,
         name: str,
@@ -73,18 +72,18 @@ class HostModule(itf.comp.Module):
 
     @override
     def export(self) -> None:
-        pass
+        raise NotImplementedError("GPUModule.export is not implemented")
 
     @override
     def get_evaluator(self, **kwargs: Any) -> itf.exec.Evaluator:
-        return HostEvaluator(
+        return GPUEvaluator(
             self,
             **kwargs,
         )
 
     @override
     def get_executor(self, **kwargs: Any) -> itf.exec.Executor:
-        return HostExecutor(
+        return GPUExecutor(
             self,
             **kwargs,
         )

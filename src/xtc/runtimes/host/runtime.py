@@ -175,7 +175,7 @@ def _compile_runtime(out_dll: str, tdir: str, runtime_type: RuntimeType):
     for i, file in enumerate(src_files):
         cmd = (
             "cc -c -O2 -march=native -fPIC "
-            f"-I{src_dir} {debug_opts} {pfm_opts} {gpu_opts} -I{src_dir}/../gpu "
+            f"-I{src_dir} {debug_opts} {pfm_opts} {gpu_opts} -I{src_dir}/../accelerator/gpu "
             f"-o {obj_files[i]} {file}"
         )
         logger.debug("Compiling runtime: %s", cmd)
@@ -207,7 +207,7 @@ def _compile_runtime_gpu_extension(out_lib: str, tdir: str):
         "perf_event_gpu.cpp",
     ]
     top_dir = Path(__file__).parents[2]
-    src_dir = top_dir / "csrcs" / "runtimes" / "gpu"
+    src_dir = top_dir / "csrcs" / "runtimes" / "accelerator" / "gpu"
     src_files = [f"{src_dir}/{file}" for file in files]
 
     # Compile
@@ -215,7 +215,7 @@ def _compile_runtime_gpu_extension(out_lib: str, tdir: str):
     obj_file = f"{tdir}/perf_event_gpu.o"
     cmd = (
         "c++ -c -O2 -march=native -fPIC "
-        f"-I{src_dir} {debug_opts} -I{src_dir}/../host "
+        f"-I{src_dir} {debug_opts} -I{src_dir}/../../host "
         f"-I{cuda_install_dir}/include "
         f"-o {obj_file} {' '.join(src_files)}"
     )
@@ -274,18 +274,3 @@ def resolve_runtime(runtime_type: RuntimeType):
             )
         _runtime_entries[runtime_type.value] = entries
         return _runtime_entries[runtime_type.value]
-
-
-# Host Runtime
-
-
-def type() -> RuntimeType:
-    return RuntimeType.HOST
-
-
-def __getattr__(x: str):
-    if x in runtime_funcs:
-        entries = resolve_runtime(RuntimeType.HOST)
-        assert entries is not None
-        return entries[x]
-    raise AttributeError(f"undefined runtime function: {x}")

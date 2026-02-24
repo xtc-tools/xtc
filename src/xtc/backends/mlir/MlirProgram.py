@@ -73,23 +73,26 @@ class MlirProgram(RawMlirProgram):
             function, context=self.mlir_context
         )
 
-        # Insert (or not) the noalias attributes
-        arg_attrs = []
-        if no_alias:
-            for _ in payload_func.arguments:
-                dict_attr = DictAttr.get(
-                    {
-                        "llvm.noalias": UnitAttr.get(context=self.mlir_context),
-                    },
-                    context=self.mlir_context,
+        with self.mlir_context:
+            # Insert (or not) the noalias attributes
+            new_arg_attrs = []
+            if no_alias:
+                for arg_attrs in payload_func.arg_attrs:
+                    new_dict = {}
+                    for i in range(len(arg_attrs)):
+                        new_dict[arg_attrs[i].name] = arg_attrs[i].attr
+                    new_dict["llvm.noalias"] = UnitAttr.get(context=self.mlir_context)
+                    new_arg_attrs.append(
+                        DictAttr.get(new_dict, context=self.mlir_context)
+                    )
+                payload_func.arg_attrs = ArrayAttr.get(
+                    new_arg_attrs, context=self.mlir_context
                 )
-                arg_attrs.append(dict_attr)
-            payload_func.arg_attrs = ArrayAttr.get(arg_attrs, context=self.mlir_context)
 
-        # Insert the function in the MLIR program
-        ip = InsertionPoint.at_block_begin(self.mlir_module.body)
-        ip.insert(payload_func)
-        name = str(payload_func.name).replace('"', "")
-        self.local_functions[str(name)] = payload_func
+            # Insert the function in the MLIR program
+            ip = InsertionPoint.at_block_begin(self.mlir_module.body)
+            ip.insert(payload_func)
+            name = str(payload_func.name).replace('"', "")
+            self.local_functions[str(name)] = payload_func
 
         return payload_func

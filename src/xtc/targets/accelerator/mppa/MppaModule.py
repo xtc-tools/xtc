@@ -5,29 +5,31 @@
 from typing import Any, cast
 from typing_extensions import override
 
-import xtc.itf as itf
 from xtc.itf.graph import Graph
+import xtc.itf as itf
+
+from .MppaEvaluator import MppaEvaluator, MppaExecutor
+from xtc.runtimes.accelerator.mppa import MppaConfig
+
 from xtc.utils.evaluation import (
     graph_np_inputs_spec,
     graph_np_outputs_spec,
     graph_reference_impl,
 )
 
-from .HostEvaluator import HostExecutor, HostEvaluator
-
-
 __all__ = [
-    "HostModule",
+    "MppaModule",
 ]
 
 
-class HostModule(itf.comp.Module):
+class MppaModule(itf.comp.Module):
     def __init__(
         self,
         name: str,
         payload_name: str,
         file_name: str,
         file_type: str,
+        mppa_config: MppaConfig,
         graph: Graph | None = None,
         **kwargs: Any,
     ) -> None:
@@ -50,6 +52,8 @@ class HostModule(itf.comp.Module):
             self._np_inputs_spec = kwargs.get("np_inputs_spec")
             self._np_outputs_spec = kwargs.get("np_outputs_spec")
             self._reference_impl = kwargs.get("reference_impl")
+        self._mppa_config = mppa_config  # FIXME: remove passing config to module
+        # TODO Handle shlib of multiple kernels on fly
 
     @property
     @override
@@ -73,18 +77,18 @@ class HostModule(itf.comp.Module):
 
     @override
     def export(self) -> None:
-        pass
+        raise NotImplementedError("AcceleratorModule.export is not implemented")
 
     @override
     def get_evaluator(self, **kwargs: Any) -> itf.exec.Evaluator:
-        return HostEvaluator(
+        return MppaEvaluator(
             self,
             **kwargs,
         )
 
     @override
     def get_executor(self, **kwargs: Any) -> itf.exec.Executor:
-        return HostExecutor(
+        return MppaExecutor(
             self,
             **kwargs,
         )

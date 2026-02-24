@@ -38,6 +38,7 @@ from xtc.utils.ext_tools import transform_opts
 
 from .MlirProgram import RawMlirProgram
 from .MlirScheduler import MlirSchedule, MlirNodeSchedule
+from .MlirTarget import MlirTarget
 
 _VECTO_SEQ_NAME = "_vecto"
 _SUPER_VECTORIZE_SEQ_NAME = "_super_vectorize"
@@ -98,12 +99,14 @@ class MlirProgramInsertTransformPass:
     def __init__(
         self,
         mlir_program: RawMlirProgram,
+        target: MlirTarget,
         mlir_schedule: MlirSchedule | None = None,
         concluding_passes: list[str] = [],
         always_vectorize: bool = True,
         vectors_size: int | None = None,
     ) -> None:
         self._mlir_program = mlir_program
+        self._target = target
         self._mlir_schedule = mlir_schedule
         self._loc = Location.unknown(self._mlir_program.mlir_context)
         self._concluding_passes = concluding_passes
@@ -428,12 +431,15 @@ class MlirProgramInsertTransformPass:
         if self._vectors_size is not None:
             return
 
-        transform.IncludeOp(
-            results_=[],
-            target=_VECTO_SEQ_NAME,
-            failure_propagation_mode=2,
-            operands_=[sched_state.handle],
-        )
+        if self._target.custom_vectorize():
+            self._target.apply_custom_vectorize(sched_state.handle)
+        else:
+            transform.IncludeOp(
+                results_=[],
+                target=_VECTO_SEQ_NAME,
+                failure_propagation_mode=2,
+                operands_=[sched_state.handle],
+            )
 
     def _post_vectorize(self, sched_state: SchedulingState):
         if self._vectors_size is not None:

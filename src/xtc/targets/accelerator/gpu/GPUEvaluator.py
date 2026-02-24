@@ -4,20 +4,10 @@
 #
 from typing import Any
 from typing_extensions import override
-import numpy as np
-from pathlib import Path
 
-from xtc.runtimes.types.ndarray import NDArray
-from xtc.utils.numpy import (
-    np_init,
-)
-
-from xtc.runtimes.host.HostRuntime import HostRuntime
-
+from xtc.runtimes.accelerator.gpu.GPUDevice import GPUDevice
+import xtc.targets.accelerator.gpu as gpu
 import xtc.itf as itf
-import xtc.targets.host as host
-
-from xtc.utils.loader import LibLoader
 from xtc.utils.evaluation import (
     ensure_ndarray_parameters,
     validate_outputs,
@@ -26,13 +16,14 @@ from xtc.utils.evaluation import (
 )
 
 __all__ = [
-    "HostEvaluator",
-    "HostExecutor",
+    "GPUEvaluator",
+    "GPUExecutor",
 ]
 
 
-class HostEvaluator(itf.exec.Evaluator):
-    def __init__(self, module: "host.HostModule", **kwargs: Any) -> None:
+class GPUEvaluator(itf.exec.Evaluator):
+    def __init__(self, module: "gpu.GPUModule", **kwargs: Any) -> None:
+        self._device = GPUDevice()
         self._module = module
         self._repeat = kwargs.get("repeat", 1)
         self._min_repeat_ms = kwargs.get("min_repeat_ms", 100)
@@ -50,17 +41,18 @@ class HostEvaluator(itf.exec.Evaluator):
             "reference_impl", self._module._reference_impl
         )
         self._pmu_counters = kwargs.get("pmu_counters", [])
-        self._runtime = kwargs.get("runtime", HostRuntime())
+
         assert self._module.file_type == "shlib", "only support shlib for evaluation"
 
     @override
     def evaluate(self) -> tuple[list[float], int, str]:
-        # Load the module
-        dll = str(Path(self._module.file_name).absolute())
-        lib = LibLoader(dll)
+        assert self._module._bare_ptr, "bare_ptr is not supported for evaluation"
+
+        # Initialize the device and load the module
+        self._device.init_device()
+        self._device.load_module(self._module)
         sym = self._module.payload_name
-        func = getattr(lib.lib, sym)
-        func.packed = not self._module._bare_ptr
+        func = self._device.get_module_function(self._module, sym)
         results: tuple[list[float], int, str] = ([], 0, "")
         validation_failed = False
 
@@ -72,6 +64,13 @@ class HostEvaluator(itf.exec.Evaluator):
             self._init_zero,
         )
 
+        # Map the buffers
+        # TODO Replace memory mapping of buffers by explicit transfers
+        for buffer in parameters[0] + parameters[1]:
+            self._device._register_buffer(
+                buffer.data, buffer.size * buffer.dtype.itemsize
+            )
+
         # Check the correctness of the outputs
         if self._validate:
             results = validate_outputs(func, parameters, self._reference_impl)
@@ -79,7 +78,6 @@ class HostEvaluator(itf.exec.Evaluator):
 
         # Measure the performance
         if not validation_failed:
-            assert self._runtime is not None
             results = evaluate_performance(
                 func,
                 parameters,
@@ -87,11 +85,15 @@ class HostEvaluator(itf.exec.Evaluator):
                 self._repeat,
                 self._number,
                 self._min_repeat_ms,
-                self._runtime,
+                self._device,
             )
 
+        # Unmap the buffers
+        for buffer in parameters[0] + parameters[1]:
+            self._device._unregister_buffer(buffer.data)
+
         # Unload the module
-        lib.close()
+        self._device.unload_module(self._module)
 
         # Copy out outputs
         if self._parameters is not None:
@@ -105,9 +107,9 @@ class HostEvaluator(itf.exec.Evaluator):
         return self._module
 
 
-class HostExecutor(itf.exec.Executor):
-    def __init__(self, module: "host.HostModule", **kwargs: Any) -> None:
-        self._evaluator = HostEvaluator(
+class GPUExecutor(itf.exec.Executor):
+    def __init__(self, module: "gpu.GPUModule", **kwargs: Any) -> None:
+        self._evaluator = GPUEvaluator(
             module=module,
             repeat=1,
             min_repeat_ms=0,

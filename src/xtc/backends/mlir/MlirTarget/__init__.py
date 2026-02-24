@@ -20,6 +20,14 @@ def get_target_from_name(name: str) -> type[MlirTarget]:
         from .MlirNVGPUTarget import MlirNVGPUTarget
 
         return MlirNVGPUTarget
+    elif name == "mppa":
+        from .MlirMppaTarget import MlirMppaTarget
+
+        return MlirMppaTarget
+    elif name == "aie":
+        from .MlirAIETarget import MlirAIETarget
+
+        return MlirAIETarget
     else:
         raise NameError(f"'{name}' is not a known target")
 

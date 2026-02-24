@@ -11,6 +11,8 @@ from ..MlirProgram import RawMlirProgram
 import xtc.itf as itf
 from xtc.itf.graph import Graph
 
+from mlir.ir import OpResult
+
 __all__ = ["MlirTarget"]
 
 
@@ -63,5 +65,19 @@ class MlirTarget(ABC):
         generate_code_for_target.
         It can return a derived class from Module that handle runtime specificities
         for the target.
+        """
+        ...
+
+    @abstractmethod
+    def custom_vectorize(self) -> bool:
+        """
+        Return True if the target needs to apply custom vectorization.
+        """
+        ...
+
+    @abstractmethod
+    def apply_custom_vectorize(self, handle: OpResult) -> None:
+        """
+        Apply the custom vectorization for the target.
         """
         ...

@@ -19,6 +19,8 @@ from xtc.itf.data import (
     ConstantDataType,
 )
 
+from xtc.itf.runtime.accelerator import AcceleratorDevice
+
 
 __all__ = [
     "XTCTensorType",
@@ -27,9 +29,15 @@ __all__ = [
 
 
 class XTCTensorType(TensorType):
-    def __init__(self, shape: ShapeType = None, dtype: DataType = None):
+    def __init__(
+        self,
+        shape: ShapeType = None,
+        dtype: DataType = None,
+        device: AcceleratorDevice | None = None,
+    ):
         self._shape = shape
         self._dtype = dtype
+        self._device = device
 
     @property
     @override
@@ -40,6 +48,11 @@ class XTCTensorType(TensorType):
     @override
     def dtype(self) -> DataType:
         return self._dtype
+
+    @property
+    @override
+    def device(self) -> AcceleratorDevice | None:
+        return self._device
 
     @property
     @override

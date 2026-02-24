@@ -1,4 +1,4 @@
 --index-url https://gitlab.inria.fr/api/v4/groups/corse/-/packages/pypi/simple
-mlir-sdist==21.1.2.2026012001
+mlir-sdist==21.1.2.2026021601
 mlir==21.1.2.2025091603
 xtc-mlir==21.1.2.2

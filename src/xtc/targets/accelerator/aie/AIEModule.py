@@ -2,44 +2,41 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import Any, cast
+from typing import Any
 from typing_extensions import override
 
-import xtc.itf as itf
 from xtc.itf.graph import Graph
+import xtc.itf as itf
+
+from .AIEEvaluator import AIEEvaluator, AIEExecutor
+
 from xtc.utils.evaluation import (
     graph_np_inputs_spec,
     graph_np_outputs_spec,
     graph_reference_impl,
 )
 
-from .HostEvaluator import HostExecutor, HostEvaluator
-
+from mlir_sdist.extras.run_aie import AIEModuleWrapper
 
 __all__ = [
-    "HostModule",
+    "AIEModule",
 ]
 
 
-class HostModule(itf.comp.Module):
+class AIEModule(itf.comp.Module):
     def __init__(
         self,
         name: str,
+        payload: AIEModuleWrapper,
         payload_name: str,
-        file_name: str,
-        file_type: str,
         graph: Graph | None = None,
         **kwargs: Any,
     ) -> None:
         self._name = name
+        self._payload_wrapper = payload
         self._payload_name = payload_name
-        self._file_name = file_name
-        self._file_type = file_type
-        assert self._file_type == "shlib", "only support shlib for JIR Module"
-        lib_suffixes = ("so", "dylib")
-        assert self._file_name.endswith(lib_suffixes), (
-            f"file name {self._file_name} is not a shlib"
-        )
+        self._file_name = "wrapper"
+        self._file_type = "wrapper"
         self._bare_ptr = kwargs.get("bare_ptr", True)
         self._graph = graph
         if self._graph is not None:
@@ -71,20 +68,24 @@ class HostModule(itf.comp.Module):
     def file_name(self) -> str:
         return self._file_name
 
+    @property
+    def wrapper(self) -> AIEModuleWrapper:
+        return self._payload_wrapper
+
     @override
     def export(self) -> None:
-        pass
+        raise NotImplementedError("AcceleratorModule.export is not implemented")
 
     @override
     def get_evaluator(self, **kwargs: Any) -> itf.exec.Evaluator:
-        return HostEvaluator(
+        return AIEEvaluator(
             self,
             **kwargs,
         )
 
     @override
     def get_executor(self, **kwargs: Any) -> itf.exec.Executor:
-        return HostExecutor(
+        return AIEExecutor(
             self,
             **kwargs,
         )
