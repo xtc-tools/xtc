@@ -66,10 +66,16 @@ class GPUEvaluator(itf.exec.Evaluator):
 
         # Map the buffers
         # TODO Replace memory mapping of buffers by explicit transfers
-        for buffer in parameters[0] + parameters[1]:
-            self._device._register_buffer(
-                buffer.data, buffer.size * buffer.dtype.itemsize
-            )
+        for i, buffer in enumerate(parameters[0]):
+            if self._np_inputs_spec()[i]["device"] is None:
+                self._device._register_buffer(
+                    buffer.data, buffer.size * buffer.dtype.itemsize
+                )
+        for i, buffer in enumerate(parameters[1]):
+            if self._np_outputs_spec()[i]["device"] is None:
+                self._device._register_buffer(
+                    buffer.data, buffer.size * buffer.dtype.itemsize
+                )
 
         # Check the correctness of the outputs
         if self._validate:
@@ -89,8 +95,12 @@ class GPUEvaluator(itf.exec.Evaluator):
             )
 
         # Unmap the buffers
-        for buffer in parameters[0] + parameters[1]:
-            self._device._unregister_buffer(buffer.data)
+        for i, buffer in enumerate(parameters[0]):
+            if self._np_inputs_spec()[i]["device"] is None:
+                self._device._unregister_buffer(buffer.data)
+        for i, buffer in enumerate(parameters[1]):
+            if self._np_outputs_spec()[i]["device"] is None:
+                self._device._unregister_buffer(buffer.data)
 
         # Unload the module
         self._device.unload_module(self._module)
