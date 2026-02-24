@@ -26,7 +26,6 @@ from mlir.ir import (
     OpResult,
 )
 from mlir.passmanager import PassManager
-import platform
 
 # Import SDist if available
 try:
@@ -557,10 +556,8 @@ def apply_bufferization_passes(mlir_program: RawMlirProgram):
     bufferize_options = [
         "bufferize-function-boundaries=1",
         "function-boundary-type-conversion=identity-layout-map",
+        "buffer-alignment=256",
     ]
-    # TODO: below is needed until macos mlir is updated
-    if platform.system() != "Darwin":
-        bufferize_options.append("buffer-alignment=256")
     apply_passes.run(
         [
             "canonicalize",
