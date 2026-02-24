@@ -421,77 +421,58 @@ class MlirOperatorRelu(MlirOperator):
                 ]
             )
             if self.op_type == TensorType:
-                inp = tensor.CollapseShapeOp(  # type: ignore
-                    operands=[args[0]],
-                    properties=dict(reassociation=inp_reassociation),
-                    result_types=[self.op_type(elt_type, (inp_size,))],
-                )
-                # create empty tensor for collapsed output shape
-                out_empty = tensor.EmptyOp([], TensorType(elt_type, [out_size]))
-                out_operand = out_empty.tensor
+                out_operand = args[1]
+                inp_operand = args[0]
+                rank = len(out_shape)
+                iterator_types = [StringAttr("parallel")] * rank
+                indexing_maps = [
+                    AffineMapAttr(AffineMap.identity(rank)),  # input
+                    AffineMapAttr(
+                        AffineMap.identity(rank).drop_results(out_shape)
+                    ),  # scalar
+                    AffineMapAttr(AffineMap.identity(rank)),  # output
+                ]
             else:
                 inp = memref.CollapseShapeOp(  # type: ignore
                     operands=[args[0]],
                     properties=dict(reassociation=inp_reassociation),
                     result_types=[self.op_type(elt_type, (inp_size,))],
                 )
+                inp_operand = inp.results[0]  # type: ignore
                 out = memref.CollapseShapeOp(
                     operands=[args[1]],
                     properties=dict(reassociation=out_reassociation),
                     result_types=[self.op_type(elt_type, (out_size,))],
                 )
-                out_operand = out.results[0]
-
-            result = (
-                (TensorType(elt_type, [out_size]),)
-                if self.op_type == TensorType
-                else ()
-            )
+                out_operand = out.results[0]  # type: ignore
+                iterator_types = [
+                    StringAttr({"P": "parallel", "R": "reduction"}[k])
+                    for k in self.KINDS
+                ]
+                # ignore typing due to xdsl hints limitation
+                indexing_maps = [
+                    AffineMapAttr(AffineMap.from_callable(lambda i: (i,))),  # type: ignore
+                    AffineMapAttr(AffineMap.from_callable(lambda _: ())),  # type: ignore
+                    AffineMapAttr(AffineMap.from_callable(lambda i: (i,))),  # type: ignore
+                ]
+                iterator_types = [
+                    StringAttr({"P": "parallel", "R": "reduction"}[k])
+                    for k in self.KINDS
+                ]
+            result = (args[1].type,) if self.op_type == TensorType else ()
             cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_size))
-            iterator_types = [
-                StringAttr({"P": "parallel", "R": "reduction"}[k]) for k in self.KINDS
-            ]
             block_in = Block(arg_types=[f32, f32, f32])
             with ImplicitBuilder(block_in):
                 max = arith.MaximumfOp(block_in.args[0], block_in.args[1])
                 linalg.YieldOp(max)
             relu = linalg.GenericOp(
-                inputs=(inp.results[0], cst0.results[0]),
+                inputs=(inp_operand, cst0.results[0]),
                 outputs=(out_operand,),
                 body=Region([block_in]),  # type: ignore # mypy issue with dataclass
-                # ignore typing due to xdsl hints limitation
-                indexing_maps=[
-                    AffineMapAttr(
-                        AffineMap.from_callable(
-                            lambda i:  # type: ignore
-                            (i,)
-                        )
-                    ),
-                    AffineMapAttr(
-                        AffineMap.from_callable(
-                            lambda _:  # type: ignore
-                            ()
-                        )
-                    ),
-                    AffineMapAttr(
-                        AffineMap.from_callable(
-                            lambda i:  # type: ignore
-                            (i,)
-                        )
-                    ),
-                ],
+                indexing_maps=indexing_maps,
                 iterator_types=iterator_types,
                 result_types=result,
             )
-            relu_result = None
-            if self.op_type == TensorType:
-                relu_result = tensor.ExpandShapeOp(
-                    relu.results[0],
-                    reassociation=out_reassociation,
-                    result_type=TensorType(elt_type, out_shape),
-                    static_output_shape=out_shape,
-                    dynamic_output_shape=[],
-                )
         relu_node_id = f"{self.name}"
         relu.attributes[f"__xtc_id_{relu_node_id}_"] = UnitAttr()
         attrs = {
@@ -501,7 +482,7 @@ class MlirOperatorRelu(MlirOperator):
             "dims_sizes": [
                 self.dims_sizes(),
             ],
-            "output_nodes": [relu_result],
+            "output_nodes": [relu],
         }
         return block, attrs
 

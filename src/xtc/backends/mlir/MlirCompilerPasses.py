@@ -563,6 +563,8 @@ def apply_bufferization_passes(mlir_program: RawMlirProgram):
         bufferize_options.append("buffer-alignment=256")
     apply_passes.run(
         [
+            "canonicalize",
+            "cse",
             "eliminate-empty-tensors",  # causes ops to write directly to out buffer
             f"one-shot-bufferize{{{' '.join(bufferize_options)}}}",
             "func.func(buffer-hoisting)",
