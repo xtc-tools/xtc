@@ -30,6 +30,20 @@ Use exhaustive search on a tiling strategy limited to tile4d + only vectorized t
     450/450 [22:30<00:00,  3.00s/it]
     real 1352.37
 
+Resume interrupted exploration while keeping reproducibility metadata:
+
+    # Start a run
+    loop-explore --search random --trials 200 --output results.random.csv
+
+    # Resume the same output (skips already recorded samples)
+    loop-explore --search random --trials 200 --output results.random.csv --resume
+
+    # Append regardless of duplicates
+    loop-explore --search random --trials 200 --output results.random.csv --append
+
+Each run also writes `results.random.csv.meta.json` with the command arguments,
+Python/runtime information, and git commit hash to simplify result provenance.
+
 Test a single tiling:
 
     # Dumps and execute MLIR tiling
