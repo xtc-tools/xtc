@@ -4,6 +4,8 @@
 #
 from typing import Any
 
+from xtc.graphs.xtc.node import XTCNode
+
 from .graph import XTCGraph
 from .context import XTCGraphContext
 from .expr import XTCTensorExpr
@@ -28,38 +30,21 @@ class graph_builder:
         return self._graph
 
     @classmethod
-    def from_dict(self, graph_dict: dict[str, Any]) -> Any:
+    def from_dict(cls, graph_dict: dict[str, Any]) -> Any:
         XTCGraphContext.push()
-        # TODO: scan for names, store in context _names
-        # start at deepest expr than use factory to make OpExprs
-        def build(obj: Any) -> Any:
-            if isinstance(obj, dict):
-                if "op" in obj:
-                    args = build(obj["args"])
-                    func_name: str = obj["op"]["name"]
-                    op_func = getattr(op_factory, func_name)
-                    print(f"calling {func_name}")
-                    obj = op_func(*args, **obj["op"]["attrs"])
-                    return obj
-                elif "idx" in obj:
-                    obj = XTCTensorExpr.from_dict(obj)
-                    return obj
-                else:
-                    print(obj)
-                    return None
-            elif isinstance(obj, list):
-                obj = [build(o) for o in obj]
-                return obj
-            else:
-                print(f"wtf is {obj}")
-                return None
-
         
-        for out in graph_dict["outputs"]:
-            build(out["expr"])
+        expr_uid_map = {}
+        for inp in graph_dict["inputs"]:
+            expr_uid_map[inp["uid"]] = XTCTensorExpr.from_dict(inp["expr"])
+        
+        for node in graph_dict["nodes"]:
+            expr = node["expr"]
+            args = [expr_uid_map.get(arg) for arg in expr["args"]]
+            if "name" in node: 
+                args.append(node["name"])
+            op_func = getattr(op_factory, expr["op"]["name"])
+            expr_uid_map[node["uid"]] = op_func(*args, **expr["op"]["attrs"])
+        
         scope = XTCGraphContext.pop()
-        print(scope.graph.inputs)
-        for inp in scope.graph._inputs:
-            print(inp.uid)
         print(scope.graph)
         return graph_dict

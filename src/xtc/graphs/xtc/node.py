@@ -160,16 +160,13 @@ class XTCNode(Node):
     @override
     def to_dict(self) -> dict[str, str | Sequence[TensorType]]:
         node_dict = {}
-        if self.inputs_types and False:
-            node_dict["input_types"] =  [t.to_dict() for t in self.inputs_types]
-        if self.outputs_types and False:
-            node_dict["output_types"] =  [t.to_dict() for t in self.outputs_types]    
-        if self.uid != self.name and False:
+        if self.uid != self.name:
             node_dict["name"] = self.name
+        node_dict["uid"] = self.uid
         node_dict["expr"] = self._expr.to_dict()
         return node_dict
     
     @override
     @classmethod
     def from_dict(cls, node_dict: dict[str, Any]) -> Self:
-        return cls(node_dict["expr"])        
+        ...        

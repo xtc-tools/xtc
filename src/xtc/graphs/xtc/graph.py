@@ -153,23 +153,12 @@ class XTCGraph(Graph):
             graph_str += "  nodes: {}\n"
         return graph_str
 
-# TODO: to_dict(), from_dict()
-
     def to_dict(self) -> dict[str, Any]:
-        # fold nodes into just uids
-        for n in self._nodes:
-            node_dict = n.to_dict()
-            print(node_dict["expr"])
         return {
-            #"inputs": [i.to_dict() for i in self._inputs],
-            "outputs": [o.to_dict() for o in self._outputs],
-            #"nodes": [n.to_dict() for n in self._nodes]
+            "inputs": [i.to_dict() for i in self._inputs],
+            #"outputs": [o.to_dict() for o in self._outputs],
+            "nodes": [n.to_dict() for n in self._nodes]
         }
-    def from_dict(self, graph_dict: dict[str, Any]):
-        # create inputs exprs
-        for ins in graph_dict["inputs"]:
-            self._inputs.append(ins.from_dict())
-            # set inputs_types here
-        pass
+
 # TODO: sdump(), sload()
 # TODO: dump(), load() (yaml)

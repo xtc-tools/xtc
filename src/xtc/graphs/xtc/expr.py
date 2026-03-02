@@ -96,7 +96,7 @@ class XTCExpr(ABC):
 
     @abstractmethod
     def to_dict(self) -> dict[str, Any]:
-        return {"idx" : self._idx}
+        return {"uid" : self.uid}
 
     @classmethod
     @abstractmethod
@@ -191,7 +191,7 @@ class XTCTensorExpr(XTCValueExpr):
 
     @override
     def to_dict(self) -> dict[str, Any]:
-        return {"idx": self._idx, "type": self.type.to_dict()}
+        return {"type": self.type.to_dict()}
 
     @classmethod
     @override
@@ -240,7 +240,7 @@ class XTCOpExpr(XTCExpr):
 
     @override
     def to_dict(self) -> dict[str, Any]:
-        return {"idx": self._idx, "op": self._op.to_dict(), "args": [a.to_dict() for a in self.args]}
+        return {"op": self._op.to_dict(), "args": [a.uid for a in self.args]}
 
     @override
     @classmethod
