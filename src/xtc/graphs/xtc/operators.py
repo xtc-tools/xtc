@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing_extensions import override
+from typing_extensions import override, Self
 from typing import TypeAlias, cast, Any
 from types import SimpleNamespace as NS
 from collections.abc import Sequence, Mapping
@@ -86,6 +86,23 @@ class XTCOperator(Operator):
             outs_maps=outs_maps,
         )
 
+    @override
+    def to_dict(self) -> dict[str, Any]:
+        op_dict = {"name" : self._name}
+        #def get_attr(obj: Any):
+        #    if isinstance(obj, dict):
+        #        return {k: get_attr(v) for k, v in obj.items()}
+        #    elif isinstance(obj, (list, tuple, set)):
+        #        return [get_attr(v) for v in obj]
+        #    else:
+        #        return obj
+        op_dict["attrs"] = {k: v for k,v in self._attrs.__dict__.items()}
+        return op_dict
+
+    @classmethod
+    @override
+    def from_dict(cls, op_dict: dict[str, Any]) -> Self:
+        return cls() 
 
 class XTCOperTensor(XTCOperator):
     def __init__(self) -> None:

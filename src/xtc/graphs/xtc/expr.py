@@ -4,7 +4,7 @@
 #
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing_extensions import override
+from typing_extensions import override, Self
 from typing import Any, TypeAlias
 import threading
 
@@ -94,6 +94,15 @@ class XTCExpr(ABC):
     def __str__(self) -> str:
         return f"{self.uid} = ?"
 
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        return {"idx" : self._idx}
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, node_dict: dict[str, Any]) -> Self:
+        ...
+
 
 class XTCValueExpr(XTCExpr):
     @property
@@ -180,6 +189,15 @@ class XTCTensorExpr(XTCValueExpr):
         args = ", ".join([arg.uid for arg in self.args])
         return f"{self.uid} = {self.op_name}({args})"
 
+    @override
+    def to_dict(self) -> dict[str, Any]:
+        return {"idx": self._idx, "type": self.type.to_dict()}
+
+    @classmethod
+    @override
+    def from_dict(cls, node_dict: dict[str, Any]) -> Self:
+        type = XTCTensorType.from_dict(node_dict["type"])
+        return cls(tensor=type)
 
 class XTCOpExpr(XTCExpr):
     def __init__(self, op: XTCOperator, args: ArgumentsType) -> None:
@@ -220,6 +238,15 @@ class XTCOpExpr(XTCExpr):
         args = ", ".join(params)
         return f"{self.uid} = {self.op_name}({args})"
 
+    @override
+    def to_dict(self) -> dict[str, Any]:
+        return {"idx": self._idx, "op": self._op.to_dict(), "args": [a.to_dict() for a in self.args]}
+
+    @override
+    @classmethod
+    def from_dict(cls, node_dict: dict[str, Any]) -> Self:
+        # should not be called on just XTCOpExpr
+        return cls(*node_dict["args"], **node_dict["attrs"])
 
 class XTCMatmulExpr(XTCOpExpr):
     def __init__(self, x: XTCExpr, y: XTCExpr, **attrs: Any) -> None:

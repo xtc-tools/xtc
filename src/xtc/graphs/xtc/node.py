@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing_extensions import override
+from typing_extensions import override, Self
 from collections.abc import Sequence
-from typing import cast
+from typing import cast, Any
 
 from xtc.itf.graph import Node
 from xtc.itf.operator import Operator
@@ -156,3 +156,20 @@ class XTCNode(Node):
         if self.inputs_types is not None and self.outputs_types is not None:
             type_str = f" : {self.inputs_types} -> {self.outputs_types}"
         return str(self._expr).split("=", 1)[1].strip() + attrs_str + type_str
+
+    @override
+    def to_dict(self) -> dict[str, str | Sequence[TensorType]]:
+        node_dict = {}
+        if self.inputs_types and False:
+            node_dict["input_types"] =  [t.to_dict() for t in self.inputs_types]
+        if self.outputs_types and False:
+            node_dict["output_types"] =  [t.to_dict() for t in self.outputs_types]    
+        if self.uid != self.name and False:
+            node_dict["name"] = self.name
+        node_dict["expr"] = self._expr.to_dict()
+        return node_dict
+    
+    @override
+    @classmethod
+    def from_dict(cls, node_dict: dict[str, Any]) -> Self:
+        return cls(node_dict["expr"])        
