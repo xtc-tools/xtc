@@ -156,9 +156,10 @@ class XTCGraph(Graph):
     def to_dict(self) -> dict[str, Any]:
         return {
             "inputs": [i.to_dict() for i in self._inputs],
-            #"outputs": [o.to_dict() for o in self._outputs],
-            "nodes": [n.to_dict() for n in self._nodes]
+            # "outputs": [o.to_dict() for o in self._outputs],
+            "nodes": [n.to_dict() for n in self._nodes],
         }
+
 
 # TODO: sdump(), sload()
 # TODO: dump(), load() (yaml)

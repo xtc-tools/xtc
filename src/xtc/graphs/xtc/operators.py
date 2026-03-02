@@ -88,21 +88,22 @@ class XTCOperator(Operator):
 
     @override
     def to_dict(self) -> dict[str, Any]:
-        op_dict = {"name" : self._name}
-        #def get_attr(obj: Any):
+        op_dict = {"name": self._name}
+        # def get_attr(obj: Any):
         #    if isinstance(obj, dict):
         #        return {k: get_attr(v) for k, v in obj.items()}
         #    elif isinstance(obj, (list, tuple, set)):
         #        return [get_attr(v) for v in obj]
         #    else:
         #        return obj
-        op_dict["attrs"] = {k: v for k,v in self._attrs.__dict__.items()}
+        op_dict["attrs"] = {k: v for k, v in self._attrs.__dict__.items()}
         return op_dict
 
     @classmethod
     @override
     def from_dict(cls, op_dict: dict[str, Any]) -> Self:
-        return cls() 
+        return cls()
+
 
 class XTCOperTensor(XTCOperator):
     def __init__(self) -> None:

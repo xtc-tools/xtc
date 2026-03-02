@@ -165,8 +165,7 @@ class XTCNode(Node):
         node_dict["uid"] = self.uid
         node_dict["expr"] = self._expr.to_dict()
         return node_dict
-    
+
     @override
     @classmethod
-    def from_dict(cls, node_dict: dict[str, Any]) -> Self:
-        ...        
+    def from_dict(cls, node_dict: dict[str, Any]) -> Self: ...

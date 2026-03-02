@@ -96,12 +96,11 @@ class XTCExpr(ABC):
 
     @abstractmethod
     def to_dict(self) -> dict[str, Any]:
-        return {"uid" : self.uid}
+        return {"uid": self.uid}
 
     @classmethod
     @abstractmethod
-    def from_dict(cls, node_dict: dict[str, Any]) -> Self:
-        ...
+    def from_dict(cls, node_dict: dict[str, Any]) -> Self: ...
 
 
 class XTCValueExpr(XTCExpr):
@@ -199,6 +198,7 @@ class XTCTensorExpr(XTCValueExpr):
         type = XTCTensorType.from_dict(node_dict["type"])
         return cls(tensor=type)
 
+
 class XTCOpExpr(XTCExpr):
     def __init__(self, op: XTCOperator, args: ArgumentsType) -> None:
         super().__init__()
@@ -247,6 +247,7 @@ class XTCOpExpr(XTCExpr):
     def from_dict(cls, node_dict: dict[str, Any]) -> Self:
         # should not be called on just XTCOpExpr
         return cls(*node_dict["args"], **node_dict["attrs"])
+
 
 class XTCMatmulExpr(XTCOpExpr):
     def __init__(self, x: XTCExpr, y: XTCExpr, **attrs: Any) -> None:

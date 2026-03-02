@@ -3,7 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing_extensions import override, Self
-from typing import cast, Any
+from typing import cast, Any, Iterable
 import functools
 import operator
 import numpy as np
@@ -110,15 +110,21 @@ class XTCTensorType(TensorType):
 
     @override
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "shape": self.shape,
-            "dtype": self.dtype,
-        }
+        tensor_dict = {}
+        if self.shape:
+            tensor_dict["shape"] = list(cast(Iterable[int], self.shape))
+        if self.dtype:
+            tensor_dict["dtype"] = self.dtype
+        return tensor_dict
 
     @override
     @classmethod
     def from_dict(cls, tensor_dict: dict[str, Any]) -> Self:
-        return cls(shape = tensor_dict["shape"], dtype = tensor_dict["dtype"])
+        return cls(
+            shape=tuple(tensor_dict["shape"]) if "shape" in tensor_dict else None,
+            dtype=tensor_dict["dtype"] if "dtype" in tensor_dict else None,
+        )
+
 
 class XTCConstantTensorType(XTCTensorType, ConstantTensorType):
     def __init__(self, shape: ConstantShapeType, dtype: ConstantDataType):

@@ -11,6 +11,7 @@ from .context import XTCGraphContext
 from .expr import XTCTensorExpr
 from . import op_factory
 
+
 class graph_builder:
     def __init__(self, **graph_kwargs: Any) -> None:
         self._graph_kwargs = graph_kwargs
@@ -32,19 +33,19 @@ class graph_builder:
     @classmethod
     def from_dict(cls, graph_dict: dict[str, Any]) -> Any:
         XTCGraphContext.push()
-        
+
         expr_uid_map = {}
         for inp in graph_dict["inputs"]:
             expr_uid_map[inp["uid"]] = XTCTensorExpr.from_dict(inp["expr"])
-        
+
         for node in graph_dict["nodes"]:
             expr = node["expr"]
             args = [expr_uid_map.get(arg) for arg in expr["args"]]
-            if "name" in node: 
+            if "name" in node:
                 args.append(node["name"])
             op_func = getattr(op_factory, expr["op"]["name"])
             expr_uid_map[node["uid"]] = op_func(*args, **expr["op"]["attrs"])
-        
+
         scope = XTCGraphContext.pop()
         print(scope.graph)
         return graph_dict
