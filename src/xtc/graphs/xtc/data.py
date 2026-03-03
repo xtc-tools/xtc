@@ -110,7 +110,7 @@ class XTCTensorType(TensorType):
 
     @override
     def to_dict(self) -> dict[str, Any]:
-        tensor_dict = {}
+        tensor_dict: dict[str, Any] = {}
         if self.shape:
             tensor_dict["shape"] = list(cast(Iterable[int], self.shape))
         if self.dtype:

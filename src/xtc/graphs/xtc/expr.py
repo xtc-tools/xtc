@@ -246,7 +246,7 @@ class XTCOpExpr(XTCExpr):
     @classmethod
     def from_dict(cls, node_dict: dict[str, Any]) -> Self:
         # should not be called on just XTCOpExpr
-        return cls(*node_dict["args"], **node_dict["attrs"])
+        return cls(XTCOperator.from_dict(node_dict["op"]), *node_dict["args"])
 
 
 class XTCMatmulExpr(XTCOpExpr):

@@ -4,12 +4,12 @@
 #
 from typing import Any
 
-from xtc.graphs.xtc.node import XTCNode
-
 from .graph import XTCGraph
 from .context import XTCGraphContext
 from .expr import XTCTensorExpr
 from . import op_factory
+from ast import literal_eval
+from yaml import safe_load
 
 
 class graph_builder:
@@ -35,6 +35,9 @@ class graph_builder:
         XTCGraphContext.push()
 
         expr_uid_map = {}
+        if "name" in graph_dict:
+            XTCGraphContext.name(graph_dict["name"])
+
         for inp in graph_dict["inputs"]:
             expr_uid_map[inp["uid"]] = XTCTensorExpr.from_dict(inp["expr"])
 
@@ -44,8 +47,18 @@ class graph_builder:
             if "name" in node:
                 args.append(node["name"])
             op_func = getattr(op_factory, expr["op"]["name"])
+            # TODO: doesnt handle tuple conversion, (in operators.py)
             expr_uid_map[node["uid"]] = op_func(*args, **expr["op"]["attrs"])
 
         scope = XTCGraphContext.pop()
         print(scope.graph)
         return graph_dict
+
+    @classmethod
+    def loads(cls, dict_str: str) -> None:
+        cls.from_dict(literal_eval(dict_str))
+
+    @classmethod
+    def load(cls, file_name: str) -> None:
+        with open(file_name, "r") as f:
+            cls.from_dict(safe_load(f))

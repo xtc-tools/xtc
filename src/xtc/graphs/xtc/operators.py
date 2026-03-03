@@ -30,9 +30,16 @@ XTCOperStrideAttr: TypeAlias = int | tuple[int] | tuple[int, int]
 
 
 class XTCOperator(Operator):
+    #_registry = {}
+
     def __init__(self, name: str, **attrs: XTCOperatorAttr) -> None:
         self._name = name
         self._attrs = NS(**attrs)
+
+    #def __init_subclass__(cls) -> None:
+    #    # TODO: add _name to each op for this to work
+    #    XTCOperator._registry[cls.name] = cls
+    #    return super().__init_subclass__()
 
     @property
     @override
@@ -88,21 +95,32 @@ class XTCOperator(Operator):
 
     @override
     def to_dict(self) -> dict[str, Any]:
-        op_dict = {"name": self._name}
-        # def get_attr(obj: Any):
-        #    if isinstance(obj, dict):
-        #        return {k: get_attr(v) for k, v in obj.items()}
-        #    elif isinstance(obj, (list, tuple, set)):
-        #        return [get_attr(v) for v in obj]
-        #    else:
-        #        return obj
-        op_dict["attrs"] = {k: v for k, v in self._attrs.__dict__.items()}
+        def listify(obj: Any):
+            if isinstance(obj, dict):
+                return {k: listify(v) for k, v in obj.items()}
+            elif isinstance(obj, tuple):
+                return [listify(v) for v in obj]
+            else:
+                return obj
+
+        op_dict: dict[str, Any] = {"name": self._name}
+        op_dict["attrs"] = {k: listify(v) for k, v in self._attrs.__dict__.items()}
         return op_dict
 
     @classmethod
     @override
     def from_dict(cls, op_dict: dict[str, Any]) -> Self:
-        return cls()
+         ...
+        # ops with list attr should override this
+#        def tuplify(obj: Any):
+#            if isinstance(obj, dict):
+#                return {k: tuplify(v) for k, v in obj.items()}
+#            elif isinstance(obj, list):
+#                return tuple(tuplify(v) for v in obj)
+#            else:
+#                return obj
+#
+        #return cls._registry[op_dict["name"]](**tuplify(op_dict["attrs"]))
 
 
 class XTCOperTensor(XTCOperator):

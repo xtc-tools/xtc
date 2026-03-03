@@ -12,6 +12,7 @@ from xtc.itf.data import TensorType, Tensor
 from .node import XTCNode
 from .utils import XTCGraphUtils
 from .data import XTCTensor, XTCTensorType
+from yaml import dump as yaml_dump
 
 __all__ = [
     "XTCGraph",
@@ -154,12 +155,16 @@ class XTCGraph(Graph):
         return graph_str
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "inputs": [i.to_dict() for i in self._inputs],
-            # "outputs": [o.to_dict() for o in self._outputs],
-            "nodes": [n.to_dict() for n in self._nodes],
-        }
+        graph_dict: dict[str, Any] = {}
+        if self._name:
+            graph_dict["name"] = self._name
+        graph_dict["inputs"] = [i.to_dict() for i in self._inputs]
+        graph_dict["nodes"] = [n.to_dict() for n in self._nodes]
+        return graph_dict
 
+    def dumps(self) -> str:
+        return str(self.to_dict())
 
-# TODO: sdump(), sload()
-# TODO: dump(), load() (yaml)
+    def dump(self, file_name: str):
+        with open(file_name, "w") as f:
+            yaml_dump(self.to_dict(), f, sort_keys=False)

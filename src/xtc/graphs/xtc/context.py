@@ -119,5 +119,8 @@ class XTCGraphScopes(threading.local):
     def inputs(self, *inps: XTCExpr) -> None:
         return self.current.add_inputs(*inps)
 
+    def name(self, name_str: str) -> None:
+        self.current._graph_kwargs["name"] = name_str
+
 
 XTCGraphContext = XTCGraphScopes()
