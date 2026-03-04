@@ -11,6 +11,7 @@ from xdsl.dialects import linalg, arith, builtin, memref, tensor
 from xdsl.dialects.builtin import (
     MemRefType,
     TensorType,
+    IndexType,
     f32,
     f64,
     i64,
@@ -529,19 +530,25 @@ class MlirOperatorPad(MlirOperator):
         dims_value = list(self.args[:-1])
         padding = self.attrs["padding"]
         constant_value = self.attrs["constant_value"]
+        lows = [0] * len(dims_value)
+        highs = [0] * len(dims_value)
         if isinstance(padding, dict):
             dims_value_before_pad = list(dims_value)
             for i, pad_value in padding.items():
                 dims_value_before_pad[i] -= sum(pad_value)
+                lows[i] = pad_value[0]
+                highs[i] = pad_value[1]
         else:
             dims_value_before_pad = [
                 dim_value - sum(padding) for dim_value in dims_value
             ]
+            lows = [padding[0] for d in dims_value]
+            highs = [padding[1] for d in dims_value]
         elt_type = {"float32": f32, "float64": f64}[dtype]
         elt_size = {"float32": 32, "float64": 64}[dtype]
         if block is None:
             ops_types = [
-                MemRefType(elt_type, shape)
+                MemRefType(elt_type, shape)  # should be op_type here??
                 for shape in [dims_value_before_pad, dims_value]
             ]
             block = Block(arg_types=ops_types)
@@ -560,20 +567,28 @@ class MlirOperatorPad(MlirOperator):
         with ImplicitBuilder(block):
             cst0 = arith.ConstantOp(builtin.FloatAttr(constant_value, elt_size))
             result = (args[1].type,) if using_tensors else ()
-            fill = linalg.FillOp(
-                res=result,
-                inputs=(cst0.results[0],),
-                outputs=(args[1],),
-            )
+            fill_node_id = f"{self.name}_0"
             if using_tensors:
-                copy = tensor.InsertSliceOp.from_static_parameters(
+                fill = None
+                block_in = Block(arg_types=[IndexType()] * len(dims_value))
+                with ImplicitBuilder(block_in):
+                    tensor.YieldOp(cst0)
+                copy = tensor.PadOp(
                     source=args[0],
-                    dest=fill.results[0],
-                    offsets=offsets,
-                    sizes=sizes,
-                    strides=strides,
+                    region=Region([block_in]),
+                    low=[],
+                    high=[],
+                    nofold=UnitAttr(),
+                    result_type=TensorType(elt_type, dims_value),
+                    static_low=lows,
+                    static_high=highs,
                 )
             else:
+                fill = linalg.FillOp(
+                    res=result,
+                    inputs=(cst0.results[0],),
+                    outputs=(args[1],),
+                )
                 subview = memref.SubviewOp.from_static_parameters(
                     source=args[1],
                     source_type=args[1].type,  # type: ignore
@@ -586,14 +601,13 @@ class MlirOperatorPad(MlirOperator):
                     outputs=[subview.result],
                     res=result,
                 )
-        fill_node_id = f"{self.name}_0"
-        fill.attributes[f"__xtc_id_{fill_node_id}_"] = UnitAttr()
+                fill.attributes[f"__xtc_id_{fill_node_id}_"] = UnitAttr()
         copy_node_id = f"{self.name}"
         copy.attributes[f"__xtc_id_{copy_node_id}_"] = UnitAttr()
         attrs = {
             "nodes_map": {
-                fill_node_id: fill,
-                copy_node_id: None if using_tensors else copy,
+                **({fill_node_id: fill} if fill else {}),
+                copy_node_id: copy,
             },
             "dims_sizes": [
                 self.dims_sizes(),
