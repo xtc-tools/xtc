@@ -22,7 +22,9 @@ from argparse import Namespace as NS
 import logging
 import itertools
 import csv
+import json
 import random
+from datetime import datetime, timezone
 import numpy as np
 import numpy.typing
 from tqdm import tqdm
@@ -574,17 +576,113 @@ def peak_time(args: NS) -> float:
     return time
 
 
+def _args_to_metadata(args: NS) -> dict[str, Any]:
+    metadata_args: dict[str, Any] = {}
+    for key, value in vars(args).items():
+        if key == "eval_parameters":
+            continue
+        if isinstance(value, Path):
+            metadata_args[key] = str(value)
+        elif isinstance(value, (str, int, float, bool, list, dict)) or value is None:
+            metadata_args[key] = value
+        else:
+            metadata_args[key] = str(value)
+    return metadata_args
+
+
+def _git_commit_hash() -> str | None:
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return proc.stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def write_run_manifest(args: NS, strategy: Strategy) -> None:
+    output_path = Path(args.output)
+    metadata_path = Path(f"{args.output}.meta.json")
+    payload = {
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "output": str(output_path),
+        "resume": args.resume,
+        "append": args.append,
+        "sampleNames": strategy.sample_names,
+        "gitCommit": _git_commit_hash(),
+        "python": {
+            "version": sys.version,
+            "executable": sys.executable,
+        },
+        "platform": {
+            "platform": sys.platform,
+            "cwd": str(Path.cwd()),
+        },
+        "args": _args_to_metadata(args),
+    }
+    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+        json.dump(payload, metadata_file, indent=2, sort_keys=True)
+        metadata_file.write("\n")
+
+
 class CSVCallback:
-    def __init__(self, fname: str, peak_time: float, sample_names: list[str]) -> None:
+    def __init__(
+        self,
+        fname: str,
+        peak_time: float,
+        sample_names: list[str],
+        *,
+        resume: bool = False,
+        append: bool = False,
+    ) -> None:
         self._fname = fname
         self._peak_time = peak_time
-        self._outf = open(fname, "w", newline="")
         self._sample_names = sample_names
         self._header = sample_names + ["X", "time", "peak", "backend"]
+        self._results: list[Sequence] = []
+        self._rows: list[Sequence] = []
+        self._seen_keys: set[tuple[str, tuple[int, ...]]] = set()
+        self._resume = resume
+        self._append = append
+
+        out_path = Path(fname)
+        has_existing_file = out_path.exists() and out_path.stat().st_size > 0
+        if resume:
+            self._load_existing_rows()
+            mode = "a"
+        elif append:
+            mode = "a"
+        else:
+            mode = "w"
+
+        self._outf = open(fname, mode, newline="")
         self._writer = csv.writer(self._outf, delimiter=",")
-        self._write_header()
-        self._results = []
-        self._rows = []
+
+        should_write_header = (not has_existing_file) or (mode == "w")
+        if should_write_header:
+            self._write_header()
+
+    def _load_existing_rows(self) -> None:
+        in_path = Path(self._fname)
+        if not in_path.exists() or in_path.stat().st_size == 0:
+            return
+        with open(in_path, newline="") as infile:
+            reader = csv.DictReader(infile, delimiter=",")
+            for row in reader:
+                backend = row.get("backend")
+                if backend is None:
+                    continue
+                try:
+                    sample = tuple(int(row[name]) for name in self._sample_names)
+                except (TypeError, ValueError, KeyError):
+                    continue
+                self._seen_keys.add((backend, sample))
+
+    def _sample_key(self, x: Sample, backend: str) -> tuple[str, tuple[int, ...]]:
+        return backend, tuple(int(v) for v in x)
 
     def _write_header(self) -> None:
         self._writer.writerow(self._header)
@@ -594,6 +692,10 @@ class CSVCallback:
         self._rows.append(row)
         self._writer.writerow(row)
         self._outf.flush()
+        try:
+            os.fsync(self._outf.fileno())
+        except OSError:
+            logger.debug("Unable to fsync output file %s", self._fname)
 
     def _write_result(self, result: Sequence) -> None:
         self._results.append(result)
@@ -601,12 +703,17 @@ class CSVCallback:
         if error != 0:
             logger.debug(f"Skip recording error for: {backend}: {x}")
             return
+        key = self._sample_key(x, backend)
+        if self._resume and key in self._seen_keys:
+            logger.debug("Skip already recorded sample for resume mode: %s", key)
+            return
         peak = self._peak_time / time
         s = str(x).replace(",", ";")
         row = [s, time, peak, backend]
         row = x + row
         logger.debug(f"Record row: {row}")
         self._write_row(row)
+        self._seen_keys.add(key)
 
     def __call__(self, result: Sequence) -> None:
         self._write_result(result)
@@ -627,7 +734,13 @@ def search_some(strategy: Strategy, graph: Graph, args: NS):
     )
     ptime = peak_time(args)
     sample_names = strategy.sample_names
-    result_callback = CSVCallback(args.output, ptime, sample_names)
+    result_callback = CSVCallback(
+        args.output,
+        ptime,
+        sample_names,
+        resume=args.resume,
+        append=args.append,
+    )
     callbacks = {
         "result": result_callback,
         "search": search_callback,
@@ -665,6 +778,7 @@ def optimize(args: NS):
     op_args = (*dims, dtype)
     graph = OPERATORS[args.operator]["operation"](*op_args, name=args.func_name)
     strategy = get_strategy(graph, args)
+    write_run_manifest(args, strategy)
     if args.test or args.opt_level in [0, 1, 2, 3]:
         schedule = args.test
         if not schedule:
@@ -679,7 +793,13 @@ def optimize(args: NS):
         )
         ptime = peak_time(args)
         sample_names = strategy.sample_names
-        result_callback = CSVCallback(args.output, ptime, sample_names)
+        result_callback = CSVCallback(
+            args.output,
+            ptime,
+            sample_names,
+            resume=args.resume,
+            append=args.append,
+        )
         callbacks = {
             "result": result_callback,
             "search": search_callback,
@@ -960,6 +1080,18 @@ def main():
         "--output", type=str, default="results.csv", help="output csv file for search"
     )
     parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="resume from an existing output file and skip already recorded samples",
+    )
+    parser.add_argument(
+        "--append",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="append new results to output file without deduplication",
+    )
+    parser.add_argument(
         "--eval", type=str, choices=["eval"], default="eval", help="evaluation method"
     )
     parser.add_argument("--repeat", type=int, default=1, help="evaluation repeat")
@@ -1039,6 +1171,9 @@ def main():
         "--dump", action=argparse.BooleanOptionalAction, help="dump IR while generating"
     )
     args = parser.parse_args()
+
+    if args.resume and args.append:
+        parser.error("--resume and --append cannot be used together")
 
     logging.basicConfig()
     logger.setLevel(logging.INFO)
