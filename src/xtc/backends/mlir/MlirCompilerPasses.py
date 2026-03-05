@@ -399,6 +399,7 @@ class MlirProgramInsertTransformPass:
         split_command = SplitHandleOp(
             results_=[transform.AnyOpType.get(), transform.AnyOpType.get()],
             handle=split_handle,
+            fail_on_payload_too_small=False,
         )
         sched_state.handle = split_command.results[0]
         self._recursive_scheduling(
