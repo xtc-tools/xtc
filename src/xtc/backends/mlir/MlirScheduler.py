@@ -131,9 +131,14 @@ class MlirScheduler(itf.schd.Scheduler):
     def buffer_at(
         self, axis: str, mtype: str | None = None, root: str = DEFAULT_ROOT
     ) -> None:
-        assert mtype is None or mtype == "global"
-        # TODO: not implemented for now
-        pass
+        # The current implementation exclusively rely on SDist, but upstream
+        # transform dialect may be used for some cases.
+        assert mtype is None or mtype == "global" or mtype == "local"
+        if mtype is None or mtype == "global":
+            self._require_extension("sdist", weak=True)
+        else:
+            self._require_extension("sdist")
+        self._current_scheduler.buffer_at(axis, mtype, root=root)
 
     @override
     def pack_at(
@@ -144,7 +149,7 @@ class MlirScheduler(itf.schd.Scheduler):
         pad: bool = False,
         root: str = DEFAULT_ROOT,
     ) -> None:
-        # The current implemntation exclusively rely on SDist, but upstream
+        # The current implementation exclusively rely on SDist, but upstream
         # transform dialect may be used for some cases.
         assert mtype is None or mtype == "global" or mtype == "local"
         if pad:
