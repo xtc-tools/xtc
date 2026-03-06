@@ -72,15 +72,15 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %5 = transform.sdist.local_buffer_at %tiled_linalg_op_2 tensor 1 : !transform.any_op -> !transform.any_op
 # CHECK-NEXT:      %tiled_op, %forall_op = transform.structured.tile_using_forall %tiled_linalg_op_2 tile_sizes [2, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %forall_op "./i" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_op tile_sizes [0, 16, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %transformed, %tiledOp = transform.sdist.distribute_loop %forall_op {axis = "px", mesh = "processor_mesh"} : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %transformed "./i" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiledOp tile_sizes [0, 16, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_5 "./j" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_7 "./i1" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_9 "./j1" : !transform.any_op
 # CHECK-NEXT:      transform.loop.unroll %loops_7 {factor = 2 : i64} : !transform.any_op
-# CHECK-NEXT:      %6 = transform.sdist.distribute_loop %forall_op {axis = "px", mesh = "processor_mesh"} : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      transform.annotate %6 "./i" : !transform.any_op
 # CHECK-NEXT:      transform.yield 
 # CHECK-NEXT:    }
 # CHECK-NEXT:  }
