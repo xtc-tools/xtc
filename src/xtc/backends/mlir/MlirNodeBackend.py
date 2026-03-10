@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import cast, Any
+from typing import cast, Any, Type
 from typing_extensions import override
 
 from xdsl.ir import Operation as xdslOperation
-from xdsl.dialects.builtin import MemRefType as xdslAnyMemRefType
+from xdsl.dialects.builtin import MemRefType, TensorType
 from xdsl.dialects.builtin import UnitAttr as xdslUnitAttr
 from xtc.utils.xdsl_aux import xdsl_operator_to_function
 
@@ -26,8 +26,10 @@ class MlirNodeBackend(MlirBackend):
         always_vectorize: bool = False,
         no_alias: bool = True,
         id: str | None = None,
+        xdsl_type: Type[TensorType] | Type[MemRefType] = MemRefType,
     ):
         self._graph = None
+        self.xdsl_type = xdsl_type
         if id is None:
             self.op_id_attribute = f"__id{MlirNodeBackend.count}__"
             MlirNodeBackend.count += 1
@@ -48,7 +50,7 @@ class MlirNodeBackend(MlirBackend):
         self.loop_stamps = loop_stamps
 
     def _np_types_spec(
-        self, types: list[xdslAnyMemRefType]
+        self, types: list[MemRefType | TensorType]
     ) -> list[dict[str, tuple[int, ...] | str]]:
         types_map = {"f32": "float32", "f64": "float64"}
         types_spec: list[dict[str, tuple[int, ...] | str]] = [
@@ -63,11 +65,11 @@ class MlirNodeBackend(MlirBackend):
     @override
     def np_inputs_spec(self) -> list[dict[str, Any]]:
         list_attr_tys = [i.type for i in self.source_op.inputs]  # type: ignore
-        list_memref_tys = cast(list[xdslAnyMemRefType], list_attr_tys)
-        return self._np_types_spec(list_memref_tys)
+        list_xdsl_tys = cast(list[self.xdsl_type], list_attr_tys)  # type: ignore
+        return self._np_types_spec(list_xdsl_tys)
 
     @override
     def np_outputs_spec(self) -> list[dict[str, Any]]:
         list_attr_tys = [i.type for i in self.source_op.outputs]  # type: ignore
-        list_memref_tys = cast(list[xdslAnyMemRefType], list_attr_tys)
-        return self._np_types_spec(list_memref_tys)
+        list_xdsl_tys = cast(list[self.xdsl_type], list_attr_tys)  # type: ignore
+        return self._np_types_spec(list_xdsl_tys)

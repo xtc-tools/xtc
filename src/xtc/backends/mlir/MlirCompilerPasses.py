@@ -562,3 +562,44 @@ class MlirProgramApplyTransformPass:
                 transform_op.erase()
             else:
                 break
+
+
+class MlirProgramApplyPasses:
+    def __init__(
+        self,
+        mlir_program: RawMlirProgram,
+    ) -> None:
+        self._mlir_program = mlir_program
+
+    def run(self, pass_names: list[str]) -> None:
+        ctx = self._mlir_program.mlir_context
+        pm = PassManager(context=ctx)
+        for name in pass_names:
+            pm.add(name)  # type: ignore # no attribute add
+        pm.run(self._mlir_program.mlir_module.operation)
+
+
+def apply_bufferization_passes(mlir_program: RawMlirProgram):
+    apply_passes = MlirProgramApplyPasses(mlir_program)
+    bufferize_options = [
+        "bufferize-function-boundaries=1",
+        "function-boundary-type-conversion=identity-layout-map",
+        "buffer-alignment=256",
+    ]
+    apply_passes.run(
+        [
+            "canonicalize",
+            "cse",
+            "eliminate-empty-tensors",  # causes ops to write directly to out buffer
+            f"one-shot-bufferize{{{' '.join(bufferize_options)}}}",
+            "func.func(buffer-hoisting)",
+            "func.func(buffer-loop-hoisting)",
+            "drop-equivalent-buffer-results",
+            "func.func(promote-buffers-to-stack)",
+        ]
+    )
+
+
+def pre_transform_tensor_passes(mlir_program: RawMlirProgram):
+    apply_passes = MlirProgramApplyPasses(mlir_program)
+    # apply_passes.run(["eliminate-empty-tensors"])
