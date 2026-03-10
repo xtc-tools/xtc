@@ -30,6 +30,7 @@ class MlirNodeSchedule:
     parallelization: list[str]
     unrolling: dict[str, int]
     packed_buffers: dict[str, list[int]]
+    write_buffers: list[str]
     memory_mesh: dict[str, int]
     processor_mesh: dict[str, int]
     distribution: dict[str, str]
@@ -90,6 +91,7 @@ class MlirNodeScheduler:
         self.parallelization: list[str] = []
         self.unrolling: dict[str, int] = {}
         self.packed_buffers: dict[str, list[int]] = {}
+        self.write_buffers: list[str] = []
         self.memory_mesh: dict[str, int] = {}
         self.processor_mesh: dict[str, int] = {}
         self.distribution: dict[str, str] = {}
@@ -112,6 +114,7 @@ class MlirNodeScheduler:
             unrolling=self.unrolling,
             memory_mesh=self.memory_mesh,
             packed_buffers=self.packed_buffers,
+            write_buffers=self.write_buffers,
             processor_mesh=self.processor_mesh,
             distribution=self.distribution,
             distributed_buffers=self.distributed_buffers,
@@ -177,6 +180,10 @@ class MlirNodeScheduler:
             self.packed_buffers[axis_key] = [input_idx]
         else:
             self.packed_buffers[axis_key].append(input_idx)
+
+    def buffer_at(self, axis: str, mtype: str | None = None, root: str = DEFAULT_ROOT):
+        axis_key = f"{root}{ROOT_SEP}{axis}"
+        self.write_buffers.append(axis_key)
 
     def define_memory_mesh(self, axes: dict[str, int]):
         assert len(self.memory_mesh) == 0, "Memory mesh has already been defined"
