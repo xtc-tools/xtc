@@ -1,5 +1,6 @@
 # RUN: python %s 2>&1 | filecheck %s
 # UNSUPPORTED: mlir-target=nvgpu
+# UNSUPPORTED: mlir-target=c
 
 import xtc.graphs.xtc.op as O
 from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend as Backend
@@ -67,44 +68,35 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.yield %0 : !transform.any_op
 # CHECK-NEXT:    }
 # CHECK-NEXT:    transform.named_sequence @__transform_main(%arg0: !transform.any_op {transform.readonly}) {
-# CHECK-NEXT:      %0 = transform.structured.match attributes {__xtc_id_O_0_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [1, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %0 = transform.structured.match attributes {__xtc_id_O_} in %arg0 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [1, 0, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops "./b" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %tiled_linalg_op tile_sizes [0, 1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %tiled_linalg_op tile_sizes [0, 1, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_1 "./h" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %tiled_linalg_op_0 tile_sizes [0, 0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %tiled_linalg_op_0 tile_sizes [0, 0, 4, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_3 "./w" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_linalg_op_2 tile_sizes [0, 0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_linalg_op_2 tile_sizes [0, 0, 0, 16, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_5 "./f" : !transform.any_op
-# CHECK-NEXT:      %1 = transform.structured.match attributes {__xtc_id_O_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %1 tile_sizes [1, 0, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_7 "./b" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [0, 1, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_9 "./h" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %tiled_linalg_op_8 tile_sizes [0, 0, 4, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_11 "./w" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_12, %loops_13 = transform.structured.tile_using_for %tiled_linalg_op_10 tile_sizes [0, 0, 0, 16, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_13 "./f" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_14, %loops_15 = transform.structured.tile_using_for %tiled_linalg_op_12 tile_sizes [0, 0, 0, 0, 1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_15 "./r" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_16, %loops_17 = transform.structured.tile_using_for %tiled_linalg_op_14 tile_sizes [0, 0, 0, 0, 0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_17 "./s" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_18, %loops_19 = transform.structured.tile_using_for %tiled_linalg_op_16 tile_sizes [0, 0, 0, 0, 0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_19 "./c" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_20, %loops_21 = transform.structured.tile_using_for %tiled_linalg_op_18 tile_sizes [0, 0, 1, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_21 "./w1" : !transform.any_op
-# CHECK-NEXT:      transform.loop.unroll %loops_21 {factor = 4 : i64} : !transform.any_op
-# CHECK-NEXT:      transform.loop.unroll %loops_19 {factor = 3 : i64} : !transform.any_op
-# CHECK-NEXT:      %2 = transform.get_parent_op %loops_7 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %3 = transform.apply_registered_pass "convert-linalg-to-affine-loops" to %2 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %4 = transform.include @_super_vectorize failures(suppress) (%3) : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      transform.yield 
+# CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 0, 0, 0, 1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_7 "./r" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [0, 0, 0, 0, 0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_9 "./s" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %tiled_linalg_op_8 tile_sizes [0, 0, 0, 0, 0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_11 "./c" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_12, %loops_13 = transform.structured.tile_using_for %tiled_linalg_op_10 tile_sizes [0, 0, 1, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_13 "./w1" : !transform.any_op
+# CHECK-NEXT:      transform.loop.unroll %loops_13 {factor = 4 : i64} : !transform.any_op
+# CHECK-NEXT:      transform.loop.unroll %loops_11 {factor = 3 : i64} : !transform.any_op
+# CHECK-NEXT:      %1 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %2 = transform.apply_registered_pass "convert-linalg-to-affine-loops" to %1 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %3 = transform.include @_super_vectorize failures(suppress) (%2) : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.yield
 # CHECK-NEXT:    }
 # CHECK-NEXT:  }
 
 # CHECK: MLIR Error: NYI: non-trivial layout map
 
-# CHECK:  // -----// IR Dump After transform //----- //
+# CHECK:       // -----// IR Dump After transform //----- //
 # CHECK-NEXT:  #map = affine_map<(d0) -> (d0 * 2)>
 # CHECK-NEXT:  #map1 = affine_map<(d0, d1) -> (d0 * 2 + d1)>
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
@@ -114,33 +106,22 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %c2 = arith.constant 2 : index
 # CHECK-NEXT:      %c7 = arith.constant 7 : index
 # CHECK-NEXT:      %c16 = arith.constant 16 : index
-# CHECK-NEXT:      %c4 = arith.constant 4 : index
 # CHECK-NEXT:      %c64 = arith.constant 64 : index
+# CHECK-NEXT:      %c4 = arith.constant 4 : index
 # CHECK-NEXT:      %c112 = arith.constant 112 : index
-# CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
-# CHECK-NEXT:      %c0 = arith.constant 0 : index
 # CHECK-NEXT:      %c1 = arith.constant 1 : index
-# CHECK-NEXT:      scf.for %arg3 = %c0 to %c1 step %c1 {
-# CHECK-NEXT:        %subview = memref.subview %arg2[%arg3, 0, 0, 0] [1, 112, 112, 64] [1, 1, 1, 1] : memref<1x112x112x64xf32> to memref<1x112x112x64xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:        scf.for %arg4 = %c0 to %c112 step %c1 {
-# CHECK-NEXT:          %subview_0 = memref.subview %subview[0, %arg4, 0, 0] [1, 1, 112, 64] [1, 1, 1, 1] : memref<1x112x112x64xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x112x64xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:          scf.for %arg5 = %c0 to %c112 step %c1 {
-# CHECK-NEXT:            %subview_1 = memref.subview %subview_0[0, 0, %arg5, 0] [1, 1, 1, 64] [1, 1, 1, 1] : memref<1x1x112x64xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x64xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:            scf.for %arg6 = %c0 to %c64 step %c1 {
-# CHECK-NEXT:              %subview_2 = memref.subview %subview_1[0, 0, 0, %arg6] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x64xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:              affine.for %arg7 = 0 to 1 {
-# CHECK-NEXT:                affine.for %arg8 = 0 to 1 {
-# CHECK-NEXT:                  affine.for %arg9 = 0 to 1 {
-# CHECK-NEXT:                    affine.for %arg10 = 0 to 1 {
-# CHECK-NEXT:                      affine.store %cst, %subview_2[%arg7, %arg8, %arg9, %arg10] : memref<1x1x1x1xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                    }
-# CHECK-NEXT:                  }
-# CHECK-NEXT:                }
-# CHECK-NEXT:              }
-# CHECK-NEXT:            } {"./f"}
-# CHECK-NEXT:          } {"./w"}
-# CHECK-NEXT:        } {"./h"}
-# CHECK-NEXT:      } {"./b"}
+# CHECK-NEXT:      %c0 = arith.constant 0 : index
+# CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
+# CHECK-NEXT:      affine.for %arg3 = 0 to 1 {
+# CHECK-NEXT:        affine.for %arg4 = 0 to 112 {
+# CHECK-NEXT:          affine.for %arg5 = 0 to 112 {
+# CHECK-NEXT:            affine.for %arg6 = 0 to 64 step 16 {
+# CHECK-NEXT:              %cst_0 = arith.constant dense<0.000000e+00> : vector<16xf32>
+# CHECK-NEXT:              vector.transfer_write %cst_0, %arg2[%arg3, %arg4, %arg5, %arg6] : vector<16xf32>, memref<1x112x112x64xf32>
+# CHECK-NEXT:            }
+# CHECK-NEXT:          }
+# CHECK-NEXT:        }
+# CHECK-NEXT:      }
 # CHECK-NEXT:      scf.for %arg3 = %c0 to %c1 step %c1 {
 # CHECK-NEXT:        %subview = memref.subview %arg0[%arg3, 0, 0, 0] [1, 229, 229, 3] [1, 1, 1, 1] : memref<1x230x230x3xf32> to memref<1x229x229x3xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:        %subview_0 = memref.subview %arg1[0, 0, 0, 0] [7, 7, 3, 64] [1, 1, 1, 1] : memref<7x7x3x64xf32> to memref<7x7x3x64xf32, strided<[1344, 192, 64, 1]>>
