@@ -159,6 +159,7 @@ class XTCGraph(Graph):
         if self._name:
             graph_dict["name"] = self._name
         graph_dict["inputs"] = [i.to_dict() for i in self._inputs]
+        graph_dict["outputs"] = [{"uid": o.to_dict()["uid"]} for o in self._outputs]
         graph_dict["nodes"] = [n.to_dict() for n in self._nodes]
         return graph_dict
 

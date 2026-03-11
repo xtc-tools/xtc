@@ -1,5 +1,6 @@
 from pathlib import Path
 import xtc.graphs.xtc.op as O
+from xtc.graphs.xtc.context import XTCGraphContext as C
 
 if not Path("output.yaml").exists():
     I, J, K, dtype = 4, 32, 512, "float32"
@@ -9,9 +10,9 @@ if not Path("output.yaml").exists():
 
     with O.graph(name="matmul_relu") as gb:
         m = O.matmul(a, b, name="M")
-        q = O.relu(m, threshold=0.1)
         r = O.relu(m, threshold=0.1)
         k = O.matmul(c, r, name="K")
+        C.outputs(m)
 
     graph = gb.graph
     print(graph)
