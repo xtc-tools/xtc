@@ -28,13 +28,14 @@ from xtc.backends.mlir.MlirTarget import (
     get_default_target,
 )
 from xtc.utils.ext_tools import get_shlib_extension
+from xtc.itf.runtime.common import CommonRuntimeInterface
 
 
 class MlirCompiler(itf.comp.Compiler):
     def __init__(
         self,
         backend: "backend.MlirBackend",
-        target: str | None = None,
+        target: str | CommonRuntimeInterface | None = None,
         **kwargs: Any,
     ):
         self._backend = backend
@@ -44,9 +45,12 @@ class MlirCompiler(itf.comp.Compiler):
         self._config = MlirConfig(**kwargs)
         if target is None:
             self._target = get_default_target()(self._config)
-        else:
+        elif isinstance(target, str):
             self._target = get_target_from_name(target)(self._config)
+        elif isinstance(target, CommonRuntimeInterface):
+            self._target = get_target_from_name(target.target_name())(self._config)
         assert self._target is not None
+        self._runtime_target = target
         self._compiler_kwargs = kwargs
 
     @property
@@ -158,6 +162,8 @@ class MlirProgramCompiler:
             outf.write(str(content))
 
     def _register_mlir_extensions(self) -> None:
+        for extension in self._config.required_extensions:
+            self._mlir_program.require_extension(extension, weak=False)
         if self._mlir_schedule is not None:
             for extension, weak in self._mlir_schedule.mlir_extensions.items():
                 self._mlir_program.require_extension(extension, weak=weak)
