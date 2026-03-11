@@ -37,7 +37,7 @@ It is installed automatically using the mlir_requirements.txt file.
 For manual building and installation, please follow the README at https://gitlab.inria.fr/CORSE/xtc-mlir.
 Note: The prebuilt XTC-MLIR package comes with its own version of the libLLVM.so
 
-#### MLIR SDist extension
+### MLIR SDist extension
 
 The SDist extension provides distribution primitives. To install SDist:
 
@@ -45,6 +45,25 @@ The SDist extension provides distribution primitives. To install SDist:
     pip install -r sdist_requirements.txt
 
 Note that SDist is currently an Inria internal project (cf JIR section on how to access).
+
+### Kalray MPPA target
+
+XTC supports the Kalray MPPA (Coolidge v2) as a target. To us this target, you need several dependencies:
+- The Kalray Core Toolchain (https://www.kalrayinc.com/products/software/) must be installed and sourced
+- The Mlir-Mppa backend must be installed (currently an Inria/Kalray internal project)
+- SDist must be installed
+
+Then, you can test the installation using:
+    python tests/filecheck/backends/target_mppa/test_matmul_mlir_mppa.py
+
+### Nvidia GPU target
+
+XTC supports Nvidia GPUs as an experimental target. To use this target, you need several dependencies:
+- The Cuda toolkit (https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) installed and sourced
+- LLVM-project with NVPTX target and Cuda runner for Mlir (enabled by default with the Mlir wheels for XTC)
+
+Then, you can test the installation using:
+    python tests/filecheck/evaluation/test_matmul_pmu_counters_gpu.py
 
 ## TVM development version
 

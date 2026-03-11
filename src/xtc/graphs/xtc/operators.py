@@ -12,6 +12,7 @@ import numpy as np
 
 from xtc.itf.operator import Operator
 from xtc.itf.data import Tensor, TensorType
+from xtc.itf.runtime.accelerator import AcceleratorDevice
 
 from .data import XTCTensor, XTCTensorType
 from .operation import XTCOperation
@@ -30,8 +31,14 @@ XTCOperStrideAttr: TypeAlias = int | tuple[int] | tuple[int, int]
 
 
 class XTCOperator(Operator):
-    def __init__(self, name: str, **attrs: XTCOperatorAttr) -> None:
+    def __init__(
+        self,
+        name: str,
+        device: AcceleratorDevice | None = None,
+        **attrs: XTCOperatorAttr,
+    ) -> None:
         self._name = name
+        self._device = device
         self._attrs = NS(**attrs)
 
     @property
@@ -43,11 +50,27 @@ class XTCOperator(Operator):
     def attrs(self) -> XTCOperatorAttrs:
         return self._attrs
 
+    @property
+    def device(self) -> AcceleratorDevice | None:
+        return self._device
+
     @override
     def forward_types(
         self, inputs_types: Sequence[TensorType]
     ) -> Sequence[XTCTensorType]:
-        return [cast(XTCTensorType, inp_type) for inp_type in inputs_types]
+        if self.device is None:
+            return [cast(XTCTensorType, inp_type) for inp_type in inputs_types]
+        res_types = []
+        for inp_type in inputs_types:
+            inp_tensor_type = cast(XTCTensorType, inp_type)
+            res_types.append(
+                XTCTensorType(
+                    shape=inp_tensor_type.shape,
+                    dtype=inp_tensor_type.dtype,
+                    device=inp_tensor_type.device,
+                )
+            )
+        return res_types
 
     @override
     def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
@@ -88,8 +111,8 @@ class XTCOperator(Operator):
 
 
 class XTCOperTensor(XTCOperator):
-    def __init__(self) -> None:
-        super().__init__("tensor")
+    def __init__(self, **attrs: XTCOperatorAttr) -> None:
+        super().__init__("tensor", **attrs)
 
     @override
     def get_operation(
@@ -112,8 +135,8 @@ class XTCOperTensor(XTCOperator):
 
 
 class XTCOperMatmul(XTCOperator):
-    def __init__(self) -> None:
-        super().__init__("matmul")
+    def __init__(self, **attrs: XTCOperatorAttr) -> None:
+        super().__init__("matmul", **attrs)
 
     @override
     def get_operation(
@@ -155,8 +178,7 @@ class XTCOperMatmul(XTCOperator):
         )
         return [
             XTCTensorType(
-                shape=(i, j),
-                dtype=inputs_types[0].dtype,
+                shape=(i, j), dtype=inputs_types[0].dtype, device=self.device
             ),
         ]
 
@@ -269,6 +291,7 @@ class XTCOperConv2D(XTCOperator):
             XTCTensorType(
                 shape=tuple([*inputs_types[0].shape[:-3], oh, ow, f]),
                 dtype=inputs_types[0].dtype,
+                device=self.device,
             ),
         ]
 
@@ -300,8 +323,10 @@ class _OperPadImpl:
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
         padding = attrs.get("padding", 0)
         constant_value = attrs.get("constant_value", 0)
+        device = attrs.get("device", None)
         self.padding = padding
         self.constant_value = constant_value
+        self.device = device
 
     def get_operation_variable(
         self,
@@ -353,8 +378,7 @@ class _OperPadImpl:
             dims_types = [value + pad for value in dims_types]
         return [
             XTCTensorType(
-                shape=tuple(dims_types),
-                dtype=inputs_types[0].dtype,
+                shape=tuple(dims_types), dtype=inputs_types[0].dtype, device=self.device
             ),
         ]
 
@@ -411,8 +435,15 @@ class XTCOperPad(XTCOperator):
         )
         if isinstance(padding, dict):
             padding = {k: v for k, v in padding.items() if v != (0, 0)}
-        self.impl = _OperPadImpl(padding=padding, constant_value=constant_value)
-        super().__init__("pad", padding=padding, constant_value=constant_value)
+        super().__init__(
+            "pad",
+            padding=padding,
+            constant_value=constant_value,
+            device=attrs.get("device", None),
+        )
+        self.impl = _OperPadImpl(
+            padding=padding, constant_value=constant_value, device=self.device
+        )
 
     @override
     def get_operation(
@@ -487,8 +518,15 @@ class XTCOperPad2D(XTCOperator):
         assert isinstance(constant_value, (int, float)), (
             f"constant_value need to be a number"
         )
-        self.impl = _OperPadImpl(padding=padding, constant_value=constant_value)
-        super().__init__("pad2d", padding=padding, constant_value=constant_value)
+        super().__init__(
+            "pad2d",
+            padding=padding,
+            constant_value=constant_value,
+            device=attrs.get("device", None),
+        )
+        self.impl = _OperPadImpl(
+            padding=padding, constant_value=constant_value, device=self.device
+        )
 
     @override
     def get_operation(
@@ -603,8 +641,7 @@ class XTCOperUnpad(XTCOperator):
             dims_types = [value - pad for value in dims_types]
         return [
             XTCTensorType(
-                shape=tuple(dims_types),
-                dtype=inputs_types[0].dtype,
+                shape=tuple(dims_types), dtype=inputs_types[0].dtype, device=self.device
             ),
         ]
 
@@ -669,8 +706,7 @@ class XTCOperReshape(XTCOperator):
         out_shape = tuple([x if x != -1 else size // fixed_size for x in self._shape])
         return [
             XTCTensorType(
-                shape=out_shape,
-                dtype=inputs_types[0].dtype,
+                shape=out_shape, dtype=inputs_types[0].dtype, device=self.device
             ),
         ]
 
@@ -702,8 +738,7 @@ class XTCOperTranspose(XTCOperator):
             out_shape = tuple([shape[n] for n in self.attrs.axes])
         return [
             XTCTensorType(
-                shape=out_shape,
-                dtype=inputs_types[0].dtype,
+                shape=out_shape, dtype=inputs_types[0].dtype, device=self.device
             ),
         ]
 

@@ -23,7 +23,7 @@ from xtc.utils.ext_tools import (
     cc_bin,
 )
 from xtc.utils.tools import get_cuda_prefix
-from xtc.targets.gpu import GPUModule
+from xtc.targets.accelerator.gpu import GPUModule
 import xtc.itf as itf
 from xtc.itf.graph import Graph
 

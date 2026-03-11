@@ -4,20 +4,10 @@
 #
 from typing import Any
 from typing_extensions import override
-import numpy as np
-from pathlib import Path
 
-from xtc.runtimes.types.ndarray import NDArray
-from xtc.utils.numpy import (
-    np_init,
-)
-
-from xtc.runtimes.host.HostRuntime import HostRuntime
-
+import xtc.targets.accelerator.mppa as mppa
 import xtc.itf as itf
-import xtc.targets.host as host
-
-from xtc.utils.loader import LibLoader
+from xtc.runtimes.accelerator.mppa import MppaDevice
 from xtc.utils.evaluation import (
     ensure_ndarray_parameters,
     validate_outputs,
@@ -26,17 +16,22 @@ from xtc.utils.evaluation import (
 )
 
 __all__ = [
-    "HostEvaluator",
-    "HostExecutor",
+    "MppaEvaluator",
+    "MppaExecutor",
 ]
 
 
-class HostEvaluator(itf.exec.Evaluator):
-    def __init__(self, module: "host.HostModule", **kwargs: Any) -> None:
+class MppaEvaluator(itf.exec.Evaluator):
+    def __init__(self, module: "mppa.MppaModule", **kwargs: Any) -> None:
+        self._device = MppaDevice(module._mppa_config)
         self._module = module
-        self._repeat = kwargs.get("repeat", 1)
-        self._min_repeat_ms = kwargs.get("min_repeat_ms", 100)
+        self._repeat = kwargs.get("repeat", 2)
+        self._min_repeat_ms = kwargs.get("min_repeat_ms", 0)
+        assert self._min_repeat_ms == 0, "min_repeat_ms > 0 is not supported yet"
         self._number = kwargs.get("number", 1)
+        assert self._number == 1, "number > 1 is not supported yet"  # TODO
+        # TODO support min_repeat_ms and number
+        # But execution on MPPA has almost no noise except DDR refresh
         self._validate = kwargs.get("validate", False)
         self._parameters = kwargs.get("parameters")
         self._init_zero = kwargs.get("init_zero", False)
@@ -50,17 +45,18 @@ class HostEvaluator(itf.exec.Evaluator):
             "reference_impl", self._module._reference_impl
         )
         self._pmu_counters = kwargs.get("pmu_counters", [])
-        self._runtime = kwargs.get("runtime", HostRuntime())
+
         assert self._module.file_type == "shlib", "only support shlib for evaluation"
 
     @override
     def evaluate(self) -> tuple[list[float], int, str]:
-        # Load the module
-        dll = str(Path(self._module.file_name).absolute())
-        lib = LibLoader(dll)
+        assert self._module._bare_ptr, "bare_ptr is not supported for evaluation"
+
+        # Initialize the device and load the module
+        self._device.init_device()
+        self._device.load_module(self._module)
         sym = self._module.payload_name
-        func = getattr(lib.lib, sym)
-        func.packed = not self._module._bare_ptr
+        func = self._device.get_module_function(self._module, sym)
         results: tuple[list[float], int, str] = ([], 0, "")
         validation_failed = False
 
@@ -79,7 +75,6 @@ class HostEvaluator(itf.exec.Evaluator):
 
         # Measure the performance
         if not validation_failed:
-            assert self._runtime is not None
             results = evaluate_performance(
                 func,
                 parameters,
@@ -87,11 +82,11 @@ class HostEvaluator(itf.exec.Evaluator):
                 self._repeat,
                 self._number,
                 self._min_repeat_ms,
-                self._runtime,
+                self._device,
             )
 
         # Unload the module
-        lib.close()
+        self._device.unload_module(self._module)
 
         # Copy out outputs
         if self._parameters is not None:
@@ -105,9 +100,9 @@ class HostEvaluator(itf.exec.Evaluator):
         return self._module
 
 
-class HostExecutor(itf.exec.Executor):
-    def __init__(self, module: "host.HostModule", **kwargs: Any) -> None:
-        self._evaluator = HostEvaluator(
+class MppaExecutor(itf.exec.Executor):
+    def __init__(self, module: "mppa.MppaModule", **kwargs: Any) -> None:
+        self._evaluator = MppaEvaluator(
             module=module,
             repeat=1,
             min_repeat_ms=0,

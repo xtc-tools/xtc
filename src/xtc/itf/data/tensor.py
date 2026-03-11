@@ -7,6 +7,7 @@ from typing import Any, TypeAlias
 from typing_extensions import override
 import numpy.typing
 
+from xtc.itf.runtime.accelerator import AcceleratorDevice
 
 ShapeType: TypeAlias = tuple[int | str | None, ...] | None
 DataType: TypeAlias = str | None
@@ -40,6 +41,16 @@ class TensorType(ABC):
 
         Returns:
             The underlying data type of the tensor elements
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def device(self) -> AcceleratorDevice | None:
+        """Returns the device of the tensor.
+
+        Returns:
+            The device of the tensor
         """
         ...
 

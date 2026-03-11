@@ -5,6 +5,7 @@
 from typing import Any
 import ctypes
 import numpy as np
+from enum import Enum
 
 __all__ = [
     "NDArray",
@@ -12,7 +13,15 @@ __all__ = [
 
 from .dlpack import DLDevice, DLDeviceTypeCode, DLDataType, DLDataTypeCode, CNDArray
 
-import xtc.runtimes.host.runtime as runtime
+from xtc.runtimes.host.HostRuntime import HostRuntime
+
+from xtc.itf.runtime.common import CommonRuntimeInterface
+from xtc.itf.runtime.accelerator import AcceleratorDevice
+
+
+class NDArrayLocation(Enum):
+    HOST = 0
+    DEVICE = 1
 
 
 class NDArray:
@@ -30,19 +39,28 @@ class NDArray:
     }
     rev_np_dtype_map: dict[tuple[int, int], str] = {}
 
-    def __init__(self, array: Any) -> None:
+    def __init__(
+        self, array: Any, runtime: CommonRuntimeInterface | None = None
+    ) -> None:
         if not self.rev_np_dtype_map:
             self.rev_np_dtype_map.update(
                 {v: k for k, v in NDArray.np_dtype_map.items()}
             )
 
         self.handle = None
+        self.device_handle = None
+        self.runtime = runtime
+        if self.runtime is None:
+            self.runtime = HostRuntime()
+        self.location = NDArrayLocation.HOST
         if isinstance(array, NDArray):
             raise RuntimeError("TODO: copy from CNDArray not supported yet")
         elif isinstance(array, np.ndarray):
             self._from_numpy(array)
         else:
             assert 0
+        if isinstance(self.runtime, AcceleratorDevice):
+            self._to_device()
 
     def _from_numpy(self, nparray: np.ndarray) -> None:
         assert nparray.flags["C_CONTIGUOUS"]
@@ -64,10 +82,47 @@ class NDArray:
         return out
 
     def numpy(self, out: np.ndarray | None = None) -> np.ndarray:
+        if self.is_on_device():
+            assert isinstance(self.runtime, AcceleratorDevice)
+            assert self.handle is not None
+            bytes_size = self.size * self.dtype.itemsize
+            self.runtime.memory_copy_from(
+                self.device_handle, self.handle.contents.dl_tensor.data, bytes_size
+            )
         if out is None:
             return self._to_numpy()
         else:
             return self._copy_to_numpy(out)
+
+    def _to_device(self) -> None:
+        assert (
+            isinstance(self.runtime, AcceleratorDevice)
+            and self.location == NDArrayLocation.HOST
+        )
+        assert self.handle is not None
+        bytes_size = self.size * self.dtype.itemsize
+        self.device_handle = self.runtime.memory_allocate(bytes_size)
+        self.runtime.memory_copy_to(
+            self.device_handle, self.handle.contents.dl_tensor.data, bytes_size
+        )
+        self.location = NDArrayLocation.DEVICE
+
+    def _from_device(self) -> None:
+        assert (
+            isinstance(self.runtime, AcceleratorDevice)
+            and self.location == NDArrayLocation.DEVICE
+        )
+        assert self.handle is not None
+        bytes_size = self.size * self.dtype.itemsize
+        self.runtime.memory_copy_from(
+            self.device_handle, self.handle.contents.dl_tensor.data, bytes_size
+        )
+        self.runtime.memory_free(self.device_handle)
+        self.device_handle = None
+        self.location = NDArrayLocation.HOST
+
+    def is_on_device(self) -> bool:
+        return self.location == NDArrayLocation.DEVICE
 
     @property
     def dtype_str(self) -> str:
@@ -103,18 +158,21 @@ class NDArray:
     @property
     def data(self) -> Any:
         assert self.handle is not None
+        if self.is_on_device():
+            assert isinstance(self.runtime, AcceleratorDevice)
+            return self.runtime.memory_data_pointer(self.device_handle)
         return self.handle.contents.dl_tensor.data
 
     @classmethod
     def _copy_from(cls, handle: Any, data_handle: Any) -> None:
-        runtime.cndarray_copy_from_data(
+        HostRuntime.get().cndarray_copy_from_data(
             handle,
             data_handle,
         )
 
     @classmethod
     def _copy_to(cls, handle: Any, data_handle: Any) -> None:
-        runtime.cndarray_copy_to_data(
+        HostRuntime.get().cndarray_copy_to_data(
             handle,
             data_handle,
         )
@@ -132,7 +190,7 @@ class NDArray:
             device = DLDevice(DLDeviceTypeCode.kDLCPU, 0)
         shape_array = (ctypes.c_int64 * len(shape))(*shape)
         dldtype = cls._dldatatype(np_dtype)
-        handle = runtime.cndarray_new(
+        handle = HostRuntime.get().cndarray_new(
             len(shape),
             ctypes.cast(shape_array, ctypes.POINTER(ctypes.c_int64)),
             dldtype,
@@ -145,9 +203,14 @@ class NDArray:
 
     def __del__(self) -> None:
         if self.handle is not None:
-            runtime.cndarray_del(self.handle)
+            assert self.runtime is not None
+            self.runtime.cndarray_del(self.handle)
             self.handle = None
+        if self.device_handle is not None:
+            assert isinstance(self.runtime, AcceleratorDevice)
+            self.runtime.memory_free(self.device_handle)
+            self.device_handle = None
 
     @classmethod
     def set_alloc_alignment(cls, alignment: int) -> None:
-        runtime.cndarray_set_alloc_alignment(alignment)
+        HostRuntime.get().cndarray_set_alloc_alignment(alignment)
