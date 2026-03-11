@@ -32,6 +32,14 @@ class graph_builder:
 
     @classmethod
     def from_dict(cls, graph_dict: dict[str, Any]) -> Any:
+        def tuplify(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                return {k: tuplify(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return tuple(tuplify(v) for v in obj)
+            else:
+                return obj
+
         expr_uid_map = {}
         if "name" in graph_dict:
             XTCGraphContext.name(graph_dict["name"])
@@ -45,8 +53,7 @@ class graph_builder:
             if "name" in node:
                 args.append(node["name"])
             op_func = getattr(op_factory, expr["op"]["name"])
-            # TODO: doesnt handle tuple conversion, (still in operators.py)
-            expr_uid_map[node["uid"]] = op_func(*args, **expr["op"]["attrs"])
+            expr_uid_map[node["uid"]] = op_func(*args, **tuplify(expr["op"]["attrs"]))
 
         outputs = [expr_uid_map[out["uid"]] for out in graph_dict["outputs"]]
         XTCGraphContext.outputs(*outputs)
