@@ -7,7 +7,14 @@ from typing_extensions import override
 
 from xdsl.dialects.func import FuncOp as xdslFuncOp
 from xdsl.dialects import func, memref
-from xdsl.dialects.builtin import MemRefType, f32, f64
+from xdsl.dialects.builtin import (
+    MemRefType,
+    f32,
+    f64,
+    ArrayAttr,
+    UnitAttr,
+    DictionaryAttr,
+)
 from xdsl.ir import Region, Block, Operation
 from xdsl.builder import ImplicitBuilder
 
@@ -97,6 +104,14 @@ class MlirGraphBackend(MlirBackend):
             self._xdsl_type_from_tensortype(cast(XTCTensorType, tensor_type))
             for tensor_type in [*inputs_types, *outputs_types]
         ]
+        arg_attrs = ArrayAttr(
+            [
+                DictionaryAttr(
+                    self._xdsl_attrs_from_tensortype(cast(XTCTensorType, tensor_type))
+                )
+                for tensor_type in [*inputs_types, *outputs_types]
+            ]
+        )
         inlined_block = Block(arg_types=params_types)
         variables = {
             name: arg
@@ -109,11 +124,11 @@ class MlirGraphBackend(MlirBackend):
         with ImplicitBuilder(inlined_block):
             func.ReturnOp()
         region = Region([inlined_block])  # type: ignore # issue with mypy
-        payload = xdslFuncOp.from_region(
+        payload = xdslFuncOp(
             name=graph.name,
-            input_types=params_types,
-            return_types=[],
+            function_type=(params_types, []),
             region=region,
+            arg_attrs=arg_attrs,
         )
         nodes_dict = {}
         for attrs in block_attrs:
@@ -138,6 +153,11 @@ class MlirGraphBackend(MlirBackend):
     def _xdsl_type_from_tensortype(self, type: XTCTensorType) -> Any:
         elt_type, shape = self._xdsl_elt_shape_from_tensortype(type)
         return MemRefType(elt_type, shape)
+
+    def _xdsl_attrs_from_tensortype(self, type: XTCTensorType):
+        if type.device is not None:
+            return {"memref.on_device": UnitAttr()}
+        return {}
 
     def _np_types_spec(
         self, types: list[MemRefType]

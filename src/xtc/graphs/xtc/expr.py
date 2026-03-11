@@ -24,6 +24,8 @@ from .operators import (
     XTCOperTranspose,
 )
 
+from xtc.itf.runtime.accelerator import AcceleratorDevice
+
 __all__ = [
     "XTCExpr",
     "XTCValueExpr",
@@ -116,12 +118,13 @@ class XTCTensorExpr(XTCValueExpr):
         tensor: XTCTensorType | XTCTensor | ShapeType | None = None,
         shape: ShapeType | DataType = None,
         dtype: DataType = None,
+        device: AcceleratorDevice | None = None,
     ) -> None:
         super().__init__()
         if tensor is None:
             assert shape is None or isinstance(shape, tuple)
             assert dtype is None or isinstance(dtype, str)
-            type = XTCTensorType(shape=shape, dtype=dtype)
+            type = XTCTensorType(shape=shape, dtype=dtype, device=device)
             value = XTCTensor(type=type)
         elif isinstance(tensor, XTCTensorType):
             assert shape is None and dtype is None
@@ -133,11 +136,12 @@ class XTCTensorExpr(XTCValueExpr):
             if shape is not None:
                 assert isinstance(shape, str)
                 assert dtype is None
-                type = XTCTensorType(shape=tensor, dtype=shape)
+                type = XTCTensorType(shape=tensor, dtype=shape, device=device)
             else:
-                type = XTCTensorType(shape=tensor, dtype=dtype)
+                type = XTCTensorType(shape=tensor, dtype=dtype, device=device)
             value = XTCTensor(type=type)
         self._value = value
+        self._device = device
         self._op = XTCOperTensor()
 
     @property
