@@ -7,10 +7,10 @@ if not Path("output.yaml").exists():
     b = O.tensor((K, J), dtype, name="B")
     c = O.tensor((J, I), dtype, name="C")
 
-    with O.graph(name = "matmul_relu") as gb:
+    with O.graph(name="matmul_relu") as gb:
         m = O.matmul(a, b, name="M")
-        q = O.relu(m, threshold=.1)
-        r = O.relu(m, threshold=.1)
+        q = O.relu(m, threshold=0.1)
+        r = O.relu(m, threshold=0.1)
         k = O.matmul(c, r, name="K")
 
     graph = gb.graph
@@ -19,7 +19,7 @@ if not Path("output.yaml").exists():
 
 print("loading from yaml....")
 
-with O.graph(name = "matmul_relu") as gb2:
-    gb2.load("output.yaml")    
-    
+with O.graph(name="matmul_relu") as gb2:
+    gb2.load("output.yaml")
+
 print(gb2.graph)

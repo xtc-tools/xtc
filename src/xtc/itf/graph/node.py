@@ -3,8 +3,6 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from abc import ABC, abstractmethod
-from typing import Any
-from typing_extensions import Self
 from collections.abc import Sequence
 from ..operator.operator import Operator
 from ..data import TensorType, Tensor
@@ -167,7 +165,3 @@ class Node(ABC):
 
     @abstractmethod
     def to_dict(self) -> dict[str, str | Sequence[TensorType]]: ...
-
-    @classmethod
-    @abstractmethod
-    def from_dict(cls, node_dict: dict[str, Any]) -> Self: ...

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing_extensions import override, Self
+from typing_extensions import override
 from typing import TypeAlias, cast, Any
 from types import SimpleNamespace as NS
 from collections.abc import Sequence, Mapping
@@ -30,13 +30,13 @@ XTCOperStrideAttr: TypeAlias = int | tuple[int] | tuple[int, int]
 
 
 class XTCOperator(Operator):
-    #_registry = {}
+    # _registry = {}
 
     def __init__(self, name: str, **attrs: XTCOperatorAttr) -> None:
         self._name = name
         self._attrs = NS(**attrs)
 
-    #def __init_subclass__(cls) -> None:
+    # def __init_subclass__(cls) -> None:
     #    # TODO: add _name to each op for this to work
     #    XTCOperator._registry[cls.name] = cls
     #    return super().__init_subclass__()
@@ -107,11 +107,10 @@ class XTCOperator(Operator):
         op_dict["attrs"] = {k: listify(v) for k, v in self._attrs.__dict__.items()}
         return op_dict
 
-    @classmethod
-    @override
-    def from_dict(cls, op_dict: dict[str, Any]) -> Self:
-         ...
-        # ops with list attr should override this
+
+# tuplify logic to be moved to builder
+
+
 #        def tuplify(obj: Any):
 #            if isinstance(obj, dict):
 #                return {k: tuplify(v) for k, v in obj.items()}
@@ -120,7 +119,7 @@ class XTCOperator(Operator):
 #            else:
 #                return obj
 #
-        #return cls._registry[op_dict["name"]](**tuplify(op_dict["attrs"]))
+# return cls._registry[op_dict["name"]](**tuplify(op_dict["attrs"]))
 
 
 class XTCOperTensor(XTCOperator):

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing_extensions import override, Self
+from typing_extensions import override
 from collections.abc import Sequence
 from typing import cast, Any
 
@@ -158,14 +158,10 @@ class XTCNode(Node):
         return str(self._expr).split("=", 1)[1].strip() + attrs_str + type_str
 
     @override
-    def to_dict(self) -> dict[str, str | Sequence[TensorType]]:
-        node_dict = {}
+    def to_dict(self) -> dict[str, Any]:
+        node_dict: dict[str, Any] = {}
         if self.uid != self.name:
             node_dict["name"] = self.name
         node_dict["uid"] = self.uid
         node_dict["expr"] = self._expr.to_dict()
         return node_dict
-
-    @override
-    @classmethod
-    def from_dict(cls, node_dict: dict[str, Any]) -> Self: ...

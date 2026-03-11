@@ -32,7 +32,6 @@ class graph_builder:
 
     @classmethod
     def from_dict(cls, graph_dict: dict[str, Any]) -> Any:
-
         expr_uid_map = {}
         if "name" in graph_dict:
             XTCGraphContext.name(graph_dict["name"])

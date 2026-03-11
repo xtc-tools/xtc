@@ -4,7 +4,6 @@
 #
 from abc import ABC, abstractmethod
 from typing import Any
-from typing_extensions import Self
 from collections.abc import Sequence
 from ..data.tensor import Tensor, TensorType
 
@@ -53,6 +52,3 @@ class Operator(ABC):
 
     @abstractmethod
     def to_dict(self) -> dict[str, Any]: ...
-    @classmethod
-    @abstractmethod
-    def from_dict(cls, op_dict: dict[str, Any]) -> Self: ...
