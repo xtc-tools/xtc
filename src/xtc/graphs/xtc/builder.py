@@ -32,7 +32,6 @@ class graph_builder:
 
     @classmethod
     def from_dict(cls, graph_dict: dict[str, Any]) -> Any:
-        XTCGraphContext.push()
 
         expr_uid_map = {}
         if "name" in graph_dict:
@@ -47,11 +46,9 @@ class graph_builder:
             if "name" in node:
                 args.append(node["name"])
             op_func = getattr(op_factory, expr["op"]["name"])
-            # TODO: doesnt handle tuple conversion, (in operators.py)
+            # TODO: doesnt handle tuple conversion, (still in operators.py)
             expr_uid_map[node["uid"]] = op_func(*args, **expr["op"]["attrs"])
 
-        scope = XTCGraphContext.pop()
-        print(scope.graph)
         return graph_dict
 
     @classmethod

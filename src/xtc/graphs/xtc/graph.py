@@ -165,6 +165,6 @@ class XTCGraph(Graph):
     def dumps(self) -> str:
         return str(self.to_dict())
 
-    def dump(self, file_name: str):
+    def dump(self, file_name: str) -> None:
         with open(file_name, "w") as f:
             yaml_dump(self.to_dict(), f, sort_keys=False)
