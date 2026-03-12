@@ -12,7 +12,8 @@ from xtc.itf.data import TensorType, Tensor
 from .node import XTCNode
 from .utils import XTCGraphUtils
 from .data import XTCTensor, XTCTensorType
-from yaml import dump as yaml_dump
+from .operators import XTCOperator
+from yaml import dump as yaml_dump, safe_dump
 
 __all__ = [
     "XTCGraph",
@@ -161,10 +162,22 @@ class XTCGraph(Graph):
         graph_dict["inputs"] = [i.to_dict() for i in self._inputs]
         graph_dict["outputs"] = [{"uid": o.to_dict()["uid"]} for o in self._outputs]
         graph_dict["nodes"] = [n.to_dict() for n in self._nodes]
-        return graph_dict
+        graph_dict["ops_version"] = XTCOperator.version_string()
+        lowest_uid = int(graph_dict["inputs"][0]["uid"][1:])
+
+        def compact_uids(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                obj = {k: compact_uids(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                obj = [compact_uids(v) for v in obj]
+            elif isinstance(obj, str) and obj[0] == "%":
+                obj = f"%{int(obj[1:]) - lowest_uid}"
+            return obj
+
+        return compact_uids(graph_dict)
 
     def dumps(self) -> str:
-        return str(self.to_dict())
+        return safe_dump(self.to_dict())
 
     def dump(self, file_name: str) -> None:
         with open(file_name, "w") as f:

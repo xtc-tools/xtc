@@ -9,6 +9,7 @@ from collections.abc import Sequence, Mapping
 import functools
 import operator
 import numpy as np
+import hashlib
 
 from xtc.itf.operator import Operator
 from xtc.itf.data import Tensor, TensorType
@@ -99,6 +100,12 @@ class XTCOperator(Operator):
         op_dict: dict[str, Any] = {"name": self._name}
         op_dict["attrs"] = {k: listify(v) for k, v in self._attrs.__dict__.items()}
         return op_dict
+
+    @classmethod
+    def version_string(cls) -> str:
+        names = sorted(f"{c.__module__}.{c.__qualname__}" for c in cls.__subclasses__())
+        data = "|".join(names).encode()
+        return hashlib.sha256(data).hexdigest()[:16]
 
 
 class XTCOperTensor(XTCOperator):

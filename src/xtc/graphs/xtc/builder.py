@@ -8,7 +8,6 @@ from .graph import XTCGraph
 from .context import XTCGraphContext
 from .expr import XTCTensorExpr
 from . import op_factory
-from ast import literal_eval
 from yaml import safe_load
 
 
@@ -52,17 +51,20 @@ class graph_builder:
             args = [expr_uid_map.get(arg) for arg in expr["args"]]
             if "name" in node:
                 args.append(node["name"])
+            if not hasattr(op_factory, expr["op"]["name"]):
+                raise ValueError(
+                    f"serialized op {expr['op']['name']} is not implemented!"
+                )
             op_func = getattr(op_factory, expr["op"]["name"])
             expr_uid_map[node["uid"]] = op_func(*args, **tuplify(expr["op"]["attrs"]))
 
         outputs = [expr_uid_map[out["uid"]] for out in graph_dict["outputs"]]
         XTCGraphContext.outputs(*outputs)
-
         return graph_dict
 
     @classmethod
-    def loads(cls, dict_str: str) -> None:
-        cls.from_dict(literal_eval(dict_str))
+    def loads(cls, yaml_str: str) -> None:
+        cls.from_dict(safe_load(yaml_str))
 
     @classmethod
     def load(cls, file_name: str) -> None:
