@@ -34,8 +34,8 @@ def descript_scheduler(
         abstract_dims: The list of abstract axis names (e.g., ["m", "n", "k"]).
         spec: The schedule specification as a nested dict.
     """
-    descript = Descript(scheduler=scheduler, abstract_dims=abstract_dims)
-    descript.apply(node_name=node_name, spec=spec)
+    descript = Descript(abstract_dims=abstract_dims)
+    descript.apply(node_name=node_name, spec=spec, scheduler=scheduler)
 
 
 class ScheduleInterpreter:
@@ -254,10 +254,9 @@ class Descript:
     4. Apply: LoopNest -> Scheduler
     """
 
-    scheduler: Scheduler
     abstract_dims: list[str]
 
-    def apply(self, node_name: str, spec: dict[str, dict[str, Any]]) -> None:
+    def apply(self, node_name: str, spec: dict[str, dict[str, Any]], scheduler: Scheduler) -> None:
         """Parse, interpret, validate, and apply a schedule specification.
 
         Args:
@@ -279,36 +278,36 @@ class Descript:
         # Validate the loop nest
         loop_nest.check()
         # Apply the schedule to the scheduler
-        self._apply_loop_nest(loop_nest)
+        self._apply_loop_nest(loop_nest, scheduler)
 
-    def _apply_loop_nest(self, loop_nest: LoopNest) -> None:
+    def _apply_loop_nest(self, loop_nest: LoopNest, scheduler: Scheduler) -> None:
         """Apply a LoopNest to the scheduler."""
-        self.scheduler.set_dims(self.abstract_dims)
+        scheduler.set_dims(self.abstract_dims)
 
         if loop_nest.root_node is not None:
-            self._apply_node(loop_nest.root_node)
+            self._apply_node(loop_nest.root_node, scheduler)
 
-    def _apply_node(self, node: LoopNestNode) -> None:
+    def _apply_node(self, node: LoopNestNode, scheduler: Scheduler) -> None:
         """Recursively apply a LoopNestNode and its children to the scheduler."""
         root = node.root
 
         for d, s in node.splits.items():
-            self.scheduler.split(d, s, root=root)
+            scheduler.split(d, s, root=root)
 
         for d, s in node.tiles.items():
-            self.scheduler.tile(d, s, root=root)
+            scheduler.tile(d, s, root=root)
 
-        self.scheduler.interchange(node.interchange, root=root)
-        self.scheduler.vectorize(node.vectorize, root=root)
-        self.scheduler.parallelize(node.parallelize, root=root)
-        self.scheduler.unroll(node.unroll, root=root)
+        scheduler.interchange(node.interchange, root=root)
+        scheduler.vectorize(node.vectorize, root=root)
+        scheduler.parallelize(node.parallelize, root=root)
+        scheduler.unroll(node.unroll, root=root)
 
         for axis, mtype in node.buffer_at.items():
-            self.scheduler.buffer_at(axis, mtype=mtype, root=root)
+            scheduler.buffer_at(axis, mtype=mtype, root=root)
 
         for axis, (input_idx, mtype, pad) in node.pack_at.items():
-            self.scheduler.pack_at(axis, input_idx, mtype=mtype, pad=pad, root=root)
+            scheduler.pack_at(axis, input_idx, mtype=mtype, pad=pad, root=root)
 
         # Recursively apply children
         for child in node.children:
-            self._apply_node(child)
+            self._apply_node(child, scheduler)
