@@ -7,6 +7,7 @@ from typing import Any
 from .graph import XTCGraph
 from .context import XTCGraphContext
 from .expr import XTCTensorExpr
+from .operators import XTCOperator
 from . import op_factory
 from yaml import safe_load
 
@@ -52,8 +53,14 @@ class graph_builder:
             if "name" in node:
                 args.append(node["name"])
             if not hasattr(op_factory, expr["op"]["name"]):
+                version_mismatch = (
+                    "version mismatch detected, "
+                    if XTCOperator.version_string() != graph_dict["ops_version"]
+                    else ""
+                )
                 raise ValueError(
-                    f"serialized op {expr['op']['name']} is not implemented!"
+                    version_mismatch
+                    + f"serialized op {expr['op']['name']} is not implemented."
                 )
             op_func = getattr(op_factory, expr["op"]["name"])
             expr_uid_map[node["uid"]] = op_func(*args, **tuplify(expr["op"]["attrs"]))
