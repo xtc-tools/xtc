@@ -4,7 +4,7 @@
 #
 from typing_extensions import override
 from collections.abc import Sequence
-from typing import cast
+from typing import cast, Any
 
 from xtc.itf.graph import Node
 from xtc.itf.operator import Operator
@@ -156,3 +156,12 @@ class XTCNode(Node):
         if self.inputs_types is not None and self.outputs_types is not None:
             type_str = f" : {self.inputs_types} -> {self.outputs_types}"
         return str(self._expr).split("=", 1)[1].strip() + attrs_str + type_str
+
+    @override
+    def to_dict(self) -> dict[str, Any]:
+        node_dict: dict[str, Any] = {}
+        if self.uid != self.name:
+            node_dict["name"] = self.name
+        node_dict["uid"] = self.uid
+        node_dict["expr"] = self._expr.to_dict()
+        return node_dict

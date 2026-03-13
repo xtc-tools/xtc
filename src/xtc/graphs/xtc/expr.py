@@ -4,7 +4,7 @@
 #
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing_extensions import override
+from typing_extensions import override, Self
 from typing import Any, TypeAlias
 import threading
 
@@ -94,6 +94,10 @@ class XTCExpr(ABC):
     def __str__(self) -> str:
         return f"{self.uid} = ?"
 
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        return {"uid": self.uid}
+
 
 class XTCValueExpr(XTCExpr):
     @property
@@ -180,6 +184,15 @@ class XTCTensorExpr(XTCValueExpr):
         args = ", ".join([arg.uid for arg in self.args])
         return f"{self.uid} = {self.op_name}({args})"
 
+    @override
+    def to_dict(self) -> dict[str, Any]:
+        return {"type": self.type.to_dict()}
+
+    @classmethod
+    def from_dict(cls, op_dict: dict[str, Any]) -> Self:
+        type = XTCTensorType.from_dict(op_dict["type"])
+        return cls(tensor=type)
+
 
 class XTCOpExpr(XTCExpr):
     def __init__(self, op: XTCOperator, args: ArgumentsType) -> None:
@@ -219,6 +232,10 @@ class XTCOpExpr(XTCExpr):
         params += [f"{attr}={value}" for attr, value in self._op.attrs.__dict__.items()]
         args = ", ".join(params)
         return f"{self.uid} = {self.op_name}({args})"
+
+    @override
+    def to_dict(self) -> dict[str, Any]:
+        return {"op": self._op.to_dict(), "args": [a.uid for a in self.args]}
 
 
 class XTCMatmulExpr(XTCOpExpr):

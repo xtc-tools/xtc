@@ -162,3 +162,6 @@ class Node(ABC):
             List of output tensors
         """
         ...
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, str | Sequence[TensorType]]: ...
