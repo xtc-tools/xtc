@@ -9,7 +9,7 @@ from xtc.schedules.loop_nest import LoopNest, LoopNestNode, LoopInfo, SplitOrigi
 import xtc.itf as itf
 import xtc.backends.mlir as backend
 
-from .MlirNodeScheduler import MlirNodeScheduler, MlirNodeSchedule
+from .MlirNodeScheduler import MlirNodeScheduler, MlirNodeSchedule, basename
 
 __all__ = [
     "MlirScheduler",
@@ -212,36 +212,41 @@ class MlirScheduler(itf.schd.Scheduler):
         loop_nest = LoopNest(abstract_dims=dims)
         root_node = loop_nest.build_root_node(node_sched.node_name)
 
-        # Assign splits to root_node first
+        # Assign splits to root_node first, stripping the root prefix from names
         for axis, axis_splits in node_sched.splits.items():
-            root_node.splits[axis] = dict(axis_splits)
+            root_node.splits[axis] = {basename(k): v for k, v in axis_splits.items()}
 
         # Build mapper to get splits_info
         mapper = LoopInfo.build_from_node(root_node)
 
         def populate_node(node: LoopNestNode, perm: list[str]) -> None:
             """Populate node with data for loops in its permutation."""
-            node.interchange = list(perm)
             perm_set = set(perm)
+            node.interchange = [basename(n) for n in perm]
             for axis, axis_tiles in node_sched.tiles.items():
                 for tile_name, size in axis_tiles.items():
                     if tile_name in perm_set:
                         if axis not in node.tiles:
                             node.tiles[axis] = {}
-                        node.tiles[axis][tile_name] = size
-            node.vectorize = [v for v in node_sched.vectorization if v in perm_set]
-            node.parallelize = [p for p in node_sched.parallelization if p in perm_set]
+                        node.tiles[axis][basename(tile_name)] = size
+            node.vectorize = [
+                basename(v) for v in node_sched.vectorization if v in perm_set
+            ]
+            node.parallelize = [
+                basename(p) for p in node_sched.parallelization if p in perm_set
+            ]
             node.unroll = {
-                k: v for k, v in node_sched.unrolling.items() if k in perm_set
+                basename(k): v for k, v in node_sched.unrolling.items() if k in perm_set
             }
 
         # Process each root in permutation
         for root, perm in node_sched.permutation.items():
-            if root in mapper.splits_info:
+            root_name = basename(root)
+            if root_name in mapper.splits_info:
                 # This root is a split - create child node
-                axis, start, end = mapper.splits_info[root]
+                axis, start, end = mapper.splits_info[root_name]
                 child = LoopNestNode(
-                    root=root,
+                    root=root_name,
                     tiles={d: {} for d in dims},
                     split_origin=SplitOrigin(axis=axis, start=start, end=end),
                 )
