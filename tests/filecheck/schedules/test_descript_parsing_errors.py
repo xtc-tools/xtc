@@ -27,7 +27,7 @@ if "--unroll" in sys.argv:
         abstract_dims = ["I","J","K"],
         spec = {
             "I": {},
-            "K": {"unroll" : "hello"},
+            "K": {"unroll" : ["hello"]},
             "J": {},
         }
     )
@@ -37,7 +37,7 @@ elif "--parallelize" in sys.argv:
         node_name = "C",
         abstract_dims = ["I","J","K"],
         spec = {
-            "I": {"parallelize" : "hello"},
+            "I": {"parallelize" : ["hello"]},
             "K": {},
             "J": {},
         }
@@ -50,10 +50,10 @@ elif "--vectorize" in sys.argv:
         spec = {
             "I": {},
             "K": {},
-            "J": {"vectorize" : "hello"},
+            "J": {"vectorize" : ["hello"]},
         }
     )
 
-# CHECK-UNROLL: `{"unroll" = hello}`: unroll parameter should be True, False, or an integer.
-# CHECK-PARALLELIZE: `{"parallelize" = hello}`: parameterized parallelization not implemented.
-# CHECK-VECTORIZE: `{"vectorize" = hello}`: parameterized vectorization not implemented.
+# CHECK-UNROLL: `{"unroll" = ['hello']}`: unroll parameter should be True, False, or a string or integer.
+# CHECK-PARALLELIZE: `{"parallelize" = ['hello']}`: parallelization parameter should be True, False or a string.
+# CHECK-VECTORIZE: `{"vectorize" = ['hello']}`: vectorization parameter should be True, False or a string.
