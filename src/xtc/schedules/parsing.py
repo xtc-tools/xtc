@@ -104,7 +104,7 @@ class ScheduleSpec:
 class ScheduleParser:
     """Parses a dict-based schedule specification into an AST."""
 
-    _SPLIT_PATTERN = re.compile(r"^(.*)\[(-\d+|\d*)?:(-\d+|\d*)?\]$")
+    _SPLIT_PATTERN = re.compile(r"^(.*)\[(-\w+|\w*)?:(-\w+|\w*)?\]$")
     _SPLIT_MIDDLE_PATTERN = re.compile(r"^(.*)\[:(\w*):\]$")
 
     def parse(self, spec: dict[str, Any]) -> ScheduleSpec:
@@ -189,12 +189,16 @@ class ScheduleParser:
                             f'`{{"unroll" = {param}}}`: unroll parameter should be True, False, or a string or integer.'
                         )
                 case "vectorize":
+                    if param is None:
+                        param = True
                     if not isinstance(param, bool | str):
                         raise ScheduleParseError(
                             f'`{{"vectorize" = {param}}}`: vectorization parameter should be True, False or a string.'
                         )
                     vectorize = param
                 case "parallelize":
+                    if param is None:
+                        param = True
                     if not isinstance(param, bool | str):
                         raise ScheduleParseError(
                             f'`{{"parallelize" = {param}}}`: parallelization parameter should be True, False or a string.'
@@ -235,8 +239,12 @@ class ScheduleParser:
 
     def _parse_pack_param(
         self, param: Any, context: str
-    ) -> tuple[literal, str | None, bool | str]:
+    ) -> tuple[literal, str | None, bool | str] | None:
         """Parse pack parameter into (input_idx, mtype, pad) tuple."""
+
+        if param is None:
+            return None
+
         if not isinstance(param, (list, tuple)) or len(param) != 3:
             raise ScheduleParseError(
                 f'`{{"pack" = {param}}}` on {context}: pack parameter should be a tuple (input_idx, mtype, pad).'
@@ -249,7 +257,7 @@ class ScheduleParser:
                 f'`{{"pack" = {param}}}` on {context}: input_idx should be an integer.'
             )
 
-        if not isinstance(mtype, str):
+        if not isinstance(mtype, str | None):
             raise ScheduleParseError(
                 f'`{{"pack" = {param}}}` on {context}: mtype should be a string or None.'
             )

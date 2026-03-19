@@ -110,7 +110,9 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     splits: dict[str, dict[str, literal]] = field(default_factory=dict)
     interchange: list[str] = field(default_factory=list)
     vectorize: list[str] = field(default_factory=list)
+    vectorize_parameters: dict[str, str] = field(default_factory=dict)
     parallelize: list[str] = field(default_factory=list)
+    parallelize_parameters: dict[str, str] = field(default_factory=dict)
     unroll: dict[str, literal] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool | str]] = field(default_factory=dict)
@@ -134,7 +136,13 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
         }
         interchange = self.interchange
         vectorize = self.vectorize
+        for a, v in self.vectorize_parameters.items():
+            if sample.get(v, False):
+                vectorize.append(a)
         parallelize = self.parallelize
+        for a, v in self.parallelize_parameters.items():
+            if sample.get(v, False):
+                parallelize.append(a)
         unroll = {
             a: sample[v_a] if isinstance(v_a, str) else v_a
             for a, v_a in self.unroll.items()
@@ -423,6 +431,12 @@ class ParameterLoopNest:
             self.root_node.apply_sample(sample) if self.root_node is not None else None
         )
         return LoopNest(self.abstract_dims, root_node)
+
+    def collect_constraints(self) -> set[str]:
+        constraints = set()
+        for node in self.nodes:
+            constraints |= node.constraints
+        return constraints
 
     def _check_use_defined_dims(self, info: ParameterLoopInfo):
         for dim in self.abstract_dims:

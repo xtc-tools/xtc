@@ -6,6 +6,8 @@ from typing import Any
 from dataclasses import dataclass, field
 from copy import deepcopy
 
+from numpy import isin
+
 from xtc.itf.schd.scheduler import Scheduler, ROOT_SEP, SPLIT_LEFT_SEP, SPLIT_RIGHT_SEP
 from xtc.schedules.loop_nest import LoopNest, LoopNestNode
 from xtc.schedules.parameter_loop_nest import (
@@ -32,6 +34,9 @@ def descript_scheduler(
     node_name: str,
     abstract_dims: list[str],
     spec: dict[str, dict[str, Any]],
+    abstract_dim_sizes: dict[str, int] = {},
+    abstract_matrix: list[str] = [],
+    sample: dict[str, int] = {},
 ) -> None:
     """Apply a schedule specification to a scheduler.
 
@@ -43,8 +48,12 @@ def descript_scheduler(
         abstract_dims: The list of abstract axis names (e.g., ["m", "n", "k"]).
         spec: The schedule specification as a nested dict.
     """
-    descript = Descript(abstract_dims=abstract_dims)
-    descript.apply(node_name=node_name, spec=spec, scheduler=scheduler)
+    descript = Descript(
+        abstract_dims=abstract_dims,
+        abstract_dim_sizes=abstract_dim_sizes,
+        abstract_matrix=abstract_matrix,
+    )
+    descript.apply(node_name=node_name, spec=spec, scheduler=scheduler, sample=sample)
 
 
 @dataclass
@@ -54,8 +63,8 @@ class ScheduleInterpreter:
     abstract_dims: list[str]
     abstract_dim_sizes: dict[str, int] = field(default_factory=dict)
     abstract_matrix: list[str] = field(default_factory=list)
-    partial_tiles = False
-    partial_unfolds = False
+    partial_tiles: bool = False
+    partial_unrolls: bool = False
 
     def interpret(self, spec: ScheduleSpec, root: str) -> ParameterLoopNest:
         """Interpret a schedule specification into a LoopNest."""
@@ -70,18 +79,21 @@ class ScheduleInterpreter:
         node: ParameterLoopNestNode,
         root: str,
         head: list[str],
-        sizes: dict[str, list[literal]] | None = None,
+        axes: dict[str, list[literal]] = dict(),
     ) -> None:
         """Interpret a schedule spec into an existing node (mutates node)."""
         # Track state during interpretation
         previous_cut: dict[str, literal | None] = {a: 0 for a in self.abstract_dims}
         interchange: list[str] = list(head)
         last_split: list[tuple[literal, literal | None]] = []
-        if not sizes:
-            if self.abstract_dim_sizes:
-                sizes = {a: [v] for a, v in self.abstract_dim_sizes.items()}
-            else:
-                sizes = {a: [] for a in self.abstract_dims}
+        sizes: dict[str, literal] = {}
+        if self.abstract_dim_sizes:
+            for a, v in self.abstract_dim_sizes.items():
+                sizes[a] = v
+                if a not in axes:
+                    axes[a] = [v]
+        if not axes:
+            axes = {a: [] for a in self.abstract_dims}
 
         for item in spec.items:
             if isinstance(item, SplitDecl):
@@ -91,21 +103,39 @@ class ScheduleInterpreter:
                     root=root,
                     interchange=interchange,
                     previous_cut=previous_cut,
-                    sizes=sizes,
+                    axes=axes,
                     last_split=last_split,
                 )
             elif isinstance(item, TileDecl):
                 loop_name = self._interpret_tile(
-                    item=item, node=node, interchange=interchange, sizes=sizes
+                    item=item,
+                    node=node,
+                    interchange=interchange,
+                    sizes=sizes,
+                    axes=axes,
                 )
                 self._apply_annotations(item.annotations, loop_name, sizes, node)
             elif isinstance(item, AxisDecl):
                 loop_name = self._interpret_axis(item, interchange)
                 self._apply_annotations(item.annotations, loop_name, sizes, node)
 
+        # Reaplace the placeholder of the last split with its size
+        if len(last_split) > 0:
+            a, b = last_split[0]
+            if isinstance(a, int) and not isinstance(b, int):
+                a, b = b, a
+            a, b = str(a), str(b)
+            for c in node.constraints:
+                node.constraints.remove(c)
+                node.constraints.add(c.replace(a, b))
+
         # Check that all splits are complete
         for axis, cut in previous_cut.items():
-            if cut is not None and cut != 0:
+            if (
+                cut is not None
+                and isinstance(cut, int)
+                and cut not in [0, sizes.get(axis, 0)]
+            ):
                 raise ScheduleInterpretError(
                     f"Splitting of {axis} unachieved (stops at {cut})."
                 )
@@ -119,7 +149,7 @@ class ScheduleInterpreter:
         root: str,
         interchange: list[str],
         previous_cut: dict[str, literal | None],
-        sizes: dict[str, list[literal]],
+        axes: dict[str, list[literal]],
         last_split: list[tuple[literal, literal | None]],
     ) -> None:
         """Interpret a split declaration."""
@@ -133,7 +163,7 @@ class ScheduleInterpreter:
         # last one, so it cannot be the previous one.
         cut = previous_cut[axis_name]
 
-        current_size = sizes[axis_name][-1] if sizes[axis_name] else None
+        current_size = axes[axis_name][-1] if axes[axis_name] else None
 
         # When x (the starting point of the split) is not specified,
         # it is the previous cut
@@ -208,13 +238,19 @@ class ScheduleInterpreter:
         )
         node.add_child(child_node)
 
+        # recursive_axes: dict[str, list[literal]] = {
+        #     a: v.copy() for a, v in axes.items() if a != axis_name
+        # }
+        # recursive_axes[axis_name] = [inner_size]
+
         # Recursively interpret the nested schedule into the child node
         self._interpret_spec_into_node(
             spec=item.body,
             node=child_node,
             root=new_root_name,
             head=[axis_name],
-            sizes=deepcopy(sizes),
+            # axes=recursive_axes,
+            axes=deepcopy(axes),
         )
 
     def _interpret_tile(
@@ -222,7 +258,8 @@ class ScheduleInterpreter:
         item: TileDecl,
         node: ParameterLoopNestNode,
         interchange: list[str],
-        sizes: dict[str, list[literal]],
+        sizes: dict[str, literal],
+        axes: dict[str, list[literal]],
     ) -> str:
         """Interpret a tile declaration. Returns the loop name."""
         self._check_axis_existence(item.axis)
@@ -233,31 +270,36 @@ class ScheduleInterpreter:
                 f"`{item}`: tile sizes should be strictly positive."
             )
         node.tiles[item.axis][loop_name] = item.size
-        if loop_name in sizes:
-            list_sizes = sizes[loop_name]
-            list_sizes.append(item.size)
-        else:
-            list_sizes = [item.size]
-            sizes[loop_name] = list_sizes
+        sizes[loop_name] = item.size
         interchange.append(loop_name)
+        if item.axis in axes:
+            list_axis = axes[item.axis]
+        else:
+            list_axis = []
+            axes[item.axis] = list_axis
         if isinstance(item.size, str):
-            if not self.abstract_dim_sizes:
-                raise ScheduleInterpretError(
-                    f"`{item}`: {item.size} is not an integer."
-                )
-            old_size = list_sizes[-2]
             partial = item.annotations.partial
             full = item.annotations.full
             if partial or (not full and self.partial_tiles):
+                if not list_axis:
+                    raise ScheduleInterpretError(
+                        f"`{item}`: {item.size} is a partial tile, but its range cannot be computed."
+                    )
+                old_size = list_axis[-1]
                 node.constraints.add(f"{item.size} <= {old_size}")
             else:
+                if not self.abstract_dim_sizes:
+                    raise ScheduleInterpretError(
+                        f"`{item}` is a full tile, but the axis sizes are unknown."
+                    )
                 s = (
-                    ", ".join(map(str, list_sizes))
-                    if len(list_sizes) > 1
-                    else str(list_sizes[0])
+                    ", ".join(map(str, list_axis))
+                    if len(list_axis) > 1
+                    else str(list_axis[0])
                 )
                 s = f"{item.size} || {{{s}}}"
                 node.constraints.add(s)
+        list_axis.append(item.size)
 
         return loop_name
 
@@ -293,7 +335,7 @@ class ScheduleInterpreter:
         self,
         annotations: Annotations,
         loop_name: str,
-        sizes: dict[str, list[literal]],
+        sizes: dict[str, literal],
         node: ParameterLoopNestNode,
     ) -> None:
         """Apply annotations to a loop in the node."""
@@ -301,22 +343,35 @@ class ScheduleInterpreter:
             unroll_factor = annotations.unroll_factor
             if unroll_factor is None:
                 # None means "unroll fully" - use the loop size
-                if loop_name not in sizes or not sizes[loop_name]:
+                if loop_name not in sizes:
                     raise ScheduleInterpretError(
                         f"{loop_name}'s size being unknown, an unroll factor is needed."
                     )
-                unroll_factor = sizes[loop_name][-1]
+                unroll_factor = sizes[loop_name]
             elif isinstance(unroll_factor, int) and unroll_factor <= 0:
                 raise ScheduleInterpretError(
                     f'`{{"unroll" = {unroll_factor}}}`: unroll parameter should be strictly positive.'
                 )
+            elif isinstance(unroll_factor, str):
+                if self.partial_unrolls:
+                    node.constraints.add(f"{unroll_factor} <= {sizes[loop_name]}")
+                else:
+                    node.constraints.add(f"{unroll_factor} || {sizes[loop_name]}")
             node.unroll[loop_name] = unroll_factor
 
         if annotations.vectorize:
-            node.vectorize.append(loop_name)
+            if isinstance(annotations.vectorize, str):
+                node.vectorize_parameters[loop_name] = annotations.vectorize
+                node.constraints.add(f"{annotations.vectorize} in {{0, 1}}")
+            else:
+                node.vectorize.append(loop_name)
 
         if annotations.parallelize:
-            node.parallelize.append(loop_name)
+            if isinstance(annotations.parallelize, str):
+                node.parallelize_parameters[loop_name] = annotations.parallelize
+                node.constraints.add(f"{annotations.parallelize} in {{0, 1}}")
+            else:
+                node.parallelize.append(loop_name)
 
         if annotations.buffer_specified:
             node.buffer_at[loop_name] = annotations.buffer
@@ -374,7 +429,7 @@ class ScheduleInterpreter:
         return None
 
 
-@dataclass(frozen=True)
+@dataclass
 class Descript:
     """Applies a parsed and interpreted schedule to a Scheduler.
 
@@ -389,6 +444,38 @@ class Descript:
     abstract_dims: list[str]
     abstract_dim_sizes: dict[str, int] = field(default_factory=dict)
     abstract_matrix: list[str] = field(default_factory=list)
+    partial_tiles: bool = False
+    partial_unrolls: bool = False
+
+    def loop_nest(self, node_name: str, spec: dict[str, dict[str, Any]] | str):
+        if isinstance(spec, str):
+            yaml_parser = YAMLParser()
+            spec = yaml_parser.parse(spec)
+
+        # Parse the specification into an AST
+        parser = ScheduleParser()
+        ast = parser.parse(spec)
+
+        # Interpret the AST into a LoopNest
+        interpreter = ScheduleInterpreter(
+            abstract_dims=self.abstract_dims,
+            abstract_dim_sizes=self.abstract_dim_sizes,
+            abstract_matrix=self.abstract_matrix,
+            partial_tiles=self.partial_tiles,
+            partial_unrolls=self.partial_unrolls,
+        )
+        return interpreter.interpret(ast, root=node_name)
+
+    def apply_sample(
+        self, loop_nest: ParameterLoopNest, sample: dict[str, int], scheduler: Scheduler
+    ):
+        # Apply the sample
+        loop_nest_ = loop_nest.apply_sample(sample)
+
+        # Validate the loop nest
+        loop_nest_.check()
+        # Apply the schedule to the scheduler
+        self._apply_loop_nest(loop_nest_, scheduler)
 
     def apply(
         self,
@@ -422,6 +509,8 @@ class Descript:
             abstract_dims=self.abstract_dims,
             abstract_dim_sizes=self.abstract_dim_sizes,
             abstract_matrix=self.abstract_matrix,
+            partial_tiles=self.partial_tiles,
+            partial_unrolls=self.partial_unrolls,
         )
         loop_nest = interpreter.interpret(ast, root=node_name)
 
