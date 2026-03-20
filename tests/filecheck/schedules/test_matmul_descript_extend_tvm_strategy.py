@@ -1,4 +1,5 @@
 # RUN: python -O %s 2>&1 | filecheck %s
+# REQUIRES: module_tvm
 
 import xtc.graphs.xtc.op as O
 from xtc.backends.tvm import Backend
@@ -26,7 +27,7 @@ spec = {
         "j#j_inner": {"vectorize": "j_vectorize"},
 }
 
-sample = {"i_inner": 2, "j_inner": 16, "i_unroll": 2, "j_vectorize": 1, "order_R": ["j", "i"]}
+sample = {"i_inner": 2, "j_inner": 16, "i_unroll": 2, "j_vectorize": 1}
 
 strategy = Strategy(graph, spec)
 

@@ -1,6 +1,6 @@
 # RUN: python -O %s 2>&1 | filecheck %s
 """
-Test strategy Goto on matmul
+Test a simple strategy on matmul
 """
 
 import utils
@@ -18,7 +18,7 @@ spec = """
 """
 strategy = Strategy(graph, spec)
 
-print(sorted(list(strategy._constraints)))
+print(sorted(strategy._constraints))
 print(sum(1 for _ in strategy.sample(100)))
 
 # CHECK: ['i1 || {21}', 'j1 || {32}', 'j2 || {32, j1}']

@@ -954,7 +954,7 @@ class Strategy_Descript(Strategy):
         self,
         graph: Graph,
         spec: dict[str, dict[str, Any]] | str,
-        constraints: set[str] = set(),
+        constraints: list[str] = [],
         partial_tiles: bool = False,
         partial_unrolls: bool = False,
         initialize: bool = True,
@@ -981,7 +981,7 @@ class Strategy_Descript(Strategy):
         #         assert isinstance(s, str)
         #         constraints[i] = s.replace(f"[{a}]", str(v))
         self._orders: dict[str, list] = {}
-        self._constraints = constraints | input_constraints
+        self._constraints = constraints + input_constraints
         self._initialized = False
         if initialize:
             self._initialize()

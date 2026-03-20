@@ -43,7 +43,7 @@ nb_words_L1 = 32*1024//elt_size
 nb_words_L2 = 1024*1024//elt_size
 nb_words_L3 = 36*1024*1024//elt_size
 
-constraints = {
+constraints = [
 f"1 + nvr + nvr * mr <= {nb_registers}",
 f"nr == {vector_size} * nvr",
 f"nvr * mr >= {ilp}",
@@ -51,10 +51,10 @@ f"nvr * mr * kr <= {reorder_buffer}",
 f"kc * nr <= {nb_words_L1}",
 f"kc * mc <= {nb_words_L2}",
 f"kc * nc <= {nb_words_L3}",
-}
+]
 strategy = Strategy(graph, spec, constraints=constraints, partial_tiles=True, partial_unrolls=True, initialize=False)
 
-print(sorted(list(strategy._constraints)))
+print(sorted(strategy._constraints))
 print(sum(1 for _ in strategy.sample(100)))
 
 # CHECK: ['1 + nvr + nvr * mr <= 32', 'kc * mc <= 262144', 'kc * nc <= 9437184', 'kc * nr <= 8192', 'kc <= 1024', 'kr <= kc', 'mc <= 1024', 'mr || {1024, mc}', 'nc <= 1024', 'nr == 16 * nvr', 'nr || {1024, nc}', 'nvr * mr * kr <= 256', 'nvr * mr >= 8']

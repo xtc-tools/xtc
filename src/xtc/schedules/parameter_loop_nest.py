@@ -96,13 +96,16 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             split loop names and their starting positions.
         interchange: Ordered list of loop names defining the loop order.
         vectorize: List of loops to vectorize.
+        vectorize_parameters: Maps loops to vetorize with a parameter to that parameter.
         parallelize: List of loops to parallelize.
+        parallelize_parameters: Maps loops to parallelize with a parameter to that parameter.
         unroll: Maps loop names to their unroll factors.
         buffer_at: Buffer configuration per axis. Maps axis names to optional
             memory types (mtype). None means default memory type.
         pack_at: Pack configuration per axis. Maps axis names to tuples of
             (input_idx, mtype, pad). input_idx is the input buffer index,
             mtype is the memory type (None for default), pad enables padding.
+        constraints: List of generated constraints.
     """
 
     root: str
@@ -116,9 +119,12 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     unroll: dict[str, literal] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool | str]] = field(default_factory=dict)
-    constraints: set[str] = field(default_factory=set)
+    constraints: list[str] = field(default_factory=list)
 
     def apply_sample(self, sample: dict[str, int]) -> LoopNestNode:
+        """
+        Replaces the string parameters with the correspondings values in sample.
+        And builds the corresponding LoopNestNode."""
         root = self.root
         tiles = {
             a: {
@@ -427,15 +433,18 @@ class ParameterLoopNest:
         self._check_sizes(info)
 
     def apply_sample(self, sample: dict[str, int]) -> LoopNest:
+        """
+        Replaces the string parameters with the correspondings values in sample.
+        And builds the corresponding LoopNest."""
         root_node = (
             self.root_node.apply_sample(sample) if self.root_node is not None else None
         )
         return LoopNest(self.abstract_dims, root_node)
 
-    def collect_constraints(self) -> set[str]:
-        constraints = set()
+    def collect_constraints(self) -> list[str]:
+        constraints = []
         for node in self.nodes:
-            constraints |= node.constraints
+            constraints += node.constraints
         return constraints
 
     def _check_use_defined_dims(self, info: ParameterLoopInfo):

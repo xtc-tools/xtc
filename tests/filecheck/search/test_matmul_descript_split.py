@@ -26,7 +26,7 @@ spec = {
 }
 strategy = Strategy(graph, spec, initialize=False)
 
-print(sorted(list(strategy._constraints)))
+print(sorted(strategy._constraints))
 print(sum(1 for _ in strategy.sample(100)))
 
 # CHECK: ['iL3 || {21}', 'iR1 || {21, iL3, 7}', 'iR2 || {21, iL3, 7}', 'jDDR || {32}', 'jR1 || {32, jDDR}', 'jR2 || {32, jDDR}']

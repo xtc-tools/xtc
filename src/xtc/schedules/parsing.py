@@ -15,8 +15,11 @@ from .exceptions import ScheduleParseError
 literal = int | str
 
 
-def isint(s: str):
-    return s.lstrip("-").isdigit()
+def toliteral(s: str) -> literal:
+    """Returns int(s) if possible, otherwise returns s."""
+    if s.lstrip("-").isdigit():
+        return int(s)
+    return s
 
 
 @dataclass(frozen=True)
@@ -51,7 +54,7 @@ class Annotations:
 
 @dataclass(frozen=True)
 class SplitDecl:
-    """AST Type: a split declaration like 'axis[start:end]'."""
+    """AST Type: a split declaration like 'axis[start:end]' or 'axis[:size:]'."""
 
     axis: str
     start: literal | None
@@ -132,7 +135,7 @@ class ScheduleParser:
         return self._parse_axis_ref(declaration, value)
 
     def _parse_split(self, declaration: str, value: dict) -> SplitDecl:
-        """Parse a split declaration like 'axis[start:end]'."""
+        """Parse a split declaration like 'axis[start:end]' or 'axis[:size:]'."""
         axis_name, start, end, size = self._parse_split_syntax(declaration)
 
         body = self.parse(value)
@@ -148,7 +151,7 @@ class ScheduleParser:
 
         axis_name, size_str = parts
 
-        size = int(size_str) if isint(size_str) else size_str
+        size = toliteral(size_str)
 
         annotations = self._parse_annotations(value, declaration)
         return TileDecl(axis=axis_name, size=size, annotations=annotations)
@@ -283,12 +286,12 @@ class ScheduleParser:
             if not match:
                 raise ScheduleParseError(f"Wrong format {declaration}")
             prefix, z = match.groups()
-            z = int(z) if isint(z) else z
+            z = toliteral(z)
             return prefix, None, None, z
 
         prefix, x_str, y_str = match.groups()
-        x = int(x_str) if isint(x_str) else x_str
-        y = int(y_str) if isint(y_str) else y_str
+        x = toliteral(x_str)
+        y = toliteral(y_str)
         x = x if x else None
         y = y if y else None
         return prefix, x, y, None
@@ -298,6 +301,7 @@ class YAMLParser:
     """Parses a YAML specification into a dict-based schedule specification."""
 
     def parse(self, spec: str):
+        """Parses a YAML specification into a dict-based schedule specification."""
         descript_spec = strictyaml.load(spec).data
         if not isinstance(descript_spec, dict):
             raise ScheduleParseError(
@@ -306,6 +310,7 @@ class YAMLParser:
         return self._parse(descript_spec)
 
     def _parse(self, spec: dict[str, Any]) -> dict[str, dict]:
+        """Parses a dict YAML specification into a schedule specification."""
         descript_spec = dict()
         for a, v in spec.items():
             if isinstance(v, str):
@@ -327,6 +332,7 @@ class YAMLParser:
         return descript_spec
 
     def _split(self, s: str) -> dict[str, Any]:
+        """Splits a string of 'keyword's and 'keyword=value's separated by spaces into a dict."""
         d = dict()
         for s in s.split():
             if "=" not in s:
