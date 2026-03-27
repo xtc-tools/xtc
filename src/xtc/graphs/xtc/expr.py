@@ -123,26 +123,40 @@ class XTCTensorExpr(XTCValueExpr):
         shape: ShapeType | DataType = None,
         dtype: DataType = None,
         device: AcceleratorDevice | None = None,
+        const: bool = False,
+        layout: list[int] | None = None,
     ) -> None:
         super().__init__()
         if tensor is None:
             assert shape is None or isinstance(shape, tuple)
             assert dtype is None or isinstance(dtype, str)
-            type = XTCTensorType(shape=shape, dtype=dtype, device=device)
+            type = XTCTensorType(
+                shape=shape, dtype=dtype, device=device, const=const, layout=layout
+            )
             value = XTCTensor(type=type)
         elif isinstance(tensor, XTCTensorType):
-            assert shape is None and dtype is None
+            assert shape is None and dtype is None and layout is None
+            assert not const, (
+                "const cannot be set when tensor type is provided directly"
+            )
             value = XTCTensor(type=tensor)
         elif isinstance(tensor, XTCTensor):
-            assert shape is None and dtype is None
+            assert shape is None and dtype is None and layout is None
+            assert not const, (
+                "const cannot be set when tensor value is provided directly"
+            )
             value = tensor
         elif isinstance(tensor, tuple):
             if shape is not None:
                 assert isinstance(shape, str)
                 assert dtype is None
-                type = XTCTensorType(shape=tensor, dtype=shape, device=device)
+                type = XTCTensorType(
+                    shape=tensor, dtype=shape, device=device, const=const, layout=layout
+                )
             else:
-                type = XTCTensorType(shape=tensor, dtype=dtype, device=device)
+                type = XTCTensorType(
+                    shape=tensor, dtype=dtype, device=device, const=const, layout=layout
+                )
             value = XTCTensor(type=type)
         self._value = value
         self._device = device

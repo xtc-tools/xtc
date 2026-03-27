@@ -34,10 +34,14 @@ class XTCTensorType(TensorType):
         shape: ShapeType = None,
         dtype: DataType = None,
         device: AcceleratorDevice | None = None,
+        const: bool = False,
+        layout: list[int] | None = None,
     ):
         self._shape = shape
         self._dtype = dtype
         self._device = device
+        self._const = const
+        self._layout = layout
 
     @property
     @override
@@ -53,6 +57,16 @@ class XTCTensorType(TensorType):
     @override
     def device(self) -> AcceleratorDevice | None:
         return self._device
+
+    @property
+    @override
+    def const(self) -> bool:
+        return self._const
+
+    @property
+    @override
+    def layout(self) -> list[int] | None:
+        return self._layout
 
     @property
     @override
@@ -104,6 +118,9 @@ class XTCTensorType(TensorType):
         return XTCConstantTensorType(
             shape=self.constant_shape,
             dtype=self.constant_dtype,
+            device=self.device,
+            const=self.const,
+            layout=self.layout,
         )
 
     @override
@@ -113,13 +130,26 @@ class XTCTensorType(TensorType):
         else:
             dims = "x".join([str(d if d else "?") for d in self._shape])
         dtype = self._dtype if self._dtype else "?"
-        return f"{dims}x{dtype}"
+        const = ", const" if self.const else ""
+        layout = ""
+        if self.layout is not None:
+            assert self._shape is not None
+            layout += (
+                ", <(" + ",".join([str(i) for i in range(len(self._shape))]) + ")->("
+            )
+            layout += ",".join([str(i) for i in self.layout]) + ")>"
+        return f"{dims}x{dtype}{const}{layout}"
 
     @override
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, XTCTensorType):
             return NotImplemented
-        return self.dtype == other.dtype and self.shape == other.shape
+        return (
+            self.dtype == other.dtype
+            and self.shape == other.shape
+            and self.const == other.const
+            and self.layout == other.layout
+        )
 
     @override
     def to_dict(self) -> dict[str, Any]:
@@ -140,9 +170,19 @@ class XTCTensorType(TensorType):
 
 
 class XTCConstantTensorType(XTCTensorType, ConstantTensorType):
-    def __init__(self, shape: ConstantShapeType, dtype: ConstantDataType):
+    def __init__(
+        self,
+        shape: ConstantShapeType,
+        dtype: ConstantDataType,
+        device: AcceleratorDevice | None = None,
+        const: bool = False,
+        layout: list[int] | None = None,
+    ):
         self._shape: ConstantShapeType = shape
         self._dtype: ConstantDataType = dtype
+        self._device = device
+        self._const = const
+        self._layout = layout
 
     @property
     @override

@@ -56,6 +56,26 @@ class TensorType(ABC):
 
     @property
     @abstractmethod
+    def const(self) -> bool:
+        """Returns if the tensor contains constant data.
+
+        Returns:
+            If the tensor contains constant data.
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def layout(self) -> list[int] | None:
+        """Returns the layout of the tensor.
+
+        Returns:
+            The layout of the tensor
+        """
+        ...
+
+    @property
+    @abstractmethod
     def ndim(self) -> int:
         """Returns the number of dimensions in the tensor.
 

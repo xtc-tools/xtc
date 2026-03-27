@@ -40,7 +40,10 @@ class NDArray:
     rev_np_dtype_map: dict[tuple[int, int], str] = {}
 
     def __init__(
-        self, array: Any, runtime: CommonRuntimeInterface | None = None
+        self,
+        array: Any,
+        runtime: CommonRuntimeInterface | None = None,
+        layout: list[int] | None = None,
     ) -> None:
         if not self.rev_np_dtype_map:
             self.rev_np_dtype_map.update(
@@ -53,6 +56,7 @@ class NDArray:
         if self.runtime is None:
             self.runtime = HostRuntime()
         self.location = NDArrayLocation.HOST
+        self.layout = layout
         if isinstance(array, NDArray):
             raise RuntimeError("TODO: copy from CNDArray not supported yet")
         elif isinstance(array, np.ndarray):
@@ -63,6 +67,11 @@ class NDArray:
             self._to_device()
 
     def _from_numpy(self, nparray: np.ndarray) -> None:
+        if self.is_transposed():
+            transposed_shape = [nparray.shape[1], nparray.shape[0]]
+            transposed_array = np.empty(transposed_shape, dtype=nparray.dtype)
+            np.copyto(transposed_array, np.transpose(nparray))
+            nparray = transposed_array
         assert nparray.flags["C_CONTIGUOUS"]
         self.handle = self._new(nparray.shape, str(nparray.dtype))
         self._copy_from(self.handle, nparray.ctypes.data_as(ctypes.c_voidp))
@@ -72,6 +81,11 @@ class NDArray:
         np_dtype = self.dtype_str
         nparray = np.empty(shape=shape, dtype=np_dtype)
         self._copy_to(self.handle, nparray.ctypes.data_as(ctypes.c_voidp))
+        if self.is_transposed():
+            transposed_shape = [nparray.shape[1], nparray.shape[0]]
+            transposed_array = np.empty(transposed_shape, dtype=nparray.dtype)
+            np.copyto(transposed_array, np.transpose(nparray))
+            nparray = transposed_array
         return nparray
 
     def _copy_to_numpy(self, out: np.ndarray) -> np.ndarray:
@@ -80,6 +94,12 @@ class NDArray:
         assert out.size == self.size
         self._copy_to(self.handle, out.ctypes.data_as(ctypes.c_voidp))
         return out
+
+    def is_transposed(self) -> bool:
+        if self.layout is None:
+            return False
+        assert len(self.layout) == 2, "Only 2D reshape is implemented"
+        return self.layout == [1, 0]
 
     def numpy(self, out: np.ndarray | None = None) -> np.ndarray:
         if self.is_on_device():
@@ -92,6 +112,7 @@ class NDArray:
         if out is None:
             return self._to_numpy()
         else:
+            assert not self.is_transposed()
             return self._copy_to_numpy(out)
 
     def _to_device(self) -> None:

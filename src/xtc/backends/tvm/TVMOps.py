@@ -11,6 +11,7 @@ from xtc.utils.math import mulall
 from xtc.utils.text import to_cname
 
 from xtc.itf.graph import Operation, Graph, Node
+from xtc.graphs.xtc.data import XTCTensorType
 
 __all__ = [
     "TVMBaseExpr",
@@ -49,6 +50,10 @@ class TVMBaseExpr(ABC):
 
     @classmethod
     def from_operation(cls, xtc_op: Operation, name: str | None) -> "TVMOperation":
+        for typ in xtc_op.inputs_types:
+            if isinstance(typ, XTCTensorType):
+                if typ.layout is not None:
+                    assert False, "tensor layout is not yet implemented in TVM backend"
         dims = xtc_op.dims.values()
         dtype = xtc_op.inputs_types[0].dtype  # TODO: infer dtype form first input
         args = tuple([*dims, dtype])
@@ -145,6 +150,9 @@ class TVMGraph(TVMBaseExpr):
         else:
             assert hasattr(node, "_expr")
             type = node._expr.type  # type: ignore
+        assert isinstance(type, XTCTensorType)
+        if type.layout is not None:
+            assert False, "tensor layout is not yet implemented in TVM backend"
         return type.shape, type.dtype
 
     def _te_tensor_from_node(self, node: Node) -> Any:
