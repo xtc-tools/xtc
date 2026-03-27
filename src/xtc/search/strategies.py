@@ -22,12 +22,6 @@ from xtc.utils.algorithms import (
     sample_uniques,
 )
 
-from xvs.helpers import Context
-from xvs.constraints import constraints_from_str
-from xvs.graphs import hypergraph
-from xvs.solver import solve_with_z3
-from xvs.execute import execute_static, execute_dynamic
-
 
 __all__ = [
     "Strategies",
@@ -949,133 +943,142 @@ class Strategy_GOTO_R(Strategy_GOTO):
                 yield x
 
 
-class Strategy_Descript(Strategy):
-    def __init__(
-        self,
-        graph: Graph,
-        spec: dict[str, dict[str, Any]] | str,
-        constraints: list[str] = [],
-        partial_tiles: bool = False,
-        partial_unrolls: bool = False,
-        initialize: bool = True,
-    ) -> None:
-        self._graph = graph
-        self._op = graph.outputs_nodes[0].operation
-        self._stats: dict[str, int] = {}
-        self._axes = list(self._op.dims)
-        self._sizes = self._constant_sizes()
-        self._sample_names: list[str] = []
-        descript = Descript(
-            abstract_dims=self._axes,
-            abstract_dim_sizes=dict(self._sizes),
-            abstract_matrix=["A", "B", "C"],
-            partial_tiles=partial_tiles,
-            partial_unrolls=partial_unrolls,
-        )
-        self._descript = descript
-        loop_nest = descript.loop_nest(node_name=DEFAULT_ROOT, spec=spec)
-        self._loop_nest = loop_nest
-        input_constraints = loop_nest.collect_constraints()
-        # for a, v in self._sizes.items():
-        #     for i, s in enumerate(constraints):
-        #         assert isinstance(s, str)
-        #         constraints[i] = s.replace(f"[{a}]", str(v))
-        self._orders: dict[str, list] = {}
-        self._constraints = constraints + input_constraints
-        self._initialized = False
-        if initialize:
+try:
+    from xvs.helpers import Context
+    from xvs.constraints import constraints_from_str
+    from xvs.graphs import hypergraph
+    from xvs.solver import solve_with_z3
+    from xvs.execute import execute_static, execute_dynamic
+
+    class Strategy_Descript(Strategy):
+        def __init__(
+            self,
+            graph: Graph,
+            spec: dict[str, dict[str, Any]] | str,
+            constraints: list[str] = [],
+            partial_tiles: bool = False,
+            partial_unrolls: bool = False,
+            initialize: bool = True,
+        ) -> None:
+            self._graph = graph
+            self._op = graph.outputs_nodes[0].operation
+            self._stats: dict[str, int] = {}
+            self._axes = list(self._op.dims)
+            self._sizes = self._constant_sizes()
+            self._sample_names: list[str] = []
+            descript = Descript(
+                abstract_dims=self._axes,
+                abstract_dim_sizes=dict(self._sizes),
+                abstract_matrix=["A", "B", "C"],
+                partial_tiles=partial_tiles,
+                partial_unrolls=partial_unrolls,
+            )
+            self._descript = descript
+            loop_nest = descript.loop_nest(node_name=DEFAULT_ROOT, spec=spec)
+            self._loop_nest = loop_nest
+            input_constraints = loop_nest.collect_constraints()
+            # for a, v in self._sizes.items():
+            #     for i, s in enumerate(constraints):
+            #         assert isinstance(s, str)
+            #         constraints[i] = s.replace(f"[{a}]", str(v))
+            self._orders: dict[str, list] = {}
+            self._constraints = constraints + input_constraints
+            self._initialized = False
+            if initialize:
+                self._initialize()
+
+        def _constant_sizes(self) -> Mapping[str, int]:
+            sizes = {a: v for a, v in self._op.dims.items() if isinstance(v, int)}
+            return sizes
+
+        def _initialize(self):
+            if self._initialized:
+                return
+            max_enum = int(1 + np.log2(max(self._sizes.values())))
+            context = Context()
+            constraints, self.constants = constraints_from_str(
+                list(self._constraints), context=context
+            )
+            properties, constraints = hypergraph(
+                constraints, max_enum=max_enum, context=context
+            )
+            methods = solve_with_z3(list(context.variables), properties, constraints)
+            enumerations = execute_static(methods, properties, constraints)
+            self._context = context
+            self._properties = properties
+            self._z3_constraints = constraints
+            self._methods = methods
+            self._enumerations = enumerations
+            self._initialized = True
+
+        @property
+        @override
+        def graph(self) -> Graph:
+            return self._graph
+
+        @override
+        def generate(self, scheduler: Scheduler, sample: Sample) -> None:
+            descript = self._descript
+            # for a, p in self._orders.items():
+            #     if a in sample:
+            #         if isinstance(sample[a], int):
+            #             sample[a] = p[sample[a]]
+            descript.apply_sample(
+                loop_nest=self._loop_nest, scheduler=scheduler, sample=sample
+            )
+
+        @override
+        def sample(self, num: int, seed: int | None = 0) -> Iterator[Sample]:
+            samples = sample_uniques(self._sample_once_tuple, num)
+            for x in samples:
+                yield {a: v for (a, v) in x}
+
+        def sample_once(self, num: int) -> Iterator[Sample]:
             self._initialize()
+            draw = execute_dynamic(
+                self._methods,
+                self._properties,
+                self._z3_constraints,
+                self._enumerations,
+                k=num,
+            )
+            return draw
 
-    def _constant_sizes(self) -> Mapping[str, int]:
-        sizes = {a: v for a, v in self._op.dims.items() if isinstance(v, int)}
-        return sizes
+        def pretty_print_methods(self, tab: str = "\t"):
+            self._initialize()
+            for m in self._methods:
+                m.pretty_print(self._properties, self._z3_constraints, tab=tab)
 
-    def _initialize(self):
-        if self._initialized:
-            return
-        max_enum = int(1 + np.log2(max(self._sizes.values())))
-        context = Context()
-        constraints, self.constants = constraints_from_str(
-            list(self._constraints), context=context
-        )
-        properties, constraints = hypergraph(
-            constraints, max_enum=max_enum, context=context
-        )
-        methods = solve_with_z3(list(context.variables), properties, constraints)
-        enumerations = execute_static(methods, properties, constraints)
-        self._context = context
-        self._properties = properties
-        self._z3_constraints = constraints
-        self._methods = methods
-        self._enumerations = enumerations
-        self._initialized = True
+        def _sample_once_tuple(self, num: int) -> Iterator[tuple]:
+            draw = self.sample_once(num)
+            for d in draw:
+                yield tuple((a, v) for a, v in d.items())
 
-    @property
-    @override
-    def graph(self) -> Graph:
-        return self._graph
+        @override
+        def exhaustive(self) -> Iterator[Sample]:
+            return self.sample(1000)
 
-    @override
-    def generate(self, scheduler: Scheduler, sample: Sample) -> None:
-        descript = self._descript
-        # for a, p in self._orders.items():
-        #     if a in sample:
-        #         if isinstance(sample[a], int):
-        #             sample[a] = p[sample[a]]
-        descript.apply_sample(
-            loop_nest=self._loop_nest, scheduler=scheduler, sample=sample
-        )
+        @override
+        def default_schedule(self, opt_level: int = 2) -> Sample:
+            while True:
+                for x in self.sample(1):
+                    if x:
+                        return x
 
-    @override
-    def sample(self, num: int, seed: int | None = 0) -> Iterator[Sample]:
-        samples = sample_uniques(self._sample_once_tuple, num)
-        for x in samples:
-            yield {a: v for (a, v) in x}
+        @override
+        def dict_to_sample(self, sample: dict[str, Any]) -> Sample:
+            return sample
 
-    def sample_once(self, num: int) -> Iterator[Sample]:
-        self._initialize()
-        draw = execute_dynamic(
-            self._methods,
-            self._properties,
-            self._z3_constraints,
-            self._enumerations,
-            k=num,
-        )
-        return draw
+        @override
+        def sample_to_dict(self, sample: Sample) -> dict[str, int]:
+            return sample
 
-    def pretty_print_methods(self, tab: str = "\t"):
-        self._initialize()
-        for m in self._methods:
-            m.pretty_print(self._properties, self._z3_constraints, tab=tab)
-
-    def _sample_once_tuple(self, num: int) -> Iterator[tuple]:
-        draw = self.sample_once(num)
-        for d in draw:
-            yield tuple((a, v) for a, v in d.items())
-
-    @override
-    def exhaustive(self) -> Iterator[Sample]:
-        return self.sample(1000)
-
-    @override
-    def default_schedule(self, opt_level: int = 2) -> Sample:
-        while True:
-            for x in self.sample(1):
-                if x:
-                    return x
-
-    @override
-    def dict_to_sample(self, sample: dict[str, Any]) -> Sample:
-        return sample
-
-    @override
-    def sample_to_dict(self, sample: Sample) -> dict[str, int]:
-        return sample
-
-    @property
-    @override
-    def sample_names(self) -> list[str]:
-        return self._sample_names
+        @property
+        @override
+        def sample_names(self) -> list[str]:
+            return self._sample_names
+except ModuleNotFoundError:
+    pass
 
 
 class Strategies:

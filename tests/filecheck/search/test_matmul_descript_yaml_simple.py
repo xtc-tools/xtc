@@ -1,4 +1,5 @@
 # RUN: python -O %s 2>&1 | filecheck %s
+# REQUIRES: module_xvs
 """
 Test a simple strategy on matmul
 """

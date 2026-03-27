@@ -1,4 +1,5 @@
 # RUN: python %s -O 2>&1 | filecheck %s
+# REQUIRES: module_xvs
 """
 Test splits on matmul
 """
