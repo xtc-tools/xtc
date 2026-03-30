@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import cast, Any
+from typing import cast, Any, Type
 from typing_extensions import override
 
 from xdsl.dialects.func import FuncOp as xdslFuncOp
-from xdsl.dialects import func, memref
-from xdsl.dialects.builtin import MemRefType, f32, f64
+from xdsl.dialects import func, memref, tensor, bufferization
+from xdsl.dialects.builtin import MemRefType, TensorType, f32, f64, UnitAttr
 from xdsl.ir import Region, Block, Operation
 from xdsl.builder import ImplicitBuilder
 
@@ -28,7 +28,11 @@ class MlirGraphBackend(MlirBackend):
         concluding_passes: list[str] = [],
         always_vectorize: bool = False,
         no_alias: bool = True,
+        use_tensor_dialect: bool = False,
     ):
+        self.xdsl_type: Type[TensorType] | Type[MemRefType] = (
+            TensorType if use_tensor_dialect else MemRefType
+        )
         if isinstance(xdsl_func, XTCGraph):
             assert nodes is None
             graph = xdsl_func
@@ -62,13 +66,24 @@ class MlirGraphBackend(MlirBackend):
     def _xdsl_generate_node(
         self, node: XTCNode, block: Block, variables: dict[str, Any]
     ):
-        operation = MlirOperation.from_operation(node.operation, name=node.name)
+        operation = MlirOperation.from_operation(
+            node.operation,
+            name=node.name,
+            op_type=self.xdsl_type,  # type: ignore
+        )
         names = [*node.inputs, *node.outputs]
         assert node.inputs_types is not None and node.outputs_types is not None
         types = [*node.inputs_types, *node.outputs_types]
         for name, type in zip(names, types):
+            if name in node.outputs and self.xdsl_type == TensorType:
+                with ImplicitBuilder(block):
+                    variables[name] = tensor.EmptyOp(
+                        dynamic_sizes=[],
+                        tensor_type=self._xdsl_type_from_tensortype(type),
+                    ).results[0]
             if name in variables:
                 continue
+            assert self.xdsl_type != TensorType
             with ImplicitBuilder(block):
                 elt_type, shape = self._xdsl_elt_shape_from_tensortype(type)
                 alloca = memref.AllocaOp.get(
@@ -79,6 +94,11 @@ class MlirGraphBackend(MlirBackend):
             variables[name] = alloca.results[0]
         args = [variables[name] for name in names]
         _, attrs = operation.generate(block=block, args=args)
+        # the tensor dialect needs the result of the op, not the alloca
+        if self.xdsl_type == TensorType:
+            assert len(node.outputs) == len(attrs["output_nodes"])
+            for name, output in zip(node.outputs, attrs["output_nodes"]):
+                variables[name] = output.results[0]
         return attrs
 
     def _init_from_graph(
@@ -95,18 +115,34 @@ class MlirGraphBackend(MlirBackend):
         )
         params_types = [
             self._xdsl_type_from_tensortype(cast(XTCTensorType, tensor_type))
-            for tensor_type in [*inputs_types, *outputs_types]
+            for tensor_type in inputs_types
         ]
+        # graph output types are always memrefs
+        params_types.extend(
+            self._memref_type_from_tensortype(cast(XTCTensorType, tensor_type))
+            for tensor_type in outputs_types
+        )
         inlined_block = Block(arg_types=params_types)
         variables = {
             name: arg
             for name, arg in zip([*graph.inputs, *graph.outputs], inlined_block.args)
         }
         block_attrs = []
+
         for node in graph.nodes.values():
             node_attrs = self._xdsl_generate_node(node, inlined_block, variables)
             block_attrs.append(node_attrs)
         with ImplicitBuilder(inlined_block):
+            if self.xdsl_type == TensorType:
+                # write the final tensor values to the output buffers
+                for name, out_arg in zip(
+                    graph.outputs, inlined_block.args[-len(graph.outputs) :]
+                ):
+                    bufferization.MaterializeInDestinationOp(
+                        operands=((variables[name],), (out_arg,)),
+                        result_types=((),),
+                        attributes={"writable": UnitAttr(), "restrict": UnitAttr()},
+                    )
             func.ReturnOp()
         region = Region([inlined_block])  # type: ignore # issue with mypy
         payload = xdslFuncOp.from_region(
@@ -128,6 +164,7 @@ class MlirGraphBackend(MlirBackend):
                     always_vectorize=always_vectorize,
                     concluding_passes=concluding_passes,
                     id=f"__xtc_id_{node_id}_",
+                    xdsl_type=self.xdsl_type,
                 )
         return payload, nodes_dict
 
@@ -137,10 +174,14 @@ class MlirGraphBackend(MlirBackend):
 
     def _xdsl_type_from_tensortype(self, type: XTCTensorType) -> Any:
         elt_type, shape = self._xdsl_elt_shape_from_tensortype(type)
+        return self.xdsl_type(elt_type, shape)
+
+    def _memref_type_from_tensortype(self, type: XTCTensorType) -> Any:
+        elt_type, shape = self._xdsl_elt_shape_from_tensortype(type)
         return MemRefType(elt_type, shape)
 
     def _np_types_spec(
-        self, types: list[MemRefType]
+        self, types: list[MemRefType] | list[TensorType]
     ) -> list[dict[str, tuple[int, ...] | str]]:
         types_map = {"f32": "float32", "f64": "float64"}
         types_spec: list[dict[str, tuple[int, ...] | str]] = [
@@ -156,12 +197,12 @@ class MlirGraphBackend(MlirBackend):
     def np_inputs_spec(self) -> list[dict[str, Any]]:
         # Assume inputs are first, and output is single last param
         inputs_args_types = [arg.type for arg in self.xdsl_func.args[:-1]]
-        list_memref_tys = cast(list[MemRefType], inputs_args_types)
-        return self._np_types_spec(list_memref_tys)
+        list_xdsl_tys = cast(list[self.xdsl_type], inputs_args_types)  # type: ignore
+        return self._np_types_spec(list_xdsl_tys)
 
     @override
     def np_outputs_spec(self) -> list[dict[str, Any]]:
         # Assume inputs are first, and output is single last param
         outputs_args_types = [arg.type for arg in self.xdsl_func.args[-1:]]
-        list_memref_tys = cast(list[MemRefType], outputs_args_types)
-        return self._np_types_spec(list_memref_tys)
+        list_xdsl_tys = cast(list[MemRefType], outputs_args_types)
+        return self._np_types_spec(list_xdsl_tys)

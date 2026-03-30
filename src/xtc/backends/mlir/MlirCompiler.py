@@ -20,6 +20,7 @@ from xtc.backends.mlir.MlirConfig import MlirConfig
 from xtc.backends.mlir.MlirCompilerPasses import (
     MlirProgramInsertTransformPass,
     MlirProgramApplyTransformPass,
+    apply_bufferization_passes,
 )
 
 from xtc.backends.mlir.MlirTarget import (
@@ -150,6 +151,11 @@ class MlirProgramCompiler:
         if self._config.print_transformed_ir:
             self.dump_ir("IR Dump After transform")
 
+    def mlir_apply_tensor_lowering_pass(self) -> None:
+        apply_bufferization_passes(self._mlir_program)
+        if self._config.print_bufferization_ir:
+            self.dump_ir("IR Dump After Tensor Lowering")
+
     def _save_temp(self, fname: str, content: Any) -> None:
         if not self._config.save_temps:
             return
@@ -196,5 +202,7 @@ class MlirProgramCompiler:
 
         self.mlir_apply_transform_pass()
         save_temp(mlir_atrn_dump_file, self._mlir_program.mlir_module)
+
+        self.mlir_apply_tensor_lowering_pass()
 
         self._target.generate_code_for_target(self._mlir_program, dump_file=dump_file)
