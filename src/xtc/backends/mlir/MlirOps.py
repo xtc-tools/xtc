@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing_extensions import override
 from typing import Any, Type, TypeAlias, cast
 
-from xdsl.dialects import linalg, arith, builtin, memref, tensor
+from xdsl.dialects import linalg, arith, builtin, memref, tensor, scf
 from xdsl.dialects.builtin import (
     MemRefType,
     TensorType,
@@ -568,20 +568,82 @@ class MlirOperatorPad(MlirOperator):
             cst0 = arith.ConstantOp(builtin.FloatAttr(constant_value, elt_size))
             result = (args[1].type,) if using_tensors else ()
             fill_node_id = f"{self.name}_0"
+
             if using_tensors:
                 fill = None
-                block_in = Block(arg_types=[IndexType()] * len(dims_value))
+                empty = args[1]
+                block_in = Block(arg_types=[elt_type])
+                rank = len(dims_value)
                 with ImplicitBuilder(block_in):
-                    tensor.YieldOp(cst0)
-                copy = tensor.PadOp(
-                    source=args[0],
-                    region=Region([block_in]),
-                    low=[],
-                    high=[],
-                    nofold=UnitAttr(),
-                    result_type=TensorType(elt_type, dims_value),
-                    static_low=lows,
-                    static_high=highs,
+                    # gets the current iteration index for each dim (not constants)
+                    output_indices = [linalg.IndexOp(i) for i in range(rank)]
+                    input_indices = []
+                    in_bounds_checks = []
+
+                    zero = arith.ConstantOp.create(
+                        properties={"value": builtin.IntegerAttr(0, IndexType())},
+                        result_types=[IndexType()],
+                    )
+
+                    for dim_idx in range(rank):
+                        lo_const = arith.ConstantOp.create(
+                            properties={
+                                "value": builtin.IntegerAttr(lows[dim_idx], IndexType())
+                            },
+                            result_types=[IndexType()],
+                        )
+                        input_idx = arith.SubiOp(output_indices[dim_idx], lo_const)
+                        input_indices.append(input_idx)
+
+                        # check to see if in the padding region or input tensor region
+                        size_const = arith.ConstantOp.create(
+                            properties={
+                                "value": builtin.IntegerAttr(
+                                    dims_value_before_pad[dim_idx], IndexType()
+                                )
+                            },
+                            result_types=[IndexType()],
+                        )
+
+                        ge_zero = arith.CmpiOp(input_idx, zero, "sge")
+                        lt_size = arith.CmpiOp(input_idx, size_const, "slt")
+
+                        in_bounds_checks.append(ge_zero)
+                        in_bounds_checks.append(lt_size)
+
+                    all_in_bounds = in_bounds_checks[0]
+                    for check in in_bounds_checks[1:]:
+                        all_in_bounds = arith.AndIOp(all_in_bounds, check)  # type: ignore
+
+                    if_region_then = Region([Block(arg_types=[])])
+                    if_region_else = Region([Block(arg_types=[])])
+
+                    with ImplicitBuilder(if_region_then.blocks[0]):
+                        extracted = tensor.ExtractOp(
+                            tensor=args[0],
+                            indices=input_indices,  # type: ignore
+                            result_type=elt_type,
+                        )
+                        scf.YieldOp(extracted)
+                    with ImplicitBuilder(if_region_else.blocks[0]):
+                        scf.YieldOp(cst0)
+
+                    if_op = scf.IfOp(
+                        cond=all_in_bounds,
+                        true_region=if_region_then,
+                        false_region=if_region_else,
+                        return_types=[elt_type],
+                    )
+
+                    linalg.YieldOp(if_op.results[0])
+
+                copy = linalg.GenericOp(
+                    inputs=[],
+                    outputs=[empty],
+                    body=Region([block_in]),
+                    indexing_maps=[AffineMapAttr(AffineMap.identity(rank))],
+                    iterator_types=[StringAttr("parallel")] * rank,
+                    result_types=[TensorType(elt_type, dims_value)],
                 )
             else:
                 fill = linalg.FillOp(
