@@ -69,6 +69,13 @@ make test                                   # Run minimal unit tests
 
 **Note:** The macOS distribution is experimental and not fully integrated or tested. We expose it for development purposes (feel free to contribute!).
 
+### Tutorial
+Once you installed XTC, you can run the tutorial which uses marimo (an alternative to jupyter notebook):
+```bash
+cd docs/tutorials
+marimo run xtc_101.py
+``` 
+
 ### Code quality
 
 Code quality requirements:
