@@ -109,3 +109,35 @@ func.func @myfun(
 Under the hood, this declarative "loop" attributes dialect is
 translated into the corresponding MLIR ```transform``` dialect
 command sequence through XTC API calls.
+
+## Iterative Search
+
+An iterative search can take advantage of a model to try to learn better tile sizes as loop explore is ran.
+Setting the batch determines the number of guesses the model has per iteration.
+
+    loop-explore --search iterative --batch 5 --trials 100 --strategy tile_goto --output results.random.csv
+
+You can specify an optimizer preset to determine how aggressive the model converges.
+
+    loop-explore --backends mlir --batch 5 --search iterative --optimizer random-forest-explore --operator conv2d --op-name AlexNet_02 --strategy tile_ppwrprp_vr --output output.csv
+
+To specify your own model parameters you can pass a yaml file.
+
+For example lets say you have config.yaml containing:
+
+```
+batch_candidates: 5000
+beta: 2.5
+alpha: 0.7
+update_first: null
+update_period: null
+n_estimators: 300
+max_depth: 10
+min_samples_leaf: 4
+max_features: 0.8
+```
+
+You can use those parameters to set the model behavior
+
+    loop-explore --backends mlir --batch 5 --search iterative --optimizer-config config.yaml --strategy tile_goto --output output.csv
+
