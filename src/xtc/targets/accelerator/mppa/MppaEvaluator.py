@@ -25,9 +25,13 @@ class MppaEvaluator(itf.exec.Evaluator):
     def __init__(self, module: "mppa.MppaModule", **kwargs: Any) -> None:
         self._device = MppaDevice(module._mppa_config)
         self._module = module
-        self._repeat = kwargs.get("repeat", 1)
-        self._min_repeat_ms = kwargs.get("min_repeat_ms", 100)
+        self._repeat = kwargs.get("repeat", 2)
+        self._min_repeat_ms = kwargs.get("min_repeat_ms", 0)
+        assert self._min_repeat_ms == 0, "min_repeat_ms > 0 is not supported yet"
         self._number = kwargs.get("number", 1)
+        assert self._number == 1, "number > 1 is not supported yet"  # TODO
+        # TODO support min_repeat_ms and number
+        # But execution on MPPA has almost no noise except DDR refresh
         self._validate = kwargs.get("validate", False)
         self._parameters = kwargs.get("parameters")
         self._init_zero = kwargs.get("init_zero", False)

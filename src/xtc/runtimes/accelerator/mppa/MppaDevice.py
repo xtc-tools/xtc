@@ -8,6 +8,7 @@ import logging
 import os
 import subprocess
 import ctypes
+import ctypes.util
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -15,7 +16,7 @@ from typing_extensions import override
 
 from xtc.itf.runtime.accelerator import AcceleratorDevice
 from xtc.itf.comp.module import Module
-from xtc.utils.cfunc import CFunc
+from xtc.utils.cfunc import CFunc, _str_list_to_c
 
 __all__ = ["MppaDevice"]
 
@@ -33,10 +34,16 @@ from xtc.utils.loader import LibLoader
 from xtc.runtimes.host.HostRuntime import HostRuntime
 
 MAX_NB_LOADED_KERNELS = 10
+NB_CC = 5
+NB_PE = 16
 
 
-def _get_csrcs_dir():
+def _get_csrcs_dir_mppa():
     return Path(__file__).parents[3] / "csrcs" / "runtimes" / "accelerator" / "mppa"
+
+
+def _get_csrcs_dir_host():
+    return Path(__file__).parents[3] / "csrcs" / "runtimes" / "host"
 
 
 def _execute_command(
@@ -78,24 +85,35 @@ def _compile_kvx_object(device: "MppaDevice", src_file: str, obj_file: str):
     return _execute_command(cmd=cmd, debug=device.config.mlir_config.debug)
 
 
-def _compile_host_object(device: "MppaDevice", src_file: str, obj_file: str):
+def _compile_host_object(
+    device: "MppaDevice", src_file: str, obj_file: str, has_pfm: bool
+):
     cmd_host_cc = [cc_bin]
-    cmd = cmd_host_cc + [
-        "-O2",
-        "-fPIC",
-        "-Wall",
-        "-Wextra",
-        f"-I{device._mlir_mppa_path}/include",
-        f"-I{device._csw_path}/include",
-        f"-I{_get_csrcs_dir()}",
-        "-DNB_CC=5",
-        "-DTARGET_KV3_2",
-        '-DKERNEL_PATHNAME="' + device.config.work_dir + "/mppa_runtime_acc.so" + '"',
-        "-c",
-        src_file,
-        "-o",
-        obj_file,
-    ]
+    pfm = ["-DHAS_PFM=1"] if has_pfm else []
+    cmd = (
+        cmd_host_cc
+        + pfm
+        + [
+            "-O2",
+            "-march=native",
+            "-fPIC",
+            f"-I{device._mlir_mppa_path}/include",
+            f"-I{device._csw_path}/include",
+            f"-I{_get_csrcs_dir_mppa()}",
+            f"-I{_get_csrcs_dir_host()}",
+            "-DACCELERATOR_NAME=mppa",
+            "-DNB_CC=5",
+            "-DTARGET_KV3_2",
+            '-DKERNEL_PATHNAME="'
+            + device.config.work_dir
+            + "/mppa_runtime_acc.so"
+            + '"',
+            "-c",
+            src_file,
+            "-o",
+            obj_file,
+        ]
+    )
     return _execute_command(cmd=cmd, debug=device.config.mlir_config.debug)
 
 
@@ -105,7 +123,12 @@ def _compile_runtime_lib(device: "MppaDevice") -> LibLoader:
     ]
     host_src_files = [
         device._mlir_mppa_path + "/src/runtime/mppa_management_host.c",
-        str(_get_csrcs_dir() / "host.c"),
+        str(_get_csrcs_dir_mppa() / "host.c"),
+        str(_get_csrcs_dir_mppa() / "perf_events.c"),
+        # Reuse portion of the host runtime
+        str(_get_csrcs_dir_host() / "evaluate_perf.c"),
+        str(_get_csrcs_dir_host() / "perf_event_linux.c"),
+        str(_get_csrcs_dir_host() / "fclock.c"),
     ]
 
     # Compile KVX objects
@@ -131,11 +154,12 @@ def _compile_runtime_lib(device: "MppaDevice") -> LibLoader:
     assert exe_process.returncode == 0
 
     # Compile host objects
+    has_pfm = ctypes.util.find_library("pfm") is not None
     host_obj_files = [
         f"{device.config.work_dir}/{Path(file).stem}.o" for file in host_src_files
     ]
     for src_file, obj_file in zip(host_src_files, host_obj_files):
-        _compile_host_object(device, src_file, obj_file)
+        _compile_host_object(device, src_file, obj_file, has_pfm)
     # Link host objects
     cmd_host_cc = [cc_bin]
     cmd_host_link = cmd_host_cc + [
@@ -152,6 +176,8 @@ def _compile_runtime_lib(device: "MppaDevice") -> LibLoader:
         "-lmppa_rproc_host",
         "-lpthread",
     ]
+    if has_pfm:
+        cmd_host_link += ["-lpfm"]
     exe_process = _execute_command(
         cmd=cmd_host_link, debug=device.config.mlir_config.debug
     )
@@ -219,6 +245,116 @@ class MppaDevice(AcceleratorDevice):
         kernel_fn = getattr(self.lib_loader.lib, "mppa_insert_mock_tracepoints")
         kernel_fn()
 
+    def _setup_mppa_perf_events(self, mppa_pmu_events: list[str]) -> None:
+        if len(mppa_pmu_events) == 0:
+            return
+        if len(mppa_pmu_events) > 7:
+            raise ValueError(
+                "Requested more than 7 Mppa PMU counters is not supported yet"
+            )
+        assert self.lib_loader is not None
+        assert all(event.startswith("mppa.") for event in mppa_pmu_events)
+        # FIXME First PM register is overriden by ClusterOS, use proper allocation
+        _mppa_pmu_events = ["mppa.EBE.cluster.avg.pe.avg"] + mppa_pmu_events
+        # Extract only "<event_name>" from "mppa.<event_name>.cluster.<cid|reduction>.pe.<pid|reduction>"
+        assert all(event.count(".") == 5 for event in _mppa_pmu_events)
+        event_names = [event.split(".")[1] for event in _mppa_pmu_events]
+        mppa_pmu_events_c = (ctypes.c_char_p * len(event_names))(
+            *[name.encode("utf-8") for name in event_names]
+        )
+        # Call setup runtime function
+        setup_mppa_perf_events_fn = getattr(
+            self.lib_loader.lib, "mppa_setup_perf_events"
+        )
+        setup_mppa_perf_events_fn.argtypes = [
+            ctypes.POINTER(ctypes.c_char_p),
+            ctypes.c_int,
+        ]
+        setup_mppa_perf_events_fn(mppa_pmu_events_c, ctypes.c_int(len(event_names)))
+
+    def _read_mppa_perf_events_results(
+        self, mppa_pmu_events: list[str], repeat: int
+    ) -> list[float]:
+        if len(mppa_pmu_events) == 0:
+            return []
+        assert self.lib_loader is not None
+        assert all(event.startswith("mppa.") for event in mppa_pmu_events)
+        assert all(event.count(".") == 5 for event in mppa_pmu_events)
+        # FIXME First PM register is overriden by ClusterOS, use proper allocation
+        _mppa_pmu_events = ["mppa.EBE.cluster.avg.pe.avg"] + mppa_pmu_events
+        # Allocate a buffer of size nb_cc * nb_pe * len(mppa_pmu_events) uint64_t
+        results_array = (
+            ctypes.c_uint64 * (self.nb_cc * self.nb_pe * len(_mppa_pmu_events))
+        )()
+        # Call read runtime function
+        read_mppa_perf_events_results_fn = getattr(
+            self.lib_loader.lib, "mppa_read_perf_events_results"
+        )
+        read_mppa_perf_events_results_fn.argtypes = [ctypes.c_void_p]
+        read_mppa_perf_events_results_fn.restype = ctypes.c_void_p
+        read_mppa_perf_events_results_fn(
+            ctypes.cast(results_array, ctypes.POINTER(ctypes.c_void_p))
+        )
+        # Apply reduction or get requested value
+        # Extract "<event_name>" from "mppa.<event_name>.cluster.<cid|reduction>.pe.<pid|reduction>"
+        results: list[float] = []
+        for i, event in enumerate(_mppa_pmu_events):
+            assert event.split(".")[2] == "cluster"
+            cluster_op = event.split(".")[3]
+            assert event.split(".")[4] == "pe"
+            pe_op = event.split(".")[5]
+            # Collect cluster data
+            cluster_data = []
+            if pe_op.isdigit():
+                pe_id = int(pe_op)
+                assert pe_id >= 0 and pe_id < self.nb_pe
+                cluster_data = [
+                    float(
+                        results_array[
+                            self.nb_cc * self.nb_pe * i + cid * self.nb_pe + pe_id
+                        ]
+                    )
+                    for cid in range(self.nb_cc)
+                ]
+            else:
+                for cid in range(self.nb_cc):
+                    tmp = [
+                        float(
+                            results_array[
+                                self.nb_cc * self.nb_pe * i + cid * self.nb_pe + pe_id
+                            ]
+                        )
+                        for pe_id in range(self.nb_pe)
+                    ]
+                    if pe_op == "sum":
+                        cluster_data.append(sum(tmp))
+                    elif pe_op == "min":
+                        cluster_data.append(min(tmp))
+                    elif pe_op == "max":
+                        cluster_data.append(max(tmp))
+                    elif pe_op == "avg":
+                        cluster_data.append(sum(tmp) / self.nb_pe)
+                    else:
+                        raise ValueError(f"Unknown pe operation: {pe_op}")
+            # Collect final result
+            if cluster_op.isdigit():
+                cluster_id = int(cluster_op)
+                assert cluster_id >= 0 and cluster_id < self.nb_cc
+                final_result = cluster_data[cluster_id]
+            else:
+                if cluster_op == "sum":
+                    final_result = sum(cluster_data)
+                elif cluster_op == "min":
+                    final_result = min(cluster_data)
+                elif cluster_op == "max":
+                    final_result = max(cluster_data)
+                elif cluster_op == "avg":
+                    final_result = sum(cluster_data) / self.nb_cc
+                else:
+                    raise ValueError(f"Unknown cluster operation: {cluster_op}")
+            results.append(final_result / repeat)
+        return results[1:]
+
     def __del__(self):
         if self.mppa_initialized:
             self.deinit_device()
@@ -251,6 +387,24 @@ class MppaDevice(AcceleratorDevice):
     @override
     def device_id(self) -> int:
         return 0  # TODO: Allow multiple mppa per machine (e.g. TC4)
+
+    @property
+    def nb_cc(self) -> int:
+        return NB_CC
+
+    @property
+    def nb_pe(self) -> int:
+        return NB_PE
+
+    @property
+    def frequency(self) -> int:
+        if not self.mppa_initialized:
+            self.init_device()
+        assert self.lib_loader is not None
+        get_frequency_fn = getattr(self.lib_loader.lib, "mppa_get_frequency")
+        get_frequency_fn.argtypes = []
+        get_frequency_fn.restype = ctypes.c_uint64
+        return get_frequency_fn()
 
     @override
     def init_device(self) -> None:
@@ -510,15 +664,58 @@ class MppaDevice(AcceleratorDevice):
         args: Any,
         nargs: int,
     ) -> list[float]:
-        return HostRuntime.get().evaluate_perf(
-            pmu_events,
-            repeat,
-            number,
-            min_repeat_ms,
-            cfunc,
-            args,
-            nargs,
+        if not self.mppa_initialized:
+            self.init_device()
+        assert self.lib_loader is not None
+        # Extract Mppa specific pmu events
+        mppa_pmu_events = [event for event in pmu_events if event.startswith("mppa.")]
+        self._setup_mppa_perf_events(mppa_pmu_events)
+        remaining_pmu_events = [
+            event for event in pmu_events if not event.startswith("mppa.")
+        ]
+        # Call evaluation C runtime
+        values_num = 1
+        if len(remaining_pmu_events) > 0:
+            values_num = len(remaining_pmu_events)
+        results_array = (ctypes.c_double * (repeat * values_num))()
+        evaluate_perf_fn = getattr(self.lib_loader.lib, "evaluate_perf")
+        evaluate_perf_fn.argtypes = [
+            ctypes.POINTER(ctypes.c_double),
+            ctypes.c_int,
+            ctypes.POINTER(ctypes.c_char_p),
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.CFUNCTYPE(ctypes.c_voidp),
+            ctypes.POINTER(ctypes.c_voidp),
+        ]
+        evaluate_perf_fn.restype = None
+        evaluate_perf_fn(
+            ctypes.cast(results_array, ctypes.POINTER(ctypes.c_double)),
+            ctypes.c_int(len(remaining_pmu_events)),
+            _str_list_to_c(remaining_pmu_events),
+            ctypes.c_int(repeat),
+            ctypes.c_int(number),
+            ctypes.c_int(min_repeat_ms),
+            ctypes.cast(cfunc.handle, ctypes.CFUNCTYPE(ctypes.c_voidp)),
+            ctypes.cast(args, ctypes.POINTER(ctypes.c_voidp)),
+            ctypes.c_int(nargs),
         )
+        host_results = [float(x) for x in results_array]
+        # Collect Mppa specific pmu events results
+        mppa_pmu_events_results = self._read_mppa_perf_events_results(
+            mppa_pmu_events, repeat
+        )
+        # Interleave the results of host and mppa events to match the requested pmu_events order
+        out = []
+        host_iter = iter(host_results)
+        mppa_iter = iter(mppa_pmu_events_results)
+        for ev in pmu_events:
+            if ev.startswith("mppa."):
+                out.append(next(mppa_iter))
+            else:
+                out.append(next(host_iter))
+        return out
 
     @override
     def evaluate_packed(
