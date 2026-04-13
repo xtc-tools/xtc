@@ -9,6 +9,8 @@ STRATEGY="${STRATEGY:-tile_ppwrprp}"
 OPTIMIZERS="${OPTIMIZERS:-random random-forest-aggressive}"
 PROBLEM="${PROBLEM:-ResNet18_01}"
 OPERATOR="${OPERATOR:-conv2d}"
+JOBS="${JOBS:-1}"
+BATCH="${BATCH:-1}"
 
 mkdir -p "$outdir"
 rm -f "$outdir/*.csv"
@@ -24,9 +26,10 @@ for b in $BACKENDS; do
               --backends "$b" \
               --search iterative \
               --optimizer "$o" \
-              --operator "$OPERATOR"
+              --operator "$OPERATOR" \
               --op-name "$PROBLEM" \
-              --jobs 1 \
+              --jobs "$JOBS" \
+              --batch "$BATCH" \
               --seed $s \
               --strategy "$STRATEGY" \
               --output "$outdir/results.b$b.prob$PROBLEM.strat$STRATEGY.seed$s.csv"
