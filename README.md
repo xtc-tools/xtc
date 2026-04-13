@@ -45,6 +45,13 @@ uv pip install -r macos_tvm_requirements.txt
 make test
 ```
 
+### Tutorial
+Once you installed XTC, you can run the tutorial which uses marimo (an alternative to jupyter notebook):
+```bash
+cd docs/tutorials
+marimo run xtc_101.py
+``` 
+
 ### Code quality
 
 Code quality requirements:
