@@ -51,6 +51,16 @@ class GPUDevice(AcceleratorDevice):
             f"{get_mlir_prefix()}/lib/{cuda_runtime_lib}"
         )
         self.loaded_kernels: dict[Module, LibLoader] = {}
+        create_stream_func_name = "mgpuStreamCreate"
+        create_stream_func = getattr(
+            self._mlir_runtime_lib.lib, create_stream_func_name
+        )
+        assert create_stream_func is not None, (
+            f"Cannot find symbol {create_stream_func_name} in lib {self._mlir_runtime_lib.lib}"
+        )
+        create_stream_func.argtypes = []
+        create_stream_func.restype = ctypes.c_voidp
+        self._custream = create_stream_func()
 
     def __get_runtime_func(self, name: str) -> Callable:
         if name in runtime_funcs:
@@ -120,23 +130,81 @@ class GPUDevice(AcceleratorDevice):
 
     @override
     def memory_allocate(self, size_bytes: int) -> Any:
-        raise NotImplementedError("memory_allocate is not implemented for GPU device")
+        func_name = "mgpuMemAlloc"
+        func = getattr(self._mlir_runtime_lib.lib, func_name)
+        assert func is not None, (
+            f"Cannot find symbol {func_name} in lib {self._mlir_runtime_lib.lib}"
+        )
+        func.argtypes = [ctypes.c_uint64, ctypes.c_voidp, ctypes.c_bool]
+        func.restype = ctypes.c_voidp
+        return func(size_bytes, self._custream, True)
 
     @override
     def memory_free(self, handle: Any) -> None:
-        raise NotImplementedError("memory_free is not implemented for GPU device")
+        func_name = "mgpuMemFree"
+        func = getattr(self._mlir_runtime_lib.lib, func_name)
+        assert func is not None, (
+            f"Cannot find symbol {func_name} in lib {self._mlir_runtime_lib.lib}"
+        )
+        func.argtypes = [ctypes.c_voidp, ctypes.c_voidp]
+        func.restype = None
+        func(handle, self._custream)
 
     @override
     def memory_copy_to(
         self, acc_handle: Any, src: ctypes.c_void_p, size_bytes: int
     ) -> None:
-        raise NotImplementedError("memory_copy_to is not implemented for GPU device")
+        # Copy memory to accelerator device
+        func_name = "mgpuMemcpy"
+        func = getattr(self._mlir_runtime_lib.lib, func_name)
+        assert func is not None, (
+            f"Cannot find symbol {func_name} in lib {self._mlir_runtime_lib.lib}"
+        )
+        func.argtypes = [
+            ctypes.c_voidp,
+            ctypes.c_voidp,
+            ctypes.c_uint64,
+            ctypes.c_voidp,
+        ]
+        func.restype = None
+        func(acc_handle, src, size_bytes, self._custream)
+        # Synchronize stream
+        sync_stream_func_name = "mgpuStreamSynchronize"
+        sync_stream_func = getattr(self._mlir_runtime_lib.lib, sync_stream_func_name)
+        assert sync_stream_func is not None, (
+            f"Cannot find symbol {sync_stream_func_name} in lib {self._mlir_runtime_lib.lib}"
+        )
+        sync_stream_func.argtypes = [ctypes.c_voidp]
+        sync_stream_func.restype = None
+        sync_stream_func(self._custream)
 
     @override
     def memory_copy_from(
         self, acc_handle: Any, dst: ctypes.c_void_p, size_bytes: int
     ) -> None:
-        raise NotImplementedError("memory_copy_from is not implemented for GPU device")
+        # Copy memory from accelerator device to host
+        func_name = "mgpuMemcpy"
+        func = getattr(self._mlir_runtime_lib.lib, func_name)
+        assert func is not None, (
+            f"Cannot find symbol {func_name} in lib {self._mlir_runtime_lib.lib}"
+        )
+        func.argtypes = [
+            ctypes.c_voidp,
+            ctypes.c_voidp,
+            ctypes.c_uint64,
+            ctypes.c_voidp,
+        ]
+        func.restype = None
+        func(dst, acc_handle, size_bytes, self._custream)
+        # Synchronize stream
+        sync_stream_func_name = "mgpuStreamSynchronize"
+        sync_stream_func = getattr(self._mlir_runtime_lib.lib, sync_stream_func_name)
+        assert sync_stream_func is not None, (
+            f"Cannot find symbol {sync_stream_func_name} in lib {self._mlir_runtime_lib.lib}"
+        )
+        sync_stream_func.argtypes = [ctypes.c_voidp]
+        sync_stream_func.restype = None
+        sync_stream_func(self._custream)
 
     @override
     def memory_fill_zero(self, acc_handle: Any, size_bytes: int) -> None:
@@ -144,9 +212,7 @@ class GPUDevice(AcceleratorDevice):
 
     @override
     def memory_data_pointer(self, acc_handle: Any) -> ctypes.c_void_p:
-        raise NotImplementedError(
-            "memory_data_pointer is not implemented for GPU device"
-        )
+        return ctypes.cast(acc_handle, ctypes.c_void_p)
 
     @override
     def evaluate(
