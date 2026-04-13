@@ -3,8 +3,9 @@
 # Requires: pip install pytest pytest-xdist
 #
 set -euo pipefail
-jobs="$(nproc)"
 dir="$(dirname "$0")"
+
+jobs="$(nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)"
 
 # Reduce jobs to at max 8, as pytest jobs setup is actually costly
 [ "$jobs" -le 8 ] || jobs=8

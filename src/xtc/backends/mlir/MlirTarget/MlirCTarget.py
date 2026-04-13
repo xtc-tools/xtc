@@ -36,6 +36,7 @@ from ..MlirConfig import MlirConfig
 from ..MlirProgram import RawMlirProgram
 
 from mlir.passmanager import PassManager
+from mlir.ir import OpResult
 
 __all__ = ["MlirCTarget"]
 
@@ -180,6 +181,14 @@ class MlirCTarget(MlirTarget):
         **kwargs: Any,
     ) -> itf.comp.Module:
         return HostModule(name, payload_name, file_name, file_type, graph, **kwargs)
+
+    @override
+    def has_custom_vectorize(self) -> bool:
+        return False
+
+    @override
+    def apply_custom_vectorize(self, handle: OpResult) -> None:
+        return
 
     def dump_ir(self, mlir_program: RawMlirProgram, title: str):
         print(f"// -----// {title} //----- //", file=sys.stderr)

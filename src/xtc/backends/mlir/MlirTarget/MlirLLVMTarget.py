@@ -24,6 +24,9 @@ from xtc.utils.ext_tools import (
     system_libs,
     cc_bin,
 )
+from xtc.utils.host_tools import (
+    target_triple,
+)
 
 from xtc.targets.host import HostModule
 import xtc.itf as itf
@@ -34,6 +37,7 @@ from ..MlirConfig import MlirConfig
 from ..MlirProgram import RawMlirProgram
 
 from mlir.passmanager import PassManager
+from mlir.ir import OpResult
 
 __all__ = ["MlirLLVMTarget"]
 
@@ -173,6 +177,14 @@ class MlirLLVMTarget(MlirTarget):
     ) -> itf.comp.Module:
         return HostModule(name, payload_name, file_name, file_type, graph, **kwargs)
 
+    @override
+    def has_custom_vectorize(self) -> bool:
+        return False
+
+    @override
+    def apply_custom_vectorize(self, handle: OpResult) -> None:
+        return
+
     def dump_ir(self, mlir_program: RawMlirProgram, title: str):
         print(f"// -----// {title} //----- //", file=sys.stderr)
         print(str(mlir_program.mlir_module), file=sys.stderr)
@@ -191,7 +203,7 @@ class MlirLLVMTarget(MlirTarget):
 
     @property
     def cmd_opt(self):
-        opt = [f"{self._config.mlir_install_dir}/bin/opt"]
+        opt = [f"{self._config.llvm_install_dir}/bin/opt"]
         return (
             opt
             + opt_opts
@@ -200,11 +212,14 @@ class MlirLLVMTarget(MlirTarget):
 
     @property
     def cmd_llc(self):
-        llc = [f"{self._config.mlir_install_dir}/bin/llc"]
+        llc = [f"{self._config.llvm_install_dir}/bin/llc"]
         if self._config.arch == "native":
             llc_arch = [f"--mcpu={self._config.cpu}"]
         else:
             llc_arch = [f"-march={self._config.arch}", f"--mcpu={self._config.cpu}"]
+            triple = target_triple(self._config.arch)
+            if triple:
+                llc_arch += [f"--mtriple={triple}"]
         return llc + llc_opts + llc_arch
 
     @property

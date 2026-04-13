@@ -34,6 +34,7 @@ import xtc.itf as itf
 
 from xtc.utils.tools import (
     get_mlir_prefix,
+    get_llvm_prefix,
 )
 from xtc.utils.ext_tools import (
     cc_bin,
@@ -98,7 +99,8 @@ class JIRCompiler(itf.comp.Compiler):
         assert not self.executable, f"executable generation not supported yet for TVM"
         assert self.shared_lib, f"shared_lib generation is mandatory for TVM"
         self.mlir_install_dir = get_mlir_prefix()
-        self._jir_llvm_config = f"{self.mlir_install_dir}/bin/llvm-config"
+        self.llvm_install_dir = get_llvm_prefix()
+        self._jir_llvm_config = f"{self.llvm_install_dir}/bin/llvm-config"
         self._target_triple = kwargs.get(
             "target_triple", get_host_target_triple(self._jir_llvm_config)
         )
@@ -132,7 +134,7 @@ class JIRCompiler(itf.comp.Compiler):
         mlir_lowering = MLIRLowering(f"{self.mlir_install_dir}/bin/mlir-opt")
         mlir2llvm = MLIR2LLVMConversion(f"{self.mlir_install_dir}/bin/mlir-translate")
         llvm_compiler = LLVMSharedLibraryCompiler(
-            f"{self.mlir_install_dir}/bin/clang",
+            f"{self.llvm_install_dir}/bin/clang",
             f"{self.mlir_install_dir}/lib",
             None,
             self._target_triple,
@@ -239,13 +241,13 @@ class JIRCompiler(itf.comp.Compiler):
 
     @property
     def _cmd_opt(self):
-        opt = [f"{self.mlir_install_dir}/bin/opt"]
+        opt = [f"{self.llvm_install_dir}/bin/opt"]
         arch_opts = [f"-march={self._target_arch}", f"--mcpu={self._target_cpu}"]
         return opt + opt_opts + arch_opts
 
     @property
     def _cmd_llc(self):
-        llc = [f"{self.mlir_install_dir}/bin/llc"]
+        llc = [f"{self.llvm_install_dir}/bin/llc"]
         if self._target_arch == "native":
             arch_opts = [f"--mcpu={self._target_cpu}"]
         else:

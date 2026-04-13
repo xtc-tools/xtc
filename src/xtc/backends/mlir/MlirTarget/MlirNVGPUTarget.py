@@ -23,12 +23,12 @@ from xtc.utils.ext_tools import (
     cc_bin,
 )
 from xtc.utils.tools import get_cuda_prefix
-from xtc.targets.gpu import GPUModule
+from xtc.targets.accelerator.gpu import GPUModule
 import xtc.itf as itf
 from xtc.itf.graph import Graph
 
 from mlir.dialects import func
-from mlir.ir import UnitAttr
+from mlir.ir import UnitAttr, OpResult
 from mlir.passmanager import PassManager
 
 from .MlirTarget import MlirTarget
@@ -323,6 +323,14 @@ class MlirNVGPUTarget(MlirTarget):
     ) -> itf.comp.Module:
         return GPUModule(name, payload_name, file_name, file_type, graph, **kwargs)
 
+    @override
+    def has_custom_vectorize(self) -> bool:
+        return False
+
+    @override
+    def apply_custom_vectorize(self, handle: OpResult) -> None:
+        return
+
     @property
     def disassemble_option(self):
         if not self._config.to_disassemble:
@@ -356,7 +364,7 @@ class MlirNVGPUTarget(MlirTarget):
 
     @property
     def cmd_opt(self):
-        opt = [f"{self._config.mlir_install_dir}/bin/opt"]
+        opt = [f"{self._config.llvm_install_dir}/bin/opt"]
         return (
             opt
             + opt_opts
@@ -365,7 +373,7 @@ class MlirNVGPUTarget(MlirTarget):
 
     @property
     def cmd_llc(self):
-        llc = [f"{self._config.mlir_install_dir}/bin/llc"]
+        llc = [f"{self._config.llvm_install_dir}/bin/llc"]
         if self._config.arch == "native":
             llc_arch = [f"--mcpu={self._config.cpu}"]
         else:

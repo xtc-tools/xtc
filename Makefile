@@ -51,10 +51,13 @@ check-lit:
 	lit -v tests/filecheck
 
 check-lit-c:
-	env XTC_MLIR_TARGET=c lit -v tests/filecheck/backends tests/filecheck/mlir_loop
+	[ `uname -s` = Darwin ] || env XTC_MLIR_TARGET=c lit -v tests/filecheck/backends tests/filecheck/mlir_loop
 
 check-lit-nvgpu:
-	env XTC_MLIR_TARGET=nvgpu lit -v tests/filecheck/backends tests/filecheck/mlir_loop tests/filecheck/evaluation
+	[ `uname -s` = Darwin ] || env XTC_MLIR_TARGET=nvgpu lit -v tests/filecheck/backends tests/filecheck/mlir_loop tests/filecheck/evaluation
+
+check-lit-mppa:
+	[ `uname -s` = Darwin ] || env XTC_MLIR_TARGET=mppa lit -v -j 1 tests/filecheck/backends/target_mppa tests/filecheck/evaluation/test_matmul_pmu_counters_mppa.py
 
 check-pytest:
 	scripts/pytest/run_pytest.sh -v
@@ -66,7 +69,7 @@ format-license:
 	scripts/licensing/licensing.py --apply
 
 claude:
-	scripts/llms/init_claude.py README.md "Links" "System requirements" "AI assistants" > CLAUDE.md
+	scripts/llms/init_claude.py README.md "Links" "AI assistants" > CLAUDE.md
 
 run-tutorial:
 	marimo run docs/tutorials/xtc_101.py

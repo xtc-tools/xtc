@@ -1,3 +1,4 @@
---index-url https://gitlab.inria.fr/api/v4/groups/corse/-/packages/pypi/simple
-mlir-python-bindings==19.1.7.2025011204+cd708029rev1
-mlir==19.1.7.2025011204+cd708029rev1
+xtc-llvm-tools==21.1.2.6
+xtc-mlir-tools==21.1.2.7
+xtc-mlir-python-bindings==21.1.2.7
+xtc-mlir-extra-tools==21.1.2.7

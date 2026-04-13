@@ -45,6 +45,9 @@ def binutils_prefix(arch: str = "") -> str:
     triple = target_triple(arch)
     if not triple:
         return ""
+    if platform.system() == "Darwin" and triple == "aarch64-linux-gnu":
+        # On darwin cross aarch64 binutils from aarch64-elf-binutils
+        triple = "aarch64-elf"
     return f"{triple}-"
 
 
@@ -74,12 +77,13 @@ def disassemble(
         "--no-addresses",
         "--no-show-raw-insn",
     ]
-    if platform.system() == "Darwin":
-        jumps_opts = []
-        disass_symbol_opt = ["--disassemble-symbols=ltmp0"]
-    else:
+    target = target_arch(arch)
+    if target in ["x86_64", "aarch64"] or platform.system() == "Linux":
         jumps_opts = []
         disass_symbol_opt = [f"--disassemble={function}"]
+    elif platform.system() == "Darwin":
+        jumps_opts = []
+        disass_symbol_opt = ["--disassemble-symbols=ltmp0"]
     color_opts = [
         "--disassembler-color=on",
     ]

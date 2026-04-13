@@ -6,6 +6,12 @@
 
 import argparse
 import os
+
+from xtc.backends.mlir.MlirTarget import (
+    MlirTarget,
+    get_default_target,
+)
+from xtc.backends.mlir.MlirConfig import MlirConfig
 from xtc.backends.mlir.MlirProgram import RawMlirProgram
 from xtc.backends.mlir.MlirCompiler import MlirProgramCompiler
 
@@ -19,9 +25,14 @@ def main():
         help="The source file.",
     )
     parser.add_argument(
+        "--mlir-dir",
+        type=str,
+        help="The prefix for MLIR tools, or autodetected.",
+    )
+    parser.add_argument(
         "--llvm-dir",
         type=str,
-        help="The prefix for LLVM/MLIR tools, or autodetected.",
+        help="The prefix for LLVM tools, or --mlir-dir or autodetected.",
     )
     parser.add_argument(
         "--print-source-ir",
@@ -71,14 +82,20 @@ def main():
             args.print_assembly,
         ]
     )
-    compiler = MlirProgramCompiler(
-        mlir_program=mlir_program,
-        mlir_install_dir=args.llvm_dir,
+    config = MlirConfig(
+        mlir_install_dir=args.mlir_dir,
+        llvm_install_dir=args.llvm_dir,
         print_source_ir=print_source,
         print_transformed_ir=args.print_transformed_ir,
         print_lowered_ir=args.print_lowered_ir,
         print_assembly=args.print_assembly,
         color=args.color,
         debug=args.debug,
+    )
+    target = get_default_target()(config)
+    compiler = MlirProgramCompiler(
+        mlir_program=mlir_program,
+        target=target,
+        config=config,
     )
     compiler.compile()

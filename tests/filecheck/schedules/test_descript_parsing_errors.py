@@ -24,7 +24,7 @@ if "--unroll" in sys.argv:
     descript_scheduler(
         scheduler = sch,
         node_name = "C",
-        abstract_axis = ["I","J","K"],
+        abstract_dims = ["I","J","K"],
         spec = {
             "I": {},
             "K": {"unroll" : "hello"},
@@ -35,7 +35,7 @@ elif "--parallelize" in sys.argv:
     descript_scheduler(
         scheduler = sch,
         node_name = "C",
-        abstract_axis = ["I","J","K"],
+        abstract_dims = ["I","J","K"],
         spec = {
             "I": {"parallelize" : "hello"},
             "K": {},
@@ -46,7 +46,7 @@ elif "--vectorize" in sys.argv:
     descript_scheduler(
         scheduler = sch,
         node_name = "C",
-        abstract_axis = ["I","J","K"],
+        abstract_dims = ["I","J","K"],
         spec = {
             "I": {},
             "K": {},

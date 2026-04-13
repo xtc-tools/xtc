@@ -11,8 +11,9 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, macos-14, macos-15]
         python-version: ["3.12"]
     steps:
       - name: Checkout XTC Repository
@@ -27,31 +28,39 @@ jobs:
             echo "::error::PR contains merges, always use rebase for updating branches: Merge commits: $MERGE_COMMITS" >&2
             exit 1
           fi
-      - name: Install Distro Packages
+      - name: Install Linux Packages
+        if: runner.os == 'Linux'
         # Note: package cache with awalsh128/cache-apt-pkgs-action does not work correctly, use standard install.
         run: |
           sudo apt install -y build-essential libomp5 binutils-aarch64-linux-gnu binutils-x86-64-linux-gnu libpfm4-dev
+      - name: Install macOS Packages
+        if: runner.os == 'macOs'
+        run: |
+          brew install libomp x86_64-linux-gnu-binutils aarch64-elf-binutils
+          export DYLD_LIBRARY_PATH="/opt/homebrew/opt/libomp/lib:$DYLD_LIBRARY_PATH"
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Display Python version
-        run: |
-          python -c "import sys; print(sys.version)"
-          pip list
       - name: Install XTC Package in dev mode
         run: |
           pip install -e .[dev]
-      - name: Install TVM dependencies
-        run: |
-          pip install -r tvm_requirements.txt
-      - name: Install MLIR dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           pip install -r mlir_requirements.txt
-      - name: List Python Packages
+          pip install -r tvm_requirements.txt
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
         run: |
+          pip install -r macos_mlir_requirements.txt
+          pip install -r macos_tvm_requirements.txt
+      - name: Dump Environment information
+        run: |
+          python -c "import sys; print(sys.version)"
           pip list
+          env | sort
       - name: Run Checks
         run: |
           make check

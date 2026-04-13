@@ -5,16 +5,25 @@
 from typing import Any
 from typing_extensions import override
 import numpy as np
+from pathlib import Path
 
 from xtc.runtimes.types.ndarray import NDArray
 from xtc.utils.numpy import (
     np_init,
 )
-from xtc.runtimes.host.evaluate import load_and_evaluate
+
+from xtc.runtimes.host.HostRuntime import HostRuntime
 
 import xtc.itf as itf
 import xtc.targets.host as host
 
+from xtc.utils.loader import LibLoader
+from xtc.utils.evaluation import (
+    ensure_ndarray_parameters,
+    validate_outputs,
+    evaluate_performance,
+    copy_outputs,
+)
 
 __all__ = [
     "HostEvaluator",
@@ -40,78 +49,53 @@ class HostEvaluator(itf.exec.Evaluator):
         self._reference_impl = kwargs.get(
             "reference_impl", self._module._reference_impl
         )
-        self._register_buffer_fn = kwargs.get("register_buffer_fn", None)
-        self._unregister_buffer_fn = kwargs.get("unregister_buffer_fn", None)
         self._pmu_counters = kwargs.get("pmu_counters", [])
-        self._runtime = kwargs.get("runtime", None)
-        if self._runtime is None:
-            import xtc.runtimes.host.runtime as host_runtime
-
-            self._runtime = host_runtime
+        self._runtime = kwargs.get("runtime", HostRuntime())
         assert self._module.file_type == "shlib", "only support shlib for evaluation"
 
     @override
     def evaluate(self) -> tuple[list[float], int, str]:
-        if self._parameters is None:
-            assert self._np_inputs_spec is not None
-            assert self._np_outputs_spec is not None
-            inputs_spec = self._np_inputs_spec()
-            outputs_spec = self._np_outputs_spec()
-            out_init = np.zeros if self._init_zero else np.empty
-            inputs = [np_init(**spec) for spec in inputs_spec]
-            outputs = [out_init(**spec) for spec in outputs_spec]
-            parameters = (
-                [NDArray(inp) for inp in inputs],
-                [NDArray(out) for out in outputs],
-            )
-        else:
-            inputs, outputs = self._parameters
-            nd_inputs = [
-                NDArray(inp) if isinstance(inp, np.ndarray) else inp for inp in inputs
-            ]
-            nd_outputs = [
-                NDArray(out) if isinstance(out, np.ndarray) else out for out in outputs
-            ]
-            parameters = (nd_inputs, nd_outputs)
+        # Load the module
+        dll = str(Path(self._module.file_name).absolute())
+        lib = LibLoader(dll)
+        sym = self._module.payload_name
+        func = getattr(lib.lib, sym)
+        func.packed = not self._module._bare_ptr
+        results: tuple[list[float], int, str] = ([], 0, "")
+        validation_failed = False
 
-        ref_outputs = []
-        if self._validate:
-            assert self._reference_impl is not None
-            ref_inputs = [inp.numpy() for inp in parameters[0]]
-            ref_outputs = [
-                np.empty(shape=out.shape, dtype=out.dtype) for out in parameters[1]
-            ]
-            self._reference_impl(*ref_inputs, *ref_outputs)
-
-        if self._register_buffer_fn is not None:
-            for buffer in parameters[0] + parameters[1]:
-                self._register_buffer_fn(buffer)
-
-        results = load_and_evaluate(
-            runtime=self._runtime,
-            module_file=self._module.file_name,
-            module_name=self._module.name,
-            payload_name=self._module.payload_name,
-            bare_ptr=self._module._bare_ptr,
-            parameters=parameters,
-            validate=self._validate,
-            ref_outputs=ref_outputs,
-            repeat=self._repeat,
-            min_repeat_ms=self._min_repeat_ms,
-            number=self._number,
-            pmu_counters=self._pmu_counters,
+        # Prepare the parameters
+        parameters = ensure_ndarray_parameters(
+            self._parameters,
+            self._np_inputs_spec,
+            self._np_outputs_spec,
+            self._init_zero,
         )
 
-        if self._unregister_buffer_fn is not None:
-            for buffer in parameters[0] + parameters[1]:
-                self._unregister_buffer_fn(buffer)
+        # Check the correctness of the outputs
+        if self._validate:
+            results = validate_outputs(func, parameters, self._reference_impl)
+            validation_failed = results[1] != 0
 
+        # Measure the performance
+        if not validation_failed:
+            assert self._runtime is not None
+            results = evaluate_performance(
+                func,
+                parameters,
+                self._pmu_counters,
+                self._repeat,
+                self._number,
+                self._min_repeat_ms,
+                self._runtime,
+            )
+
+        # Unload the module
+        lib.close()
+
+        # Copy out outputs
         if self._parameters is not None:
-            _, outputs = self._parameters
-            _, outputs_copy = parameters
-            for out, out_copy in zip(outputs, outputs_copy):
-                if isinstance(out, np.ndarray):
-                    out_copy.numpy(out=out)
+            copy_outputs(parameters, self._parameters)
 
         return results
 

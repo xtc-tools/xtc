@@ -7,6 +7,13 @@
 
 #include <stdint.h>
 
+#define CONCAT2_IMPL(A,B) A ## B
+#define CONCAT2(A,B) CONCAT2_IMPL(A,B)
+#define CONCAT3_IMPL(A,B,C) A ## B ## C
+#define CONCAT3(A,B,C) CONCAT3_IMPL(A,B,C)
+#define STR_IMPL(A) #A
+#define STR(A) STR_IMPL(A)
+
 #define PERF_EVENT_MAX_EVENTS 256
 
 #define PERF_EVENT_CYCLES 0
@@ -53,6 +60,7 @@ extern uint64_t read_perf_event(int perf_fd);
 extern void close_perf_event(int perf_fd);
 extern void open_raw_perf_events(int n_events, const int *events_pairs, int *fds);
 extern void open_perf_events(int n_events, const perf_event_args_t *events, int *fds);
+extern void enable_perf_events(int n_events, const int *fds);
 extern void close_perf_events(int n_events, const int *fds);
 extern void reset_perf_events(int n_events, const int *fds, uint64_t *results);
 extern void start_perf_events(int n_events, const int *fds, uint64_t *results);

@@ -167,7 +167,7 @@ sch.descript({
 2. **Reproducible measurements** with HW counter access
 3. **Identify backend limitations** (e.g., MLIR vectorization issues)
 4. **Evaluate performance models** against real hardware
-5. **Rapid prototyping** of new scheduling languages (see you at C4ML !!)
+5. **Rapid prototyping** of new scheduling languages
 
 ---
 
@@ -180,28 +180,12 @@ sch.descript({
 
 ---
 
-# Today's Tutorial
-
-## What you'll learn:
-
-1. Installing XTC (for Linux users)
-2. Defining a graph of operators with XTC
-3. Compiling an XTC graph and evaluating it
-4. Using XTC's scheduling API
-5. Defining a schedule declaratively
-6. Experimenting with Multiple Schedules
-7. Leveraging exploration strategies
-
----
-
 # Let's Get Started!
 
 Paper: https://arxiv.org/abs/2512.16512
 GitHub: https://github.com/xtc-tools/xtc
 Doc: https://xtc-tools.github.io/xtc/
 
-The tutorial on your own machine:
+Try XTC on your own machine:
 - Setup: clone the main branch & follow the README.md
 - Tutorial: once setup is done, run `make run-tutorial`
-
-Online tutorial on demand: https://tutorial.xtc-tools.org/guestX

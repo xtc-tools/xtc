@@ -1,7 +1,7 @@
 coverage>=7.8.0
 filecheck
 lit
-marimo==0.9.6
+marimo==0.19.6
 mkdocs
 mkdocs-material
 mkdocstrings-python

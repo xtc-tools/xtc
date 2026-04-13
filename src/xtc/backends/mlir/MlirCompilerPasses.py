@@ -34,10 +34,12 @@ except ImportError:
     sdist_transform = None
     pass
 
+from xtc.itf.schd.scheduler import ROOT_SEP
 from xtc.utils.ext_tools import transform_opts
 
 from .MlirProgram import RawMlirProgram
 from .MlirScheduler import MlirSchedule, MlirNodeSchedule
+from .MlirTarget import MlirTarget
 
 _VECTO_SEQ_NAME = "_vecto"
 _SUPER_VECTORIZE_SEQ_NAME = "_super_vectorize"
@@ -98,12 +100,14 @@ class MlirProgramInsertTransformPass:
     def __init__(
         self,
         mlir_program: RawMlirProgram,
+        target: MlirTarget,
         mlir_schedule: MlirSchedule | None = None,
         concluding_passes: list[str] = [],
         always_vectorize: bool = True,
         vectors_size: int | None = None,
     ) -> None:
         self._mlir_program = mlir_program
+        self._target = target
         self._mlir_schedule = mlir_schedule
         self._loc = Location.unknown(self._mlir_program.mlir_context)
         self._concluding_passes = concluding_passes
@@ -290,7 +294,11 @@ class MlirProgramInsertTransformPass:
                     schedule=schedule, root=loop_name, sched_state=sched_state
                 )
                 continue
-
+            axis_split = split_state.loop_dim_by_split.get(root)
+            if axis_split is not None and not (
+                schedule.is_base(loop_name) or schedule.is_tile(loop_name)
+            ):
+                loop_name = root + ROOT_SEP + axis_split
             # Bufferization
             if loop_name in schedule.distributed_buffers.keys():
                 self._distribute_buffer(
@@ -316,6 +324,8 @@ class MlirProgramInsertTransformPass:
                     schedule=schedule,
                     sched_state=sched_state,
                 )
+                if loop_name in schedule.distribution:
+                    self._distribute_loop(loop_name, schedule, sched_state)
 
         # For now on, the focus is on the outermost loop
         if sched_state.all_loops:
@@ -334,6 +344,7 @@ class MlirProgramInsertTransformPass:
         state_of_tiling: dict[str, int] = {dim: 1 for dim in schedule.dims}
         candidate_state_of_tiling = state_of_tiling.copy()
         previous_root = ""
+        split_state = SplitState(schedule.splits, previous_root)
         for loc_root, permutation in reversed(schedule.permutation.items()):
             if len(loc_root) == len(previous_root):
                 # Reset the view on the state of tiling (we are jumping into
@@ -342,11 +353,14 @@ class MlirProgramInsertTransformPass:
             else:
                 # Update the state of tiling
                 state_of_tiling = candidate_state_of_tiling.copy()
-
             for loop in reversed(permutation):
                 # The loop needs to be base or tile
                 if not (schedule.is_tile(loop) or schedule.is_base(loop)):
-                    continue
+                    axis_split = split_state.loop_dim_by_split.get(loc_root)
+                    if axis_split is not None:
+                        loop = loc_root + ROOT_SEP + axis_split
+                    else:
+                        continue
 
                 # Fetch the dimension knowledge
                 dim_of_loop = schedule.dim_of_tile(loop)
@@ -428,12 +442,15 @@ class MlirProgramInsertTransformPass:
         if self._vectors_size is not None:
             return
 
-        transform.IncludeOp(
-            results_=[],
-            target=_VECTO_SEQ_NAME,
-            failure_propagation_mode=2,
-            operands_=[sched_state.handle],
-        )
+        if self._target.has_custom_vectorize():
+            self._target.apply_custom_vectorize(sched_state.handle)
+        else:
+            transform.IncludeOp(
+                results_=[],
+                target=_VECTO_SEQ_NAME,
+                failure_propagation_mode=2,
+                operands_=[sched_state.handle],
+            )
 
     def _post_vectorize(self, sched_state: SchedulingState):
         if self._vectors_size is not None:
@@ -463,20 +480,31 @@ class MlirProgramInsertTransformPass:
         for dim_name in reversed(permutation):
             if (
                 dim_name in schedule.unrolling
-                and not dim_name in schedule.vectorization
+                and dim_name not in schedule.vectorization
             ):
                 assert self._named_sequence is not None
                 loop_unroll(
                     sched_state.all_loops[dim_name], schedule.unrolling[dim_name]
                 )
-            if dim_name in schedule.distribution.keys():
-                assert self._named_sequence is not None
-                assert sdist_transform is not None
-                sdist_transform.SDistDistributeLoopOp(
-                    target=sched_state.all_loops[dim_name],
-                    mesh="processor_mesh",
-                    axis=schedule.distribution[dim_name],
-                )
+
+    def _distribute_loop(
+        self,
+        loop_name: str,
+        schedule: MlirNodeSchedule,
+        sched_state: SchedulingState,
+    ):
+        assert sdist_transform is not None
+        distribute_command = sdist_transform.SDistDistributeLoopOp(
+            target=sched_state.all_loops[loop_name],
+            mesh="processor_mesh",
+            axis=schedule.distribution[loop_name],
+        )
+        assert len(distribute_command.results) == 2
+        new_loop = distribute_command.results[0]
+        sched_state.all_loops[loop_name] = new_loop
+        sched_state.handle = distribute_command.results[1]
+        # Annotate the resulting loop if successfully generated
+        transform.AnnotateOp(new_loop, loop_name)
 
     def _distribute_buffer(
         self,

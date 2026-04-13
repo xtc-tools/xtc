@@ -46,6 +46,11 @@ if platform == "linux":
         "fp_arith_inst_retired.256b_packed_single",
         "fp_arith_inst_retired.512b_packed_single",
     ]
+elif platform == "darwin":
+    # On MacOS, requires sudo to get counters
+    # TODO: should be tested ideally
+    pmu_counters = []
+
 evaluator = module.get_evaluator(
     validate=True,
     pmu_counters=pmu_counters,

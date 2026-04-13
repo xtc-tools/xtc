@@ -42,7 +42,8 @@ def cpu_info() -> Dict[str, Any]:
     }
     info = get_cpu_info()
     arch = info["arch_string_raw"]
-    flags = info["flags"]
+    flags = info.get("flags", [])
+    freqs = info.get("hz_advertised", [4e9])
     if arch == "x86_64":
         if "avx512f" in flags:
             cpu_info = {**vec_info_map["avx512"]}
@@ -59,10 +60,13 @@ def cpu_info() -> Dict[str, Any]:
         else:
             cpu_info = {**vec_info_map["scalar"]}
         cpu_info["ipc"] = 1
+    elif arch == "arm64":
+        cpu_info = {**vec_info_map["neon"]}
+        cpu_info["ipc"] = 1
     else:
         cpu_info = {**vec_info_map["scalar"]}
         cpu_info["ipc"] = 1
-    cpu_info["freq"] = info["hz_advertised"][0]
+    cpu_info["freq"] = freqs[0]
     cpu_info["arch"] = arch
     return cpu_info
 

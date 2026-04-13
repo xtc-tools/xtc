@@ -140,6 +140,10 @@ void open_perf_events(int n_events, const perf_event_args_t *events, int *fds) {
   #endif /* HAS_GPU */
 }
 
+void enable_perf_events(int n_events, const int *fds) {
+  /* Nothing to do */
+}
+
 void close_perf_events(int n_events, const int *fds) {
   for (int i = 0; i < n_events; i++) {
     #if HAS_GPU

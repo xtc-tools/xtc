@@ -75,7 +75,8 @@ def main():
         dump_file = str(Path(tdir) / Path(args.filename).stem)
 
         compiler_args = {
-            "mlir_install_dir": args.llvm_dir,
+            "mlir_install_dir": args.mlir_dir,
+            "llvm_install_dir": args.llvm_dir,
             "print_source_ir": print_source,
             "print_transformed_ir": args.print_transformed_ir,
             "print_lowered_ir": args.print_lowered_ir,
@@ -135,7 +136,7 @@ def build_node_scheduler(
         descript_scheduler(
             scheduler=scheduler,
             node_name=node_name,
-            abstract_axis=scheduler.backend.dims,
+            abstract_dims=scheduler.backend.dims,
             spec=normal_schedule,
         )
         op.attributes.pop("loop.schedule", None)
@@ -226,9 +227,14 @@ def parse_args() -> argparse.Namespace:
         help="The source file.",
     )
     parser.add_argument(
+        "--mlir-dir",
+        type=str,
+        help="The prefix for MLIR tools, or autodetected.",
+    )
+    parser.add_argument(
         "--llvm-dir",
         type=str,
-        help="The prefix for LLVM/MLIR tools, or autodetected.",
+        help="The prefix for LLVM tools, or --mlir-dir or autodetected.",
     )
     parser.add_argument(
         "--arch",
