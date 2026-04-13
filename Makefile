@@ -56,6 +56,9 @@ check-lit-c:
 check-lit-nvgpu:
 	[ `uname -s` = Darwin ] || env XTC_MLIR_TARGET=nvgpu lit -v tests/filecheck/backends tests/filecheck/mlir_loop tests/filecheck/evaluation
 
+check-lit-mppa:
+	[ `uname -s` = Darwin ] || env XTC_MLIR_TARGET=mppa lit -v -j 1 tests/filecheck/backends/target_mppa
+
 check-pytest:
 	scripts/pytest/run_pytest.sh -v
 
