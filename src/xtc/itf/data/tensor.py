@@ -4,7 +4,7 @@
 #
 from abc import ABC, abstractmethod
 from typing import Any, TypeAlias
-from typing_extensions import override
+from typing_extensions import override, Self
 import numpy.typing
 
 from xtc.itf.runtime.accelerator import AcceleratorDevice
@@ -63,6 +63,13 @@ class TensorType(ABC):
             The tensor's dimensionality
         """
         ...
+
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]: ...
+
+    @classmethod
+    @abstractmethod
+    def from_dict(cls, tensor_dict: dict[str, Any]) -> Self: ...
 
 
 class ConstantTensorType(TensorType):

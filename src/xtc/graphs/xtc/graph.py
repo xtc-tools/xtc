@@ -4,7 +4,7 @@
 #
 from typing_extensions import override
 from collections.abc import Sequence, Mapping
-from typing import TypeAlias, cast
+from typing import TypeAlias, cast, Any
 
 from xtc.itf.graph import Graph
 from xtc.itf.data import TensorType, Tensor
@@ -12,6 +12,8 @@ from xtc.itf.data import TensorType, Tensor
 from .node import XTCNode
 from .utils import XTCGraphUtils
 from .data import XTCTensor, XTCTensorType
+from .operators import XTCOperator
+from yaml import dump as yaml_dump, safe_dump
 
 __all__ = [
     "XTCGraph",
@@ -152,3 +154,31 @@ class XTCGraph(Graph):
         else:
             graph_str += "  nodes: {}\n"
         return graph_str
+
+    def to_dict(self) -> dict[str, Any]:
+        graph_dict: dict[str, Any] = {}
+        if self._name:
+            graph_dict["name"] = self._name
+        graph_dict["inputs"] = [i.to_dict() for i in self._inputs]
+        graph_dict["outputs"] = [{"uid": o.to_dict()["uid"]} for o in self._outputs]
+        graph_dict["nodes"] = [n.to_dict() for n in self._nodes]
+        graph_dict["ops_version"] = XTCOperator.version_string()
+        lowest_uid = int(graph_dict["inputs"][0]["uid"][1:])
+
+        def compact_uids(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                obj = {k: compact_uids(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                obj = [compact_uids(v) for v in obj]
+            elif isinstance(obj, str) and obj[0] == "%":
+                obj = f"%{int(obj[1:]) - lowest_uid}"
+            return obj
+
+        return compact_uids(graph_dict)
+
+    def dumps(self) -> str:
+        return safe_dump(self.to_dict())
+
+    def dump(self, file_name: str) -> None:
+        with open(file_name, "w") as f:
+            yaml_dump(self.to_dict(), f, sort_keys=False)

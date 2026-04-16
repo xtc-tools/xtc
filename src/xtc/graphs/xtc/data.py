@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing_extensions import override
-from typing import cast, Any
+from typing_extensions import override, Self
+from typing import cast, Any, Iterable
 import functools
 import operator
 import numpy as np
@@ -120,6 +120,23 @@ class XTCTensorType(TensorType):
         if not isinstance(other, XTCTensorType):
             return NotImplemented
         return self.dtype == other.dtype and self.shape == other.shape
+
+    @override
+    def to_dict(self) -> dict[str, Any]:
+        tensor_dict: dict[str, Any] = {}
+        if self.shape:
+            tensor_dict["shape"] = list(cast(Iterable[int], self.shape))
+        if self.dtype:
+            tensor_dict["dtype"] = self.dtype
+        return tensor_dict
+
+    @override
+    @classmethod
+    def from_dict(cls, tensor_dict: dict[str, Any]) -> Self:
+        return cls(
+            shape=tuple(tensor_dict["shape"]) if "shape" in tensor_dict else None,
+            dtype=tensor_dict["dtype"] if "dtype" in tensor_dict else None,
+        )
 
 
 class XTCConstantTensorType(XTCTensorType, ConstantTensorType):
