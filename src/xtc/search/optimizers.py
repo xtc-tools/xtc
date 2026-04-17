@@ -8,7 +8,7 @@ import logging
 import yaml
 from collections.abc import Sequence, Iterator
 from sklearn.ensemble import RandomForestRegressor
-from typing import Callable, TypeAlias, cast, Any, ClassVar
+from typing import Callable, TypeAlias, Any, ClassVar
 from typing_extensions import override
 from xtc.itf.search.optimizer import Optimizer
 
@@ -158,67 +158,61 @@ class RandomForestOptimizer(BaseOptimizer):
         logger.info(self.log_str)
 
 
-class RandomForestOptimizer_Explore(RandomForestOptimizer):
+class RandomForestPreset_Default(RandomForestOptimizer):
+    PRESET: dict[str, Any] = {
+        "batch_candidates": 1000,
+        "beta": 2.5,
+        "alpha": 0.7,
+        "update_first": None,
+        "update_period": None,
+        "n_estimators": 300,
+        "max_depth": 12,
+        "min_samples_leaf": 5,
+        "max_features": 0.8,
+    }
+
     def __init__(
         self,
         sample_fn: Callable[[int, int], Iterator[VecSample]],
         batch: int,
         seed: int,
+        config_file: str = "",
     ):
-        preset = {
-            "batch_candidates": 1000,
-            "beta": 5,
-            "alpha": 0.6,
-            "update_first": None,
-            "update_period": None,
-            "n_estimators": 300,
-            "max_depth": 8,
-            "min_samples_leaf": 3,
-            "max_features": 0.9,
-        }
-        super().__init__(sample_fn, batch, seed, **cast(dict[str, Any], preset))
+        config = dict(self.PRESET)
+        if config_file:
+            with open(config_file, "r") as f:
+                logger.info("loaded custom config")
+                config.update(yaml.safe_load(f))
+        logger.info("\n%s", yaml.dump(config, sort_keys=False))
+        super().__init__(sample_fn, batch, seed, **config)
 
 
-class RandomForestOptimizer_Default(RandomForestOptimizer):
-    def __init__(
-        self,
-        sample_fn: Callable[[int, int], Iterator[VecSample]],
-        batch: int,
-        seed: int,
-    ):
-        preset = {
-            "batch_candidates": 1000,
-            "beta": 2.5,
-            "alpha": 0.7,
-            "update_first": None,
-            "update_period": None,
-            "n_estimators": 300,
-            "max_depth": 12,
-            "min_samples_leaf": 5,
-            "max_features": 0.8,
-        }
-        super().__init__(sample_fn, batch, seed, **cast(dict[str, Any], preset))
+class RandomForestPreset_Explore(RandomForestPreset_Default):
+    PRESET: dict[str, Any] = {
+        "batch_candidates": 1000,
+        "beta": 5,
+        "alpha": 0.6,
+        "update_first": None,
+        "update_period": None,
+        "n_estimators": 300,
+        "max_depth": 10,
+        "min_samples_leaf": 3,
+        "max_features": 0.9,
+    }
 
 
-class RandomForestOptimizer_Aggressive(RandomForestOptimizer):
-    def __init__(
-        self,
-        sample_fn: Callable[[int, int], Iterator[VecSample]],
-        batch: int,
-        seed: int,
-    ):
-        preset = {
-            "batch_candidates": 1000,
-            "beta": 2,
-            "alpha": 0.8,
-            "update_first": None,
-            "update_period": None,
-            "n_estimators": 200,
-            "max_depth": 8,
-            "min_samples_leaf": 5,
-            "max_features": 0.7,
-        }
-        super().__init__(sample_fn, batch, seed, **cast(dict[str, Any], preset))
+class RandomForestPreset_Aggressive(RandomForestPreset_Default):
+    PRESET: dict[str, Any] = {
+        "batch_candidates": 1000,
+        "beta": 2,
+        "alpha": 0.8,
+        "update_first": None,
+        "update_period": None,
+        "n_estimators": 200,
+        "max_depth": 8,
+        "min_samples_leaf": 5,
+        "max_features": 0.7,
+    }
 
 
 class RandomForestOptimizer_Custom(RandomForestOptimizer):
@@ -247,8 +241,7 @@ class Optimizers:
 
     _map: ClassVar[dict[str, type[BaseOptimizer]]] = {
         "random": RandomOptimizer,
-        "random-forest-explore": RandomForestOptimizer_Explore,
-        "random-forest-default": RandomForestOptimizer_Default,
-        "random-forest-aggressive": RandomForestOptimizer_Aggressive,
-        "random-forest-custom": RandomForestOptimizer_Custom,
+        "random-forest-explore": RandomForestPreset_Explore,
+        "random-forest-default": RandomForestPreset_Default,
+        "random-forest-aggressive": RandomForestPreset_Aggressive,
     }

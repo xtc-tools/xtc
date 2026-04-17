@@ -507,7 +507,7 @@ def evaluate_iterative(
     if args.optimizer == "random-forest-custom":
         opt = optimizer(strategy.sample, args.batch, args.seed, args.optimizer_config)
     else:
-        opt = optimizer(strategy.sample, args.batch, args.seed)
+        opt = optimizer(strategy.sample, args.batch, args.seed, args.optimizer_config)
     callbacks["search"].iterations_start(args.trials * len(args.backends))
     for step in range(0, args.trials, args.batch):
         in_x = opt.suggest()
@@ -1182,7 +1182,7 @@ def main():
     if args.debug_xtc:
         logging.getLogger("xtc").setLevel(logging.DEBUG)
     if args.debug_optimizer:
-        logging.getLogger("xtc.utils.optimizers").setLevel(logging.INFO)
+        logging.getLogger("xtc.search.optimizers").setLevel(logging.INFO)
 
     if not args.child:
         launch_child(sys.argv, args)
