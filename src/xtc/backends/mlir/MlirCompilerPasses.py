@@ -523,7 +523,7 @@ class MlirProgramApplyTransformPass:
         assert transform
         pm = PassManager(context=self._mlir_program.mlir_context)
         for opt in transform_opts:
-            pm.add(opt)  # type: ignore # no attribte add?
+            pm.add(opt)  # type: ignore
         pm.run(self._mlir_program.mlir_module.operation)
 
         while True:
@@ -564,14 +564,9 @@ def apply_bufferization_passes(mlir_program: RawMlirProgram):
             "cse",
             "eliminate-empty-tensors",  # causes ops to write directly to out buffer
             f"one-shot-bufferize{{{' '.join(bufferize_options)}}}",
-            "func.func(buffer-hoisting)",
-            "func.func(buffer-loop-hoisting)",
+            # "func.func(buffer-hoisting)",
+            # "func.func(buffer-loop-hoisting)",
             "drop-equivalent-buffer-results",
             "func.func(promote-buffers-to-stack)",
         ]
     )
-
-
-def pre_transform_tensor_passes(mlir_program: RawMlirProgram):
-    apply_passes = MlirProgramApplyPasses(mlir_program)
-    # apply_passes.run(["eliminate-empty-tensors"])

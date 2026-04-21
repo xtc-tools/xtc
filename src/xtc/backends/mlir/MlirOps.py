@@ -548,7 +548,7 @@ class MlirOperatorPad(MlirOperator):
         elt_size = {"float32": 32, "float64": 64}[dtype]
         if block is None:
             ops_types = [
-                MemRefType(elt_type, shape)  # should be op_type here??
+                self.op_type(elt_type, shape)
                 for shape in [dims_value_before_pad, dims_value]
             ]
             block = Block(arg_types=ops_types)
