@@ -1,3 +1,0 @@
-[submodule "src/xvs"]
-	path = src/xvs
-	url = git@gitlab.inria.fr:CORSE/sampler.git
