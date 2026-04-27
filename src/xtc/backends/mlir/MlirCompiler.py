@@ -21,6 +21,7 @@ from xtc.backends.mlir.MlirCompilerPasses import (
     MlirProgramInsertTransformPass,
     MlirProgramApplyTransformPass,
     apply_bufferization_passes,
+    _POST_BUFFERIZE_SEQ_NAME,
 )
 
 from xtc.backends.mlir.MlirTarget import (
@@ -137,6 +138,7 @@ class MlirProgramCompiler:
             concluding_passes=self._config.concluding_passes,
             always_vectorize=self._config.always_vectorize,
             vectors_size=self._config.vectors_size,
+            using_tensors_hint=self._config.using_tensors_hint,
         )
         insert_transform_pass.run()
         if self._config.print_source_ir:
@@ -145,6 +147,7 @@ class MlirProgramCompiler:
     def mlir_apply_transform_pass(self) -> None:
         apply_transform_pass = MlirProgramApplyTransformPass(
             mlir_program=self._mlir_program,
+            clean_all=not self._config.using_tensors_hint,
         )
         apply_transform_pass.run()
         if self._config.print_transformed_ir:
@@ -154,6 +157,16 @@ class MlirProgramCompiler:
         apply_bufferization_passes(self._mlir_program)
         if self._config.print_bufferization_ir:
             self.dump_ir("IR Dump After Tensor Lowering")
+
+    def mlir_apply_post_bufferize_transform_pass(self) -> None:
+        apply_transform_pass = MlirProgramApplyTransformPass(
+            mlir_program=self._mlir_program,
+            clean_all=True,
+            custom_sequence=_POST_BUFFERIZE_SEQ_NAME,
+        )
+        apply_transform_pass.run()
+        if self._config.print_transformed_ir:
+            self.dump_ir("IR Dump After Post-Bufferize transform")
 
     def _save_temp(self, fname: str, content: Any) -> None:
         if not self._config.save_temps:
@@ -204,6 +217,8 @@ class MlirProgramCompiler:
         save_temp(mlir_atrn_dump_file, self._mlir_program.mlir_module)
 
         self.mlir_apply_tensor_lowering_pass()
-        save_temp(mlir_tlwr_dump_file, self._mlir_program.mlir_module)
+        if self._config.using_tensors_hint:
+            self.mlir_apply_post_bufferize_transform_pass()
+            save_temp(mlir_tlwr_dump_file, self._mlir_program.mlir_module)
 
         self._target.generate_code_for_target(self._mlir_program, dump_file=dump_file)

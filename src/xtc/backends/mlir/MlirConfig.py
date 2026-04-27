@@ -28,6 +28,7 @@ class MlirConfig:
     concluding_passes: list[str] = field(default_factory=list)
     always_vectorize: bool = False
     vectors_size: int | None = None
+    using_tensors_hint: bool = False
     arch: str = "native"
     cpu: str = "native"
     selected_device: int | None = None

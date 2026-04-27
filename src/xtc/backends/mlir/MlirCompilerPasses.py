@@ -41,6 +41,7 @@ from .MlirScheduler import MlirSchedule, MlirNodeSchedule
 
 _VECTO_SEQ_NAME = "_vecto"
 _SUPER_VECTORIZE_SEQ_NAME = "_super_vectorize"
+_POST_BUFFERIZE_SEQ_NAME = "_post_bufferize"
 
 
 @dataclass
@@ -102,6 +103,7 @@ class MlirProgramInsertTransformPass:
         concluding_passes: list[str] = [],
         always_vectorize: bool = True,
         vectors_size: int | None = None,
+        using_tensors_hint: bool = False,
     ) -> None:
         self._mlir_program = mlir_program
         self._mlir_schedule = mlir_schedule
@@ -109,9 +111,11 @@ class MlirProgramInsertTransformPass:
         self._concluding_passes = concluding_passes
         self._always_vectorize = always_vectorize
         self._vectors_size = vectors_size
+        self._using_tensors_hint = using_tensors_hint
         self._super_vectorize = self._vectors_size is not None
         self._vecto_sequence: NamedSequenceOp | None = None
         self._super_vectorize_sequence: NamedSequenceOp | None = None
+        self._post_vecto_sequence: NamedSequenceOp | None = None
         self._named_sequence: NamedSequenceOp | None = None
         self._nodes_schedules = (
             self._mlir_schedule.schedule_impl if self._mlir_schedule is not None else []
@@ -135,6 +139,16 @@ class MlirProgramInsertTransformPass:
                 [],
                 arg_attrs=[{"transform.consumed": UnitAttr.get()}],
             )
+            if self._using_tensors_hint:
+                self._post_vecto_sequence = NamedSequenceOp(
+                    _POST_BUFFERIZE_SEQ_NAME,
+                    [transform.AnyOpType.get()],
+                    [],
+                    arg_attrs=[{"transform.readonly": UnitAttr.get()}],
+                )
+                assert self._post_vecto_sequence is not None
+                with InsertionPoint(self._post_vecto_sequence.body):
+                    transform.YieldOp([])
             if self._super_vectorize:
                 self._super_vectorize_sequence = NamedSequenceOp(
                     _SUPER_VECTORIZE_SEQ_NAME,
@@ -198,7 +212,7 @@ class MlirProgramInsertTransformPass:
                     handle=handle,
                 )
                 if schedule.vectorization or self._always_vectorize:
-                    self._post_vectorize(scheduling_state)
+                    self._post_vectorize(scheduling_state, schedule)
                 handle = scheduling_state.handle
         assert handle, "At least 1 operation should have been processed"
         return handle
@@ -435,10 +449,12 @@ class MlirProgramInsertTransformPass:
             operands_=[sched_state.handle],
         )
 
-    def _post_vectorize(self, sched_state: SchedulingState):
+    def _post_vectorize(self, sched_state: SchedulingState, schedule: MlirNodeSchedule):
         if self._vectors_size is not None:
             return
-
+        post_vec_annotation = "_apply_post_vectorize_patterns"
+        if self._using_tensors_hint:
+            transform.AnnotateOp(sched_state.handle, post_vec_annotation)
         parent_op = get_parent_op(
             transform.AnyOpType.get(),
             sched_state.handle,
@@ -447,9 +463,25 @@ class MlirProgramInsertTransformPass:
         with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
             vector.ApplyVectorReductionToContractPatternsOp()
             vector.ApplyTransferPermutationPatternsOp()
-        with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
-            vector.ApplyLowerOuterProductPatternsOp()
-            vector.ApplyLowerContractionPatternsOp()
+
+        if not self._post_vecto_sequence:
+            with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
+                vector.ApplyLowerOuterProductPatternsOp()
+                vector.ApplyLowerContractionPatternsOp()
+        else:
+            with (
+                InsertionPoint.at_block_begin(self._post_vecto_sequence.body),
+                self._mlir_program.mlir_context,
+                self._loc,
+            ):
+                handle = structured_match(
+                    results_=transform.AnyOpType.get(),
+                    target=self._post_vecto_sequence.bodyTarget,
+                    op_attrs={post_vec_annotation: UnitAttr.get()},
+                )
+                with InsertionPoint(transform.ApplyPatternsOp(handle).patterns):
+                    vector.ApplyLowerOuterProductPatternsOp()
+                    vector.ApplyLowerContractionPatternsOp()
 
     def _unroll(
         self,
@@ -514,16 +546,24 @@ class MlirProgramApplyTransformPass:
     def __init__(
         self,
         mlir_program: RawMlirProgram,
+        clean_all: bool = False,
+        custom_sequence: None | str = None,
     ) -> None:
         self._mlir_program = mlir_program
+        self._clean_all = clean_all
+        self._custom_sequence = custom_sequence
 
     def run(self) -> None:
         transform_op = [op for op in self._mlir_program.mlir_module.body.operations][-1]
         transform = isinstance(transform_op, NamedSequenceOp)
         assert transform
         pm = PassManager(context=self._mlir_program.mlir_context)
-        for opt in transform_opts:
-            pm.add(opt)  # type: ignore
+        if self._custom_sequence:
+            for opt in transform_opts:
+                pm.add(f"{opt}{{entry-point={self._custom_sequence}}}")  # type: ignore
+        else:
+            for opt in transform_opts:
+                pm.add(opt)  # type: ignore
         pm.run(self._mlir_program.mlir_module.operation)
 
         while True:
@@ -532,8 +572,9 @@ class MlirProgramApplyTransformPass:
             ][-1]
             if isinstance(transform_op, NamedSequenceOp):
                 transform_op.erase()
-            else:
-                break
+                if self._clean_all:
+                    continue
+            break
 
 
 class MlirProgramApplyPasses:
