@@ -7,9 +7,19 @@ from __future__ import annotations
 from typing import Any
 from dataclasses import dataclass
 import re
+import strictyaml
 from typing_extensions import override
 
 from .exceptions import ScheduleParseError
+
+literal = int | str
+
+
+def toliteral(s: str) -> literal:
+    """Returns int(s) if possible, otherwise returns s."""
+    if s.lstrip("-").isdigit():
+        return int(s)
+    return s
 
 
 @dataclass(frozen=True)
@@ -30,27 +40,32 @@ class Annotations:
         pack_specified: True if pack was explicitly requested.
     """
 
-    unroll_factor: int | None = None
+    unroll_factor: literal | None = None
     unroll_specified: bool = False
-    vectorize: bool = False
-    parallelize: bool = False
+    vectorize: bool | str = False
+    parallelize: bool | str = False
     buffer: str | None = None
     buffer_specified: bool = False
-    pack: tuple[int, str | None, bool] | None = None
+    pack: tuple[literal, str | None, bool | str] | None = None
     pack_specified: bool = False
+    partial: bool = False
+    full: bool = False
 
 
 @dataclass(frozen=True)
 class SplitDecl:
-    """AST Type: a split declaration like 'axis[start:end]'."""
+    """AST Type: a split declaration like 'axis[start:end]' or 'axis[:size:]'."""
 
     axis: str
-    start: int | None
-    end: int | None
+    start: literal | None
+    end: literal | None
+    size: literal | None
     body: ScheduleSpec
 
     @override
     def __str__(self) -> str:
+        if self.size is not None:
+            return f"{self.axis}[:{self.size}:]"
         start_str = "" if self.start is None else str(self.start)
         end_str = "" if self.end is None else str(self.end)
         decl = f"{self.axis}[{start_str}:{end_str}]"
@@ -62,7 +77,7 @@ class TileDecl:
     """AST Type: a tile declaration like 'axis#size'."""
 
     axis: str
-    size: int
+    size: literal
     annotations: Annotations
 
     @override
@@ -88,10 +103,12 @@ class ScheduleSpec:
     items: tuple[ScheduleItem, ...]
 
 
+@dataclass()
 class ScheduleParser:
     """Parses a dict-based schedule specification into an AST."""
 
-    _SPLIT_PATTERN = re.compile(r"^(.*)\[(-\d+|\d*)?:(-\d+|\d*)?\]$")
+    _SPLIT_PATTERN = re.compile(r"^(.*)\[(-\w+|\w*)?:(-\w+|\w*)?\]$")
+    _SPLIT_MIDDLE_PATTERN = re.compile(r"^(.*)\[:(\w*):\]$")
 
     def parse(self, spec: dict[str, Any]) -> ScheduleSpec:
         """Parse a schedule specification dict into an AST."""
@@ -118,11 +135,11 @@ class ScheduleParser:
         return self._parse_axis_ref(declaration, value)
 
     def _parse_split(self, declaration: str, value: dict) -> SplitDecl:
-        """Parse a split declaration like 'axis[start:end]'."""
-        axis_name, start, end = self._parse_split_syntax(declaration)
+        """Parse a split declaration like 'axis[start:end]' or 'axis[:size:]'."""
+        axis_name, start, end, size = self._parse_split_syntax(declaration)
 
         body = self.parse(value)
-        return SplitDecl(axis=axis_name, start=start, end=end, body=body)
+        return SplitDecl(axis=axis_name, start=start, end=end, body=body, size=size)
 
     def _parse_tile(self, declaration: str, value: dict) -> TileDecl:
         """Parse a tile declaration like 'axis#size'."""
@@ -134,10 +151,7 @@ class ScheduleParser:
 
         axis_name, size_str = parts
 
-        try:
-            size = int(size_str)
-        except ValueError:
-            raise ScheduleParseError(f"`{declaration}`: {size_str} is not an integer.")
+        size = toliteral(size_str)
 
         annotations = self._parse_annotations(value, declaration)
         return TileDecl(axis=axis_name, size=size, annotations=annotations)
@@ -151,53 +165,67 @@ class ScheduleParser:
     def _parse_annotations(self, value: dict[str, Any], context: str) -> Annotations:
         """Parse annotation dict into Annotations object."""
 
-        unroll_factor: int | None = None
+        unroll_factor: literal | None = None
         unroll_specified = False
         vectorize = False
         parallelize = False
         buffer: str | None = None
         buffer_specified = False
-        pack: tuple[int, str | None, bool] | None = None
+        pack: tuple[literal, str | None, bool | str] | None = None
         pack_specified = False
+        partial = False
+        full = False
 
         for key, param in value.items():
-            if key == "unroll":
-                if param is True:
-                    unroll_factor = None
-                    unroll_specified = True
-                elif param is False:
-                    pass
-                elif isinstance(param, int):
-                    unroll_factor = param
-                    unroll_specified = True
-                else:
-                    raise ScheduleParseError(
-                        f'`{{"unroll" = {param}}}`: unroll parameter should be True, False, or an integer.'
-                    )
-            elif key == "vectorize":
-                if not isinstance(param, bool):
-                    raise ScheduleParseError(
-                        f'`{{"vectorize" = {param}}}`: parameterized vectorization not implemented.'
-                    )
-                vectorize = param
-            elif key == "parallelize":
-                if not isinstance(param, bool):
-                    raise ScheduleParseError(
-                        f'`{{"parallelize" = {param}}}`: parameterized parallelization not implemented.'
-                    )
-                parallelize = param
-            elif key == "buffer":
-                if not isinstance(param, str):
-                    raise ScheduleParseError(
-                        f'`{{"buffer" = {param}}}`: buffer parameter should be a string (mtype).'
-                    )
-                buffer = None if param == "default" else param
-                buffer_specified = True
-            elif key == "pack":
-                pack = self._parse_pack_param(param, context)
-                pack_specified = True
-            else:
-                raise ScheduleParseError(f"Unknown annotation on {context}: {key}")
+            match key:
+                case "unroll":
+                    if param is True or param is None:
+                        unroll_factor = None
+                        unroll_specified = True
+                    elif param is False:
+                        pass
+                    elif isinstance(param, int | str):
+                        unroll_factor = param
+                        unroll_specified = True
+                    else:
+                        raise ScheduleParseError(
+                            f'`{{"unroll" = {param}}}`: unroll parameter should be True, False, or a string or integer.'
+                        )
+                case "vectorize":
+                    if param is None:
+                        param = True
+                    if not isinstance(param, bool | str):
+                        raise ScheduleParseError(
+                            f'`{{"vectorize" = {param}}}`: vectorization parameter should be True, False or a string.'
+                        )
+                    vectorize = param
+                case "parallelize":
+                    if param is None:
+                        param = True
+                    if not isinstance(param, bool | str):
+                        raise ScheduleParseError(
+                            f'`{{"parallelize" = {param}}}`: parallelization parameter should be True, False or a string.'
+                        )
+                    parallelize = param
+                case "buffer":
+                    if not isinstance(param, str):
+                        raise ScheduleParseError(
+                            f'`{{"buffer" = {param}}}`: buffer parameter should be a string (mtype).'
+                        )
+                    buffer = None if param == "default" else param
+                    buffer_specified = True
+                case "pack":
+                    pack = self._parse_pack_param(param, context)
+                    pack_specified = True
+                case "partial":
+                    partial = True
+                case "full":
+                    full = True
+                case _:
+                    raise ScheduleParseError(f"Unknown annotation on {context}: {key}")
+
+        if partial and full:
+            raise ScheduleParseError(f"{context} has both annotations full and partial")
 
         return Annotations(
             unroll_factor=unroll_factor,
@@ -208,12 +236,18 @@ class ScheduleParser:
             buffer_specified=buffer_specified,
             pack=pack,
             pack_specified=pack_specified,
+            partial=partial,
+            full=full,
         )
 
     def _parse_pack_param(
         self, param: Any, context: str
-    ) -> tuple[int, str | None, bool]:
+    ) -> tuple[literal, str | None, bool | str] | None:
         """Parse pack parameter into (input_idx, mtype, pad) tuple."""
+
+        if param is None:
+            return None
+
         if not isinstance(param, (list, tuple)) or len(param) != 3:
             raise ScheduleParseError(
                 f'`{{"pack" = {param}}}` on {context}: pack parameter should be a tuple (input_idx, mtype, pad).'
@@ -221,17 +255,17 @@ class ScheduleParser:
 
         input_idx, mtype, pad = param
 
-        if not isinstance(input_idx, int):
+        if not isinstance(input_idx, literal):
             raise ScheduleParseError(
                 f'`{{"pack" = {param}}}` on {context}: input_idx should be an integer.'
             )
 
-        if mtype is not None and not isinstance(mtype, str):
+        if not isinstance(mtype, str | None):
             raise ScheduleParseError(
                 f'`{{"pack" = {param}}}` on {context}: mtype should be a string or None.'
             )
 
-        if not isinstance(pad, bool):
+        if not isinstance(pad, bool | str):
             raise ScheduleParseError(
                 f'`{{"pack" = {param}}}` on {context}: pad should be a boolean.'
             )
@@ -244,13 +278,70 @@ class ScheduleParser:
 
     def _parse_split_syntax(
         self, declaration: str
-    ) -> tuple[str, int | None, int | None]:
+    ) -> tuple[str, literal | None, literal | None, literal | None]:
         """Parse the syntax of a split declaration."""
         match = self._SPLIT_PATTERN.match(declaration)
         if not match:
-            raise ScheduleParseError(f"Wrong format {declaration}")
+            match = self._SPLIT_MIDDLE_PATTERN.match(declaration)
+            if not match:
+                raise ScheduleParseError(f"Wrong format {declaration}")
+            prefix, z = match.groups()
+            z = toliteral(z)
+            return prefix, None, None, z
 
         prefix, x_str, y_str = match.groups()
-        x = int(x_str) if x_str else None
-        y = int(y_str) if y_str else None
-        return prefix, x, y
+        x = toliteral(x_str)
+        y = toliteral(y_str)
+        x = x if x else None
+        y = y if y else None
+        return prefix, x, y, None
+
+
+class YAMLParser:
+    """Parses a YAML specification into a dict-based schedule specification."""
+
+    def parse(self, spec: str):
+        """Parses a YAML specification into a dict-based schedule specification."""
+        descript_spec = strictyaml.load(spec).data
+        if not isinstance(descript_spec, dict):
+            raise ScheduleParseError(
+                f"Wrong format: YAML input parses to {type(descript_spec)}."
+            )
+        return self._parse(descript_spec)
+
+    def _parse(self, spec: dict[str, Any]) -> dict[str, dict]:
+        """Parses a dict YAML specification into a schedule specification."""
+        descript_spec = dict()
+        for a, v in spec.items():
+            if isinstance(v, str):
+                d = self._split(v)
+            elif isinstance(v, dict):
+                d = v
+            else:
+                raise ScheduleParseError(
+                    f"Value {v} of key {a} is neither a string nor a dict."
+                )
+            size = d.get("size", None)
+            if size:
+                d.pop("size")
+                a = f"{a}#{size}"
+            if ":" in a:
+                descript_spec[a] = self._parse(d)
+            else:
+                descript_spec[a] = d
+        return descript_spec
+
+    def _split(self, s: str) -> dict[str, Any]:
+        """Splits a string of 'keyword's and 'keyword=value's separated by spaces into a dict."""
+        d = dict()
+        for s in s.split():
+            if "=" not in s:
+                d[s] = None
+            else:
+                x, y = s.split("=")
+                try:
+                    tmp = eval(y)
+                except (NameError, SyntaxError):
+                    tmp = y
+                d[x] = tmp
+        return d
