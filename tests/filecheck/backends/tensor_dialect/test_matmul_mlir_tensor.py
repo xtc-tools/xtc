@@ -36,7 +36,6 @@ module = comp.compile(sched)
 executor = module.get_executor(validate=True)
 res = executor.execute()
 print(f"CODE: {res}")
-
 # CHECK: // -----// IR Dump Before transform //----- //
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul(%arg0: tensor<4x512xf32> {llvm.noalias}, %arg1: tensor<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
@@ -74,11 +73,16 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     transform.annotate %loops_7 "./j" : !transform.any_op
 # CHECK-NEXT:     %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:     transform.annotate %loops_9 "./i1" : !transform.any_op
-# CHECK-NEXT:     transform.include @_vecto failures(suppress) (%tiled_linalg_op_8) : (!transform.any_op) -> ()
+# CHECK-NEXT:     %2 = transform.get_parent_op %tiled_linalg_op_8 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:     transform.apply_patterns to %2 {
+# CHECK-NEXT:       transform.apply_patterns.linalg.fold_unit_extent_dims_via_slices
+# CHECK-NEXT:     } : !transform.any_op
+# CHECK-NEXT:     %3 = transform.structured.match interface{LinalgOp} in %2 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:     transform.include @_vecto failures(suppress) (%3) : (!transform.any_op) -> ()
 # CHECK-NEXT:     transform.loop.unroll %loops_9 {factor = 2 : i64} : !transform.any_op
 # CHECK-NEXT:     transform.annotate %loops_3 "_apply_post_vectorize_patterns" : !transform.any_op
-# CHECK-NEXT:     %2 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:     transform.apply_patterns to %2 {
+# CHECK-NEXT:     %4 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:     transform.apply_patterns to %4 {
 # CHECK-NEXT:       transform.apply_patterns.vector.reduction_to_contract
 # CHECK-NEXT:       transform.apply_patterns.vector.transfer_permutation_patterns
 # CHECK-NEXT:     } : !transform.any_op
@@ -92,6 +96,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT: #map2 = affine_map<(d0, d1, d2) -> (d0, d1)>
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul(%arg0: tensor<4x512xf32> {llvm.noalias}, %arg1: tensor<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
+# CHECK-NEXT:     %cst = arith.constant dense<0.000000e+00> : vector<1x1xf32>
 # CHECK-NEXT:     %0 = ub.poison : f32
 # CHECK-NEXT:     %c16 = arith.constant 16 : index
 # CHECK-NEXT:     %c2 = arith.constant 2 : index
@@ -100,13 +105,12 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     %c1 = arith.constant 1 : index
 # CHECK-NEXT:     %c4 = arith.constant 4 : index
 # CHECK-NEXT:     %c0 = arith.constant 0 : index
-# CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     %1 = tensor.empty() : tensor<4x32xf32>
 # CHECK-NEXT:     %2 = scf.for %arg3 = %c0 to %c4 step %c1 iter_args(%arg4 = %1) -> (tensor<4x32xf32>) {
 # CHECK-NEXT:       %extracted_slice = tensor.extract_slice %arg4[%arg3, 0] [1, 32] [1, 1] : tensor<4x32xf32> to tensor<1x32xf32>
 # CHECK-NEXT:       %4 = scf.for %arg5 = %c0 to %c32 step %c1 iter_args(%arg6 = %extracted_slice) -> (tensor<1x32xf32>) {
 # CHECK-NEXT:         %extracted_slice_0 = tensor.extract_slice %arg6[0, %arg5] [1, 1] [1, 1] : tensor<1x32xf32> to tensor<1x1xf32>
-# CHECK-NEXT:         %5 = linalg.fill {__xtc_id_C_0_} ins(%cst : f32) outs(%extracted_slice_0 : tensor<1x1xf32>) -> tensor<1x1xf32>
+# CHECK-NEXT:         %5 = vector.transfer_write %cst, %extracted_slice_0[%c0, %c0] {in_bounds = [true, true]} : vector<1x1xf32>, tensor<1x1xf32>
 # CHECK-NEXT:         %inserted_slice_1 = tensor.insert_slice %5 into %arg6[0, %arg5] [1, 1] [1, 1] : tensor<1x1xf32> into tensor<1x32xf32>
 # CHECK-NEXT:         scf.yield %inserted_slice_1 : tensor<1x32xf32>
 # CHECK-NEXT:       } {"./j"}
@@ -169,6 +173,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT: #map2 = affine_map<(d0, d1, d2) -> (d0, d1)>
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
+# CHECK-NEXT:     %cst = arith.constant dense<0.000000e+00> : vector<1x1xf32>
 # CHECK-NEXT:     %0 = ub.poison : f32
 # CHECK-NEXT:     %c16 = arith.constant 16 : index
 # CHECK-NEXT:     %c2 = arith.constant 2 : index
@@ -177,12 +182,11 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     %c1 = arith.constant 1 : index
 # CHECK-NEXT:     %c4 = arith.constant 4 : index
 # CHECK-NEXT:     %c0 = arith.constant 0 : index
-# CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     %1 = scf.for %arg3 = %c0 to %c4 step %c1 iter_args(%arg4 = %arg2) -> (memref<4x32xf32>) {
 # CHECK-NEXT:       %subview = memref.subview %arg4[%arg3, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:       %3 = scf.for %arg5 = %c0 to %c32 step %c1 iter_args(%arg6 = %subview) -> (memref<1x32xf32, strided<[32, 1], offset: ?>>) {
 # CHECK-NEXT:         %subview_1 = memref.subview %arg6[0, %arg5] [1, 1] [1, 1] : memref<1x32xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
-# CHECK-NEXT:         linalg.fill {__xtc_id_C_0_} ins(%cst : f32) outs(%subview_1 : memref<1x1xf32, strided<[32, 1], offset: ?>>)
+# CHECK-NEXT:         vector.transfer_write %cst, %subview_1[%c0, %c0] {in_bounds = [true, true]} : vector<1x1xf32>, memref<1x1xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:         %subview_2 = memref.subview %arg6[0, %arg5] [1, 1] [1, 1] : memref<1x32xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:         memref.copy %subview_1, %subview_2 : memref<1x1xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:         scf.yield %arg6 : memref<1x32xf32, strided<[32, 1], offset: ?>>
@@ -247,6 +251,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT: // -----// IR Dump After Post-Bufferize transform //----- //
 # CHECK-NEXT: module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:   func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
+# CHECK-NEXT:     %cst = arith.constant dense<0.000000e+00> : vector<1x1xf32>
 # CHECK-NEXT:     %0 = ub.poison : f32
 # CHECK-NEXT:     %c16 = arith.constant 16 : index
 # CHECK-NEXT:     %c2 = arith.constant 2 : index
@@ -255,12 +260,11 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     %c1 = arith.constant 1 : index
 # CHECK-NEXT:     %c4 = arith.constant 4 : index
 # CHECK-NEXT:     %c0 = arith.constant 0 : index
-# CHECK-NEXT:     %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:     %1 = scf.for %arg3 = %c0 to %c4 step %c1 iter_args(%arg4 = %arg2) -> (memref<4x32xf32>) {
 # CHECK-NEXT:       %subview = memref.subview %arg4[%arg3, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:       %3 = scf.for %arg5 = %c0 to %c32 step %c1 iter_args(%arg6 = %subview) -> (memref<1x32xf32, strided<[32, 1], offset: ?>>) {
 # CHECK-NEXT:         %subview_1 = memref.subview %arg6[0, %arg5] [1, 1] [1, 1] : memref<1x32xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
-# CHECK-NEXT:         linalg.fill {__xtc_id_C_0_} ins(%cst : f32) outs(%subview_1 : memref<1x1xf32, strided<[32, 1], offset: ?>>)
+# CHECK-NEXT:         vector.transfer_write %cst, %subview_1[%c0, %c0] {in_bounds = [true, true]} : vector<1x1xf32>, memref<1x1xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:         %subview_2 = memref.subview %arg6[0, %arg5] [1, 1] [1, 1] : memref<1x32xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:         memref.copy %subview_1, %subview_2 : memref<1x1xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
 # CHECK-NEXT:         scf.yield %arg6 : memref<1x32xf32, strided<[32, 1], offset: ?>>

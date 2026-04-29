@@ -16,7 +16,11 @@ from mlir.dialects.transform.structured import (
     TileUsingForOp,
     VectorizeOp,
 )
-from mlir.dialects.transform.structured import structured_match
+from mlir.dialects.transform.structured import (
+    structured_match,
+    ApplyFoldUnitExtentDimsViaSlicesPatternsOp,
+    MatchInterfaceEnum,
+)
 from mlir.dialects.transform.loop import loop_unroll
 from mlir.dialects.transform import SplitHandleOp
 from mlir.ir import (
@@ -441,12 +445,26 @@ class MlirProgramInsertTransformPass:
     def _vectorize(self, sched_state: SchedulingState):
         if self._vectors_size is not None:
             return
-
+        assert self._named_sequence is not None
+        vecto_handle = sched_state.handle
+        if self._using_tensors_hint:
+            parent_op = get_parent_op(
+                transform.AnyOpType.get(),
+                sched_state.handle,
+                isolated_from_above=True,
+            )
+            with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
+                ApplyFoldUnitExtentDimsViaSlicesPatternsOp()
+            vecto_handle = structured_match(
+                results_=transform.AnyOpType.get(),
+                target=parent_op,  # self._named_sequence.bodyTarget,
+                interface=MatchInterfaceEnum.LinalgOp,
+            )
         transform.IncludeOp(
             results_=[],
             target=_VECTO_SEQ_NAME,
             failure_propagation_mode=2,
-            operands_=[sched_state.handle],
+            operands_=[vecto_handle],
         )
 
     def _post_vectorize(self, sched_state: SchedulingState, schedule: MlirNodeSchedule):
