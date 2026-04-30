@@ -189,6 +189,9 @@ class MlirProgramInsertTransformPass:
         assert self._named_sequence is not None
         handle = None
         for schedule in self._nodes_schedules:
+            # Skip linalg.fill
+            if schedule.node_name[-1] == "0":  # identify with naming convention
+                continue
             self._create_sdist_meshes(schedule)
             handle = structured_match(
                 results_=transform.AnyOpType.get(),
