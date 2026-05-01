@@ -8,9 +8,6 @@ import xtc.itf
 from xtc.schedules.loop_nest import LoopNest
 
 DEFAULT_ROOT = "."
-ROOT_SEP = "/"
-SPLIT_LEFT_SEP = "["
-SPLIT_RIGHT_SEP = "]"
 
 
 class Scheduler(ABC):

@@ -5,7 +5,11 @@
 from typing import Any
 from dataclasses import dataclass
 
-from xtc.itf.schd.scheduler import Scheduler, ROOT_SEP, SPLIT_LEFT_SEP, SPLIT_RIGHT_SEP
+from xtc.itf.schd.scheduler import Scheduler
+
+_NODE_SEP = "/"
+_SPLIT_LEFT = "["
+_SPLIT_RIGHT = "]"
 from .exceptions import ScheduleInterpretError
 from .parsing import (
     ScheduleParser,
@@ -116,8 +120,8 @@ class ScheduleInterpreter:
         if axis_name not in node.splits:
             node.splits[axis_name] = {}
         new_dim_index = len(node.splits[axis_name])
-        new_dim_name = f"{axis_name}{SPLIT_LEFT_SEP}{new_dim_index}{SPLIT_RIGHT_SEP}"
-        new_root_name = f"{root}{ROOT_SEP}{new_dim_name}"
+        new_dim_name = f"{axis_name}{_SPLIT_LEFT}{new_dim_index}{_SPLIT_RIGHT}"
+        new_root_name = f"{root}{_NODE_SEP}{new_dim_name}"
         node.splits[axis_name][new_dim_name] = x
         interchange.append(new_dim_name)
 

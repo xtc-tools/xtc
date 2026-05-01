@@ -5,16 +5,13 @@
 from typing_extensions import override
 from dataclasses import dataclass, asdict
 from pprint import pformat
-from xtc.itf.schd.scheduler import DEFAULT_ROOT, ROOT_SEP
+from xtc.itf.schd.scheduler import DEFAULT_ROOT
+from .MlirLoopNames import make_loop_name, basename
 
 __all__ = [
     "MlirNodeScheduler",
     "MlirNodeSchedule",
 ]
-
-
-def basename(loop_name: str) -> str:
-    return loop_name.split(ROOT_SEP)[-1]
 
 
 @dataclass(frozen=True)
@@ -122,7 +119,7 @@ class MlirNodeScheduler:
         return str(self.mlir_node_schedule())
 
     def get_default_interchange(self, root: str) -> list[str]:
-        ret = [f"{root}{ROOT_SEP}{d}" for d in self.dims.copy()]
+        ret = [make_loop_name(root, d) for d in self.dims]
         for tile_level in range(len(max(self.tiles.values(), key=len))):
             for _, v in self.tiles.items():
                 if tile_level >= len(v):
@@ -140,7 +137,7 @@ class MlirNodeScheduler:
         self, dim: str, segments: dict[str, int], root: str = DEFAULT_ROOT
     ) -> None:
         segments_renamed = {
-            f"{root}{ROOT_SEP}{key}": val for key, val in segments.items()
+            make_loop_name(root, key): val for key, val in segments.items()
         }
         self.splits[dim] = segments_renamed
         for s in segments_renamed:
@@ -148,21 +145,21 @@ class MlirNodeScheduler:
 
     def tile(self, dim: str, tiles: dict[str, int], root: str = DEFAULT_ROOT):
         for d, s in tiles.items():
-            tile_name = f"{root}{ROOT_SEP}{d}"
+            tile_name = make_loop_name(root, d)
             self.tiles[dim][tile_name] = s
 
     def interchange(self, permutation: list[str], root: str = DEFAULT_ROOT):
-        self.permutation[root] = [f"{root}{ROOT_SEP}{a}" for a in permutation]
+        self.permutation[root] = [make_loop_name(root, a) for a in permutation]
 
     def vectorize(self, axes: list[str], root: str = DEFAULT_ROOT):
-        self.vectorization += [f"{root}{ROOT_SEP}{a}" for a in axes]
+        self.vectorization += [make_loop_name(root, a) for a in axes]
 
     def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT):
-        self.parallelization = [f"{root}{ROOT_SEP}{a}" for a in axes]
+        self.parallelization = [make_loop_name(root, a) for a in axes]
 
     def unroll(self, unrolls: dict[str, int], root: str = DEFAULT_ROOT):
         for dim, ufactor in unrolls.items():
-            self.unrolling[f"{root}{ROOT_SEP}{dim}"] = ufactor
+            self.unrolling[make_loop_name(root, dim)] = ufactor
 
     def pack_at(
         self,
@@ -172,7 +169,7 @@ class MlirNodeScheduler:
         pad: bool = False,
         root: str = DEFAULT_ROOT,
     ):
-        axis_key = f"{root}{ROOT_SEP}{axis}"
+        axis_key = make_loop_name(root, axis)
         if axis_key not in self.packed_buffers.keys():
             self.packed_buffers[axis_key] = [input_idx]
         else:
@@ -199,7 +196,7 @@ class MlirNodeScheduler:
         assert processor_axis in self.processor_mesh or processor_axis == "*", (
             "Processor axis not found in processor mesh"
         )
-        axis_key = f"{root}{ROOT_SEP}{axis}"
+        axis_key = make_loop_name(root, axis)
         self.parallelization.append(axis_key)
         self.distribution[axis_key] = processor_axis
 
@@ -215,7 +212,7 @@ class MlirNodeScheduler:
             assert ma in self.memory_mesh or ma == "*", (
                 "Memory axis not found in memory mesh"
             )
-        axis_key = f"{root}{ROOT_SEP}{axis}"
+        axis_key = make_loop_name(root, axis)
         self.distributed_buffers[axis_key] = {
             "input_idx": input_idx,
             "memory_axes": memory_axes,

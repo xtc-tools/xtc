@@ -34,7 +34,7 @@ except ImportError:
     sdist_transform = None
     pass
 
-from xtc.itf.schd.scheduler import ROOT_SEP
+from .MlirLoopNames import make_loop_name
 from xtc.utils.ext_tools import transform_opts
 
 from .MlirProgram import RawMlirProgram
@@ -298,7 +298,7 @@ class MlirProgramInsertTransformPass:
             if axis_split is not None and not (
                 schedule.is_base(loop_name) or schedule.is_tile(loop_name)
             ):
-                loop_name = root + ROOT_SEP + axis_split
+                loop_name = make_loop_name(root, axis_split)
             # Bufferization
             if loop_name in schedule.distributed_buffers.keys():
                 self._distribute_buffer(
@@ -358,7 +358,7 @@ class MlirProgramInsertTransformPass:
                 if not (schedule.is_tile(loop) or schedule.is_base(loop)):
                     axis_split = split_state.loop_dim_by_split.get(loc_root)
                     if axis_split is not None:
-                        loop = loc_root + ROOT_SEP + axis_split
+                        loop = make_loop_name(loc_root, axis_split)
                     else:
                         continue
 
