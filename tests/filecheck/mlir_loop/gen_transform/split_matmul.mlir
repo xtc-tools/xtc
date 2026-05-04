@@ -38,7 +38,7 @@ func.func @myfun(
 // CHECK-NEXT:      %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops "__node0__/I" : !transform.any_op
 // CHECK-NEXT:      %1 = transform.structured.split %tiled_linalg_op after 256  {dimension = 2 : i64} : !transform.any_op
-// CHECK-NEXT:      %2:2 = transform.split_handle %1 : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+// CHECK-NEXT:      %2:2 = transform.split_handle %1 {fail_on_payload_too_small = false} : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %2#0 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_1 "__node0__/K[0]/K" : !transform.any_op
 // CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_0) : (!transform.any_op) -> ()
