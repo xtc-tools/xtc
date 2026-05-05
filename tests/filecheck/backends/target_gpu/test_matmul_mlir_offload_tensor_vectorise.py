@@ -1,0 +1,157 @@
+# RUN: python %s 2>&1 | filecheck %s
+# REQUIRES: mlir-target=nvgpu
+
+import xtc.graphs.xtc.op as O
+from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend as Backend
+
+from xtc.runtimes.accelerator.gpu import GPUDevice
+
+# Create device
+gpu = GPUDevice()
+
+I, J, K, dtype = 4, 32, 512, "float32"
+a = O.tensor((I, K), dtype, name="A") # A lives on the host
+b = O.tensor((K, J), dtype, name="B", device=gpu) # B lives on the accelerator
+
+with O.graph(name="matmul") as gb:
+    O.matmul(a, b, name="C", device=gpu) # C must live on the accelerator
+
+graph = gb.graph
+print(graph)
+
+impl = Backend(graph)
+
+sch = impl.get_scheduler()
+sch.tile("i", {"i1": 2})
+sch.tile("j", {"j1": 16})
+sch.unroll({"i1": 2})
+sch.vectorize(["j1"])
+sch.parallelize(["i"])
+sched = sch.schedule()
+
+comp = impl.get_compiler(
+    target=gpu,
+    shared_lib=True,
+    dump_file="gpu_matmul_mlir_offload_tensor_vectorise",
+    print_source_ir=True,
+    print_transformed_ir=True,
+)
+module = comp.compile(sched)
+executor = module.get_executor(validate=True)
+res = executor.execute()
+print(f"CODE: {res}")
+# CHECK:       // -----// IR Dump Before transform //----- //
+# CHECK-NEXT:  module attributes {transform.with_named_sequence} {
+# CHECK-NEXT:    func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias, memref.on_device}, %arg2: memref<4x32xf32> {llvm.noalias, memref.on_device}) {
+# CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
+# CHECK-NEXT:      linalg.fill {__xtc_id_C_0_} ins(%cst : f32) outs(%arg2 : memref<4x32xf32>)
+# CHECK-NEXT:      linalg.matmul {__xtc_id_C_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%arg2 : memref<4x32xf32>)
+# CHECK-NEXT:      return
+# CHECK-NEXT:    }
+# CHECK-NEXT:    transform.named_sequence @_vecto(%arg0: !transform.any_op {transform.consumed}) {
+# CHECK-NEXT:      transform.structured.vectorize %arg0 : !transform.any_op
+# CHECK-NEXT:      transform.yield 
+# CHECK-NEXT:    }
+# CHECK-NEXT:    transform.named_sequence @__transform_main(%arg0: !transform.any_op {transform.readonly}) {
+# CHECK-NEXT:      %0 = transform.structured.match attributes {__xtc_id_C_0_} in %arg0 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops "./i" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %tiled_linalg_op tile_sizes [0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_1 "./j" : !transform.any_op
+# CHECK-NEXT:      %1 = transform.structured.match attributes {__xtc_id_C_} in %arg0 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %tiled_op, %forall_op = transform.structured.tile_using_forall %1 tile_sizes [2, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %forall_op "./i" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %tiled_op tile_sizes [0, 16, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_3 "./j" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_linalg_op_2 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_5 "./k" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_7 "./i1" : !transform.any_op
+# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_6) : (!transform.any_op) -> ()
+# CHECK-NEXT:      transform.loop.unroll %loops_7 {factor = 2 : i64} : !transform.any_op
+# CHECK-NEXT:      %2 = transform.get_parent_op %forall_op {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
+# CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
+# CHECK-NEXT:      } : !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
+# CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
+# CHECK-NEXT:      } : !transform.any_op
+# CHECK-NEXT:      transform.yield 
+# CHECK-NEXT:    }
+# CHECK-NEXT:  }
+# CHECK-NEXT:  
+# CHECK-NEXT:  // -----// IR Dump After transform //----- //
+# CHECK-NEXT:  #map = affine_map<(d0) -> (d0 * 2)>
+# CHECK-NEXT:  module attributes {transform.with_named_sequence} {
+# CHECK-NEXT:    func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias, memref.on_device}, %arg2: memref<4x32xf32> {llvm.noalias, memref.on_device}) {
+# CHECK-NEXT:      %cst = arith.constant dense<0.000000e+00> : vector<1x16xf32>
+# CHECK-NEXT:      %0 = ub.poison : f32
+# CHECK-NEXT:      %c512 = arith.constant 512 : index
+# CHECK-NEXT:      %c16 = arith.constant 16 : index
+# CHECK-NEXT:      %c32 = arith.constant 32 : index
+# CHECK-NEXT:      %cst_0 = arith.constant 0.000000e+00 : f32
+# CHECK-NEXT:      %c0 = arith.constant 0 : index
+# CHECK-NEXT:      %c4 = arith.constant 4 : index
+# CHECK-NEXT:      %c1 = arith.constant 1 : index
+# CHECK-NEXT:      scf.for %arg3 = %c0 to %c4 step %c1 {
+# CHECK-NEXT:        %subview = memref.subview %arg2[%arg3, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:        scf.for %arg4 = %c0 to %c32 step %c1 {
+# CHECK-NEXT:          %subview_1 = memref.subview %subview[0, %arg4] [1, 1] [1, 1] : memref<1x32xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:          linalg.fill {__xtc_id_C_0_} ins(%cst_0 : f32) outs(%subview_1 : memref<1x1xf32, strided<[32, 1], offset: ?>>)
+# CHECK-NEXT:        } {"./j"}
+# CHECK-NEXT:      } {"./i"}
+# CHECK-NEXT:      scf.forall (%arg3) in (2) {
+# CHECK-NEXT:        %1 = affine.apply #map(%arg3)
+# CHECK-NEXT:        %subview = memref.subview %arg0[%1, 0] [2, 512] [1, 1] : memref<4x512xf32> to memref<2x512xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:        %subview_1 = memref.subview %arg1[0, 0] [512, 32] [1, 1] : memref<512x32xf32> to memref<512x32xf32, strided<[32, 1]>>
+# CHECK-NEXT:        %subview_2 = memref.subview %arg2[%1, 0] [2, 32] [1, 1] : memref<4x32xf32> to memref<2x32xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:        scf.for %arg4 = %c0 to %c32 step %c16 {
+# CHECK-NEXT:          %subview_3 = memref.subview %subview_1[0, %arg4] [512, 16] [1, 1] : memref<512x32xf32, strided<[32, 1]>> to memref<512x16xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:          %subview_4 = memref.subview %subview_2[0, %arg4] [2, 16] [1, 1] : memref<2x32xf32, strided<[32, 1], offset: ?>> to memref<2x16xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:          scf.for %arg5 = %c0 to %c512 step %c1 {
+# CHECK-NEXT:            %subview_5 = memref.subview %subview[0, %arg5] [2, 1] [1, 1] : memref<2x512xf32, strided<[512, 1], offset: ?>> to memref<2x1xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:            %subview_6 = memref.subview %subview_3[%arg5, 0] [1, 16] [1, 1] : memref<512x16xf32, strided<[32, 1], offset: ?>> to memref<1x16xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:            %subview_7 = memref.subview %subview_5[%c0, 0] [1, 1] [1, 1] : memref<2x1xf32, strided<[512, 1], offset: ?>> to memref<1x1xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:            %subview_8 = memref.subview %subview_4[%c0, 0] [1, 16] [1, 1] : memref<2x16xf32, strided<[32, 1], offset: ?>> to memref<1x16xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:            %2 = vector.transfer_read %subview_7[%c0, %c0], %0 {in_bounds = [true, true]} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x1xf32>
+# CHECK-NEXT:            %3 = vector.transfer_read %subview_6[%c0, %c0], %0 {in_bounds = [true, true]} : memref<1x16xf32, strided<[32, 1], offset: ?>>, vector<1x16xf32>
+# CHECK-NEXT:            %4 = vector.transfer_read %subview_8[%c0, %c0], %0 {in_bounds = [true, true]} : memref<1x16xf32, strided<[32, 1], offset: ?>>, vector<1x16xf32>
+# CHECK-NEXT:            %5 = vector.extract %3[0] : vector<16xf32> from vector<1x16xf32>
+# CHECK-NEXT:            %6 = vector.extract %2[0, 0] : f32 from vector<1x1xf32>
+# CHECK-NEXT:            %7 = vector.broadcast %6 : f32 to vector<16xf32>
+# CHECK-NEXT:            %8 = vector.extract %4[0] : vector<16xf32> from vector<1x16xf32>
+# CHECK-NEXT:            %9 = vector.fma %7, %5, %8 : vector<16xf32>
+# CHECK-NEXT:            %10 = vector.insert %9, %cst [0] : vector<16xf32> into vector<1x16xf32>
+# CHECK-NEXT:            vector.transfer_write %10, %subview_8[%c0, %c0] {in_bounds = [true, true]} : vector<1x16xf32>, memref<1x16xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:            %subview_9 = memref.subview %subview_5[%c1, 0] [1, 1] [1, 1] : memref<2x1xf32, strided<[512, 1], offset: ?>> to memref<1x1xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:            %subview_10 = memref.subview %subview_4[%c1, 0] [1, 16] [1, 1] : memref<2x16xf32, strided<[32, 1], offset: ?>> to memref<1x16xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:            %11 = vector.transfer_read %subview_9[%c0, %c0], %0 {in_bounds = [true, true]} : memref<1x1xf32, strided<[512, 1], offset: ?>>, vector<1x1xf32>
+# CHECK-NEXT:            %12 = vector.transfer_read %subview_6[%c0, %c0], %0 {in_bounds = [true, true]} : memref<1x16xf32, strided<[32, 1], offset: ?>>, vector<1x16xf32>
+# CHECK-NEXT:            %13 = vector.transfer_read %subview_10[%c0, %c0], %0 {in_bounds = [true, true]} : memref<1x16xf32, strided<[32, 1], offset: ?>>, vector<1x16xf32>
+# CHECK-NEXT:            %14 = vector.extract %12[0] : vector<16xf32> from vector<1x16xf32>
+# CHECK-NEXT:            %15 = vector.extract %11[0, 0] : f32 from vector<1x1xf32>
+# CHECK-NEXT:            %16 = vector.broadcast %15 : f32 to vector<16xf32>
+# CHECK-NEXT:            %17 = vector.extract %13[0] : vector<16xf32> from vector<1x16xf32>
+# CHECK-NEXT:            %18 = vector.fma %16, %14, %17 : vector<16xf32>
+# CHECK-NEXT:            %19 = vector.insert %18, %cst [0] : vector<16xf32> into vector<1x16xf32>
+# CHECK-NEXT:            vector.transfer_write %19, %subview_10[%c0, %c0] {in_bounds = [true, true]} : vector<1x16xf32>, memref<1x16xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:          } {"./k"}
+# CHECK-NEXT:        } {"./j"}
+# CHECK-NEXT:      } {"./i"}
+# CHECK-NEXT:      return
+# CHECK-NEXT:    }
+# CHECK-NEXT:  }
+# CHECK-NEXT:  
+# CHECK-NEXT:  graph:
+# CHECK-NEXT:    name: matmul
+# CHECK-NEXT:    inputs:
+# CHECK-NEXT:    - %0 : 4x512xfloat32
+# CHECK-NEXT:    - %1 : 512x32xfloat32
+# CHECK-NEXT:    outputs:
+# CHECK-NEXT:    - %2 : 4x32xfloat32
+# CHECK-NEXT:    nodes:
+# CHECK-NEXT:    - %2: matmul(%0, %1) {name = 'C'} : [4x512xfloat32, 512x32xfloat32] -> [4x32xfloat32]
+# CHECK-NEXT:  
+# CHECK-NEXT:  CODE: 0

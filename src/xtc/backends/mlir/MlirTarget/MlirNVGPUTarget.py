@@ -453,6 +453,7 @@ class MlirProgramToLLVMDialectPass:
             "canonicalize",
             "cse",
             "sccp",
+            "convert-vector-to-llvm",
             "buffer-results-to-out-params",
             "convert-func-to-llvm{use-bare-ptr-memref-call-conv=true}",
             "gpu-lower-to-nvvm-pipeline{cubin-chip="
