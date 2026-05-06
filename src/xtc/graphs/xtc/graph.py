@@ -5,6 +5,7 @@
 from typing_extensions import override
 from collections.abc import Sequence, Mapping
 from typing import TypeAlias, cast, Any
+from pathlib import Path
 
 from xtc.itf.graph import Graph
 from xtc.itf.data import TensorType, Tensor
@@ -179,6 +180,8 @@ class XTCGraph(Graph):
     def dumps(self) -> str:
         return safe_dump(self.to_dict())
 
-    def dump(self, file_name: str) -> None:
+    def dump(self, file_name: str | Path) -> None:
+        file_name = Path(file_name)
+        file_name.parent.mkdir(exist_ok=True, parents=True)
         with open(file_name, "w") as f:
             yaml_dump(self.to_dict(), f, sort_keys=False)

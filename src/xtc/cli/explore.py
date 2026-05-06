@@ -779,6 +779,8 @@ def optimize(args: NS):
     graph = OPERATORS[args.operator]["operation"](*op_args, name=args.func_name)
     strategy = get_strategy(graph, args)
     write_run_manifest(args, strategy)
+    if args.save_temps:
+        graph.dump(Path(args.save_temps_dir) / f"{graph.name}.graph.yaml")
     if args.test or args.opt_level in [0, 1, 2, 3]:
         schedule = args.test
         if not schedule:
