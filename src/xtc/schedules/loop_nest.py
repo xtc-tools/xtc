@@ -108,6 +108,8 @@ class LoopNestNode(Node["LoopNestNode"]):
     unroll: dict[str, int] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool]] = field(default_factory=dict)
+    gpu_block: dict[str, int] = field(default_factory=dict)
+    gpu_thread: dict[str, int] = field(default_factory=dict)
 
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
@@ -230,6 +232,10 @@ class LoopNestNode(Node["LoopNestNode"]):
             if pad:
                 parts.append("pad")
             annotations.append(f"pack({', '.join(parts)})")
+        if loop_name in self.gpu_block:
+            annotations.append(f"gpu_block({self.gpu_block[loop_name]})")
+        if loop_name in self.gpu_thread:
+            annotations.append(f"gpu_thread({self.gpu_thread[loop_name]})")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line

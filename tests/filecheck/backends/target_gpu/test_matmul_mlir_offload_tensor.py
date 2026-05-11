@@ -9,7 +9,7 @@ from xtc.runtimes.accelerator.gpu import GPUDevice
 # Create device
 gpu = GPUDevice()
 
-I, J, K, dtype = 4, 32, 512, "float32"
+I, J, K, dtype = 1024, 1024, 512, "float32"
 a = O.tensor((I, K), dtype, name="A") # A lives on the host
 b = O.tensor((K, J), dtype, name="B", device=gpu) # B lives on the accelerator
 
@@ -22,10 +22,14 @@ print(graph)
 impl = Backend(graph)
 
 sch = impl.get_scheduler()
-sch.tile("i", {"i1": 2})
-sch.tile("j", {"j1": 16})
-sch.unroll({"i1": 2})
-sch.parallelize(["i"])
+sch.tile("i", {"i1": 128, "i2": 32})
+sch.tile("j", {"j1": 128, "j2": 32})
+sch.tile("k", {"k1": 64})
+# sch.unroll({"i1": 2})
+sch.parallelize(["i", "j","i1", "j1"])
+sch.gpu_block(["i", "j"])
+sch.gpu_thread(["i1", "j1"])
+sch.interchange(["i", "j", "i1", "j1","k", "k1", "i2", "j2"])
 sched = sch.schedule()
 
 comp = impl.get_compiler(
@@ -34,6 +38,7 @@ comp = impl.get_compiler(
     dump_file="gpu_matmul_mlir_offload_tensor",
     print_source_ir=True,
     print_transformed_ir=True,
+    print_lowered_ir=True,
 )
 module = comp.compile(sched)
 executor = module.get_executor(validate=True)
