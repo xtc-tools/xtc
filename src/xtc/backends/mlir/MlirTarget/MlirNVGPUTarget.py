@@ -446,7 +446,6 @@ class MlirProgramToLLVMDialectPass:
             "scf-forall-to-parallel",
             "canonicalize",
             "cse",
-            "sccp",
             "func.func(gpu-map-parallel-loops)",
             "convert-parallel-loops-to-gpu",
             "convert-linalg-to-loops",

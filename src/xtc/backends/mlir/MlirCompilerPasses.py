@@ -22,6 +22,9 @@ from mlir.dialects.transform.structured import (
     ApplyFoldUnitExtentDimsViaSlicesPatternsOp,
     MatchInterfaceEnum,
     FuseIntoContainingOp,
+from mlir.dialects.transform.gpu import (
+    MapForallToBlocks,
+    MapNestedForallToThreads,
 )
 from mlir.dialects.transform.loop import loop_unroll
 from mlir.dialects.transform import SplitHandleOp
@@ -30,6 +33,8 @@ from mlir.ir import (
     InsertionPoint,
     UnitAttr,
     OpResult,
+    Attribute,
+    ArrayAttr,
 )
 from mlir.passmanager import PassManager
 from mlir.ir import Module
@@ -52,6 +57,7 @@ from .MlirTarget import MlirTarget
 _VECTO_SEQ_NAME = "_vecto"
 _SUPER_VECTORIZE_SEQ_NAME = "_super_vectorize"
 _POST_BUFFERIZE_SEQ_NAME = "_post_bufferize"
+_GPU_DIM = ["x", "y", "z"]
 
 
 @dataclass
@@ -315,7 +321,8 @@ class MlirProgramInsertTransformPass:
         permutation = schedule.permutation[root]
         if not permutation:
             return sched_state
-
+        gpu_material = True
+        gpu_mat_thread = True
         # Materialize the loops
         for loop_name in permutation:
             # Manage the splits
@@ -351,12 +358,39 @@ class MlirProgramInsertTransformPass:
                 self._vectorize(sched_state)
                 break
             elif loop_name in tiles_sizes_by_loops:
-                self._strip_mine(
-                    loop_name=loop_name,
-                    tiling_vector=tiles_sizes_by_loops[loop_name],
-                    schedule=schedule,
-                    sched_state=sched_state,
-                )
+                if loop_name in schedule.gpu_blocks:
+                    tile_vect = [
+                        max(tiles_sizes_by_loops[loop]) for loop in schedule.gpu_blocks
+                    ]
+                    tile_vect = tile_vect + [0] * (3 - len(tile_vect))
+                    if gpu_material:
+                        new_loop = self._strip_mine(
+                            loop_name=loop_name,
+                            tiling_vector=tile_vect,
+                            schedule=schedule,
+                            sched_state=sched_state,
+                        )
+                        gpu_material = False
+                elif loop_name in schedule.gpu_threads:
+                    tile_vect = [
+                        max(tiles_sizes_by_loops[loop]) for loop in schedule.gpu_threads
+                    ]
+                    tile_vect = tile_vect + [0] * (3 - len(tile_vect))
+                    if gpu_mat_thread:
+                        new_loop = self._strip_mine(
+                            loop_name=loop_name,
+                            tiling_vector=tile_vect,
+                            schedule=schedule,
+                            sched_state=sched_state,
+                        )
+                        gpu_mat_thread = False
+                else:
+                    self._strip_mine(
+                        loop_name=loop_name,
+                        tiling_vector=tiles_sizes_by_loops[loop_name],
+                        schedule=schedule,
+                        sched_state=sched_state,
+                    )
                 if loop_name in schedule.distribution:
                     self._distribute_loop(loop_name, schedule, sched_state)
             # Fuse the producers
@@ -372,6 +406,10 @@ class MlirProgramInsertTransformPass:
         # Unrolling
         if schedule.unrolling:
             self._unroll(permutation, schedule, sched_state)
+
+        # Gpu mapping
+        if schedule.gpu_blocks:
+            self._gpu_mapping(schedule, sched_state, tiles_sizes_by_loops)
 
         return sched_state
 
@@ -498,9 +536,26 @@ class MlirProgramInsertTransformPass:
         sched_state: SchedulingState,
     ) -> OpResult:
         if loop_name in schedule.parallelization:
-            tiling_command = TileUsingForallOp(
-                sched_state.handle, tile_sizes=tiling_vector
-            )
+            attr_array = {}
+            if loop_name in schedule.gpu_threads:
+                attr_array["mapping"] = ArrayAttr.get(
+                    [
+                        self._get_thread_id(index)
+                        for index in range(len(schedule.gpu_threads))
+                    ]
+                )
+                attr_array["tile_sizes"] = tiling_vector
+            elif loop_name in schedule.gpu_blocks:
+                attr_array["mapping"] = ArrayAttr.get(
+                    [
+                        self._get_block_id(index)
+                        for index in range(len(schedule.gpu_blocks))
+                    ]
+                )
+                attr_array["tile_sizes"] = tiling_vector
+            else:
+                attr_array["tile_sizes"] = tiling_vector
+            tiling_command = TileUsingForallOp(sched_state.handle, **attr_array)
         else:
             tiling_command = TileUsingForOp(sched_state.handle, sizes=tiling_vector)
         # Extract the results
@@ -700,6 +755,51 @@ def find_producer_handles(module: Module, root_handle: str) -> list[str | None]:
                     producer_handles[-1] = attr.name
     return producer_handles
 
+    def _get_thread_id(self, index: int) -> Attribute:
+        ctx = self._mlir_program.mlir_context
+        return Attribute.parse(f"#gpu.thread<{_GPU_DIM[index]}>", context=ctx)
+
+    def _get_block_id(self, index: int) -> Attribute:
+        ctx = self._mlir_program.mlir_context
+        return Attribute.parse(f"#gpu.block<{_GPU_DIM[index]}>", context=ctx)
+
+    def _gpu_mapping(
+        self,
+        schedule: MlirNodeSchedule,
+        sched_state: SchedulingState,
+        tiles_sizes_by_loops: dict[str, list[int]],
+    ):
+        if schedule.gpu_blocks:
+            new_loop = next(
+                (
+                    sched_state.all_loops[loop_name]
+                    for loop_name in schedule.gpu_blocks
+                    if loop_name in sched_state.all_loops
+                ),
+                None,
+            )
+            # Since we know there only 1 non zero number
+            # TODO Find a way to put block id and thread id divide by the size
+            grid_dims = [
+                max(tiles_sizes_by_loops[loop_name])
+                for loop_name in schedule.gpu_blocks
+            ]
+            grid_dims = grid_dims + [1] * (3 - len(grid_dims))
+            new_loop = MapForallToBlocks(
+                new_loop,
+                grid_dims=grid_dims,
+                generate_gpu_launch=True,
+            ).result
+            if schedule.gpu_threads:
+                block_dims = [
+                    max(tiles_sizes_by_loops[loop_name])
+                    for loop_name in schedule.gpu_threads
+                ]
+                block_dims = block_dims + [1] * (3 - len(block_dims))
+                new_loop = MapNestedForallToThreads(
+                    new_loop,
+                    block_dims=block_dims,
+                ).result
 
 class MlirProgramApplyTransformPass:
     def __init__(

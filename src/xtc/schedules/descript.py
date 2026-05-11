@@ -395,6 +395,12 @@ class ScheduleInterpreter:
             else:
                 node.pack_at[loop_name] = (input_matrix, mtype, pad)
 
+        if annotations.gpu_block is not None:
+            node.gpu_block[loop_name] = annotations.gpu_block
+
+        if annotations.gpu_thread is not None:
+            node.gpu_thread[loop_name] = annotations.gpu_thread
+
     def _check_splitting_intervals(
         self,
         item: SplitDecl,
@@ -536,6 +542,16 @@ class Descript:
 
         for axis, (input_idx, mtype, pad) in node.pack_at.items():
             scheduler.pack_at(axis, input_idx, mtype=mtype, pad=pad, root=root)
+
+        if node.gpu_block:
+            self.scheduler.gpu_block(
+                sorted(node.gpu_block, key=node.gpu_block.get), root=root
+            )
+
+        if node.gpu_thread:
+            self.scheduler.gpu_thread(
+                sorted(node.gpu_thread, key=node.gpu_thread.get), root=root
+            )
 
         # Recursively apply children
         for child in node.children:

@@ -291,6 +291,24 @@ class Scheduler(ABC):
         ...
 
     @abstractmethod
+    def gpu_thread(self, axes: list[str]) -> None:
+        """
+        Map an axis to a certain gpu thread either x, y or z.
+        The mapped axis need to be in parallelization.
+        We can only map 3 dimensions for gpu thread
+        """
+        ...
+
+    @abstractmethod
+    def gpu_block(self, axes: list[str]) -> None:
+        """
+        Map an axis to a certain gpu block either x, y or z.
+        The mapped axis need to be in parallelization.
+        We can only map 3 dimensions for gpu block
+        """
+        ...
+
+    @abstractmethod
     def get_loop_nest(self) -> LoopNest:
         """Return a LoopNest representation of the current schedule.
 

@@ -50,6 +50,8 @@ class Annotations:
     pack_specified: bool = False
     partial: bool = False
     full: bool = False
+    gpu_block: int | None = None
+    gpu_thread: int | None = None
 
 
 @dataclass(frozen=True)
@@ -175,6 +177,8 @@ class ScheduleParser:
         pack_specified = False
         partial = False
         full = False
+        gpu_block: str | int | None = None
+        gpu_thread: str | int | None = None
 
         for key, param in value.items():
             match key:
@@ -221,6 +225,46 @@ class ScheduleParser:
                     partial = True
                 case "full":
                     full = True
+                case "gpu_block":
+                    if isinstance(param, str):
+                        if param == "x":
+                            gpu_block = 0
+                        elif param == "y":
+                            gpu_block = 1
+                        elif param == "z":
+                            gpu_block = 2
+                        else:
+                            raise ScheduleParseError(
+                                f'`{{"gpu_block" = {param}}}`: gpu_block parameter should be a string or int'
+                            )
+                    elif isinstance(param, int):
+                        gpu_block = param
+                    else:
+                        raise ScheduleParseError(
+                            f'`{{"gpu_block" = {param}}}`: gpu_block parameter should be a string or int'
+                        )
+                case "gpu_thread":
+                    if isinstance(param, str):
+                        if param == "x":
+                            gpu_thread = 0
+                        elif param == "y":
+                            gpu_thread = 1
+                        elif param == "z":
+                            gpu_thread = 2
+                        else:
+                            raise ScheduleParseError(
+                                f'`{{"gpu_thread" = {param}}}`: gpu_thread string parameter should x, y or z'
+                            )
+                    elif isinstance(param, int):
+                        gpu_thread = param
+                        if param < 0 and param < 3:
+                            raise ScheduleParseError(
+                                f'`{{"gpu_thread" = {param}}}`: gpu_thread int parameter should 0, 1 or 2'
+                            )
+                    else:
+                        raise ScheduleParseError(
+                            f'`{{"gpu_thread" = {param}}}`: gpu_thread parameter should be a string or int'
+                        )
                 case _:
                     raise ScheduleParseError(f"Unknown annotation on {context}: {key}")
 
@@ -238,6 +282,8 @@ class ScheduleParser:
             pack_specified=pack_specified,
             partial=partial,
             full=full,
+            gpu_block=gpu_block,
+            gpu_thread=gpu_thread,
         )
 
     def _parse_pack_param(
