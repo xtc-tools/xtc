@@ -219,6 +219,14 @@ class MlirScheduler(itf.schd.Scheduler):
         )
 
     @override
+    def gpu_thread(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        self._current_scheduler.map_gpu_threads(axes, root=root)
+
+    @override
+    def gpu_block(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        self._current_scheduler.map_gpu_blocks(axes, root=root)
+
+    @override
     def get_loop_nest(self) -> LoopNest:
         node_schedule = self._current_scheduler.get_node_schedule()
         return LoopNestBuilder.from_plain_node_schedule(node_schedule)

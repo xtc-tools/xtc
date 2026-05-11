@@ -401,6 +401,12 @@ class ScheduleInterpreter:
         if annotations.fuse_consumer:
             node.fuse_consumer_at.append(loop_name)
 
+        if annotations.gpu_block is not None:
+            node.gpu_block[loop_name] = annotations.gpu_block
+
+        if annotations.gpu_thread is not None:
+            node.gpu_thread[loop_name] = annotations.gpu_thread
+
     def _check_splitting_intervals(
         self,
         item: SplitDecl,
@@ -548,6 +554,17 @@ class Descript:
 
         for axis in node.fuse_consumer_at:
             scheduler.fuse_consumer_at(axis, root=root)
+
+        if node.gpu_block:
+            self.scheduler.gpu_block(
+                sorted(node.gpu_block, key=node.gpu_block.get), root=root
+            )
+
+        if node.gpu_thread:
+            self.scheduler.gpu_thread(
+                sorted(node.gpu_thread, key=node.gpu_thread.get), root=root
+            )
+
         # Recursively apply children
         for child in node.children:
             self._apply_node(child, scheduler)
