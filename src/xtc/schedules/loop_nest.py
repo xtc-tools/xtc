@@ -118,6 +118,8 @@ class LoopNestNode(Node["LoopNestNode"]):
     pack_at: dict[str, tuple[int, str | None, bool]] = field(default_factory=dict)
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
     fuse_consumer_at: list[str] = field(default_factory=list)
+    gpu_block: dict[str, int] = field(default_factory=dict)
+    gpu_thread: dict[str, int] = field(default_factory=dict)
 
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
@@ -245,6 +247,10 @@ class LoopNestNode(Node["LoopNestNode"]):
             annotations.append(f"fuse_producer({prod_idx})")
         if loop_name in self.fuse_consumer_at:
             annotations.append("fuse_consumer")
+        if loop_name in self.gpu_block:
+            annotations.append(f"gpu_block({self.gpu_block[loop_name]})")
+        if loop_name in self.gpu_thread:
+            annotations.append(f"gpu_thread({self.gpu_thread[loop_name]})")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line
