@@ -91,6 +91,7 @@ class ScheduleInterpreter:
         interchange: list[str] = list(head)
         last_split: list[tuple[literal, literal | None]] = []
         sizes: dict[str, literal] = {}
+        loop_name: str = ""
         if self.abstract_dim_sizes:
             for a, v in self.abstract_dim_sizes.items():
                 sizes[a] = v
@@ -120,7 +121,9 @@ class ScheduleInterpreter:
                 )
                 self._apply_annotations(item.annotations, loop_name, sizes, node)
             elif isinstance(item, AxisDecl):
-                loop_name = self._interpret_axis(item, interchange)
+                _loop_name = self._interpret_axis(item, interchange)
+                if _loop_name:
+                    loop_name = _loop_name
                 self._apply_annotations(item.annotations, loop_name, sizes, node)
 
         # Reaplace the placeholder of the last split with its size
@@ -313,7 +316,7 @@ class ScheduleInterpreter:
         """Interpret a direct axis reference. Returns the loop name."""
         axis_name = item.axis
         if axis_name in self.abstract_matrix:
-            return axis_name
+            return ""
         self._check_axis_existence(axis_name)
 
         # Unreachable when built from a Python dict (because keys

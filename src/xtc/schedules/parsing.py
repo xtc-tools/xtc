@@ -246,7 +246,7 @@ class ScheduleParser:
         """Parse pack parameter into (input_idx, mtype, pad) tuple."""
 
         if param is None:
-            return None
+            return (context, None, False)
 
         if not isinstance(param, (list, tuple)) or len(param) != 3:
             raise ScheduleParseError(
