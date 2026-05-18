@@ -360,26 +360,40 @@ class MlirProgramInsertTransformPass:
             elif loop_name in tiles_sizes_by_loops:
                 if loop_name in schedule.gpu_blocks:
                     tile_vect = [
-                        max(tiles_sizes_by_loops[loop]) for loop in schedule.gpu_blocks
+                        sum(values)
+                        for values in zip(
+                            *[
+                                tiles_sizes_by_loops[loop]
+                                for loop in schedule.gpu_blocks
+                            ]
+                        )
                     ]
                     tile_vect = tile_vect + [0] * (3 - len(tile_vect))
                     if gpu_material:
-                        new_loop = self._strip_mine(
+                        self._strip_mine(
                             loop_name=loop_name,
                             tiling_vector=tile_vect,
+                            mapping_order=[],
                             schedule=schedule,
                             sched_state=sched_state,
                         )
                         gpu_material = False
                 elif loop_name in schedule.gpu_threads:
                     tile_vect = [
-                        max(tiles_sizes_by_loops[loop]) for loop in schedule.gpu_threads
+                        sum(values)
+                        for values in zip(
+                            *[
+                                tiles_sizes_by_loops[loop]
+                                for loop in schedule.gpu_threads
+                            ]
+                        )
                     ]
                     tile_vect = tile_vect + [0] * (3 - len(tile_vect))
                     if gpu_mat_thread:
-                        new_loop = self._strip_mine(
+                        self._strip_mine(
                             loop_name=loop_name,
                             tiling_vector=tile_vect,
+                            mapping_order=[],
                             schedule=schedule,
                             sched_state=sched_state,
                         )
@@ -388,6 +402,7 @@ class MlirProgramInsertTransformPass:
                     self._strip_mine(
                         loop_name=loop_name,
                         tiling_vector=tiles_sizes_by_loops[loop_name],
+                        mapping_order=[],
                         schedule=schedule,
                         sched_state=sched_state,
                     )
@@ -532,6 +547,7 @@ class MlirProgramInsertTransformPass:
         self,
         loop_name: str,
         tiling_vector: list[int],
+        mapping_order: list[int],
         schedule: MlirNodeSchedule,
         sched_state: SchedulingState,
     ) -> OpResult:
