@@ -291,7 +291,7 @@ class Scheduler(ABC):
         ...
 
     @abstractmethod
-    def gpu_thread(self, axes: list[str]) -> None:
+    def gpu_thread(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         """
         Map an axis to a certain gpu thread either x, y or z.
         The mapped axis need to be in parallelization.
@@ -300,7 +300,7 @@ class Scheduler(ABC):
         ...
 
     @abstractmethod
-    def gpu_block(self, axes: list[str]) -> None:
+    def gpu_block(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         """
         Map an axis to a certain gpu block either x, y or z.
         The mapped axis need to be in parallelization.

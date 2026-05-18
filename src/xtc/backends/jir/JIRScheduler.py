@@ -347,12 +347,12 @@ class JIRScheduler(itf.schd.Scheduler):
         pass
 
     @override
-    def gpu_thread(self, axes: list[str]) -> None:
+    def gpu_thread(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         # TODO: not implemented for now
         pass
 
     @override
-    def gpu_block(self, axes: list[str]) -> None:
+    def gpu_block(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         # TODO: not implemented for now
         pass
 
