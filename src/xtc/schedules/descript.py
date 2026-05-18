@@ -544,14 +544,18 @@ class Descript:
             scheduler.pack_at(axis, input_idx, mtype=mtype, pad=pad, root=root)
 
         if node.gpu_block:
-            self.scheduler.gpu_block(
-                sorted(node.gpu_block, key=node.gpu_block.get), root=root
+            sorted_keys = sorted(
+                (k for k, v in node.gpu_block.items() if v is not None),
+                key=lambda k: node.gpu_block[k],
             )
+            scheduler.gpu_block(sorted_keys, root=root)
 
         if node.gpu_thread:
-            self.scheduler.gpu_thread(
-                sorted(node.gpu_thread, key=node.gpu_thread.get), root=root
+            sorted_keys = sorted(
+                (k for k, v in node.gpu_thread.items() if v is not None),
+                key=lambda k: node.gpu_block[k],
             )
+            scheduler.gpu_thread(sorted_keys, root=root)
 
         # Recursively apply children
         for child in node.children:

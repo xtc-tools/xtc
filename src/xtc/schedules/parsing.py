@@ -270,7 +270,8 @@ class ScheduleParser:
 
         if partial and full:
             raise ScheduleParseError(f"{context} has both annotations full and partial")
-
+        assert isinstance(gpu_block, int) or gpu_block is None
+        assert isinstance(gpu_thread, int) or gpu_thread is None
         return Annotations(
             unroll_factor=unroll_factor,
             unroll_specified=unroll_specified,
