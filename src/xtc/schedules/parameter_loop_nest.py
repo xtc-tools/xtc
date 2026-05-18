@@ -111,6 +111,8 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
         fuse_producer_at: Producer fusion configuration per axis. Maps axis
             names to producer indices.
         fuse_consumer_at: List of axes where the output consumer is fused.
+        gpu_block: Maps loops to block id, that loop need to be parallelize
+        gpu_thread: Maps loops to thread id, that loop need to be parallelize
     """
 
     root: str
@@ -127,6 +129,9 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
     fuse_consumer_at: list[str] = field(default_factory=list)
     constraints: list[str] = field(default_factory=list)
+    # TODO: make gpu_block and gpu_thread work for parameter loop nest
+    gpu_block: dict[str, int] = field(default_factory=dict)
+    gpu_thread: dict[str, int] = field(default_factory=dict)
 
     def apply_sample(self, sample: dict[str, int]) -> LoopNestNode:
         """
