@@ -28,7 +28,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  sch[O].unroll(i3)
 # CHECK-NEXT:  sch[O].unroll(k1)
 # CHECK-NEXT:  sch[O].vectorize(j3)
-# CHECK-NEXT:  sch[O].parallel(i)
+# CHECK-NEXT:  j = sch[O].fuse(i, j)
+# CHECK-NEXT:  sch[O].parallel(j)
 # CHECK-NEXT:  
 # CHECK-NEXT:  schedule O1: [1, 1, 1, 1, 1, 1, 1, 0]
 # CHECK-NEXT:  O = obj['%2']
@@ -45,7 +46,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  sch[O].unroll(i3)
 # CHECK-NEXT:  sch[O].unroll(k1)
 # CHECK-NEXT:  sch[O].vectorize(j3)
-# CHECK-NEXT:  sch[O].parallel(i)
+# CHECK-NEXT:  j = sch[O].fuse(i, j)
+# CHECK-NEXT:  sch[O].parallel(j)
 # CHECK-NEXT:  
 # CHECK-NEXT:  schedule O2: [1, 1, 1, 1, 1, 16, 1, 1]
 # CHECK-NEXT:  O = obj['%2']
@@ -57,7 +59,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  i1, i_ = sch[O].split(i1, factor=1)
 # CHECK-NEXT:  j1, j_ = sch[O].split(j1, factor=16)
 # CHECK-NEXT:  sch[O].reorder(i, j, i1, j1, i_, j_)
-# CHECK-NEXT:  sch[O].parallel(i)
+# CHECK-NEXT:  j = sch[O].fuse(i, j)
+# CHECK-NEXT:  sch[O].parallel(j)
 # CHECK-NEXT:  sch[O_W0].compute_at(sch[O], j1)
 # CHECK-NEXT:  i, j, = O_W0.op.axis
 # CHECK-NEXT:  k, = O_W0.op.reduce_axis
@@ -81,7 +84,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  i1, i_ = sch[O].split(i1, factor=3)
 # CHECK-NEXT:  j1, j_ = sch[O].split(j1, factor=16)
 # CHECK-NEXT:  sch[O].reorder(i, j, i1, j1, i_, j_)
-# CHECK-NEXT:  sch[O].parallel(i)
+# CHECK-NEXT:  j = sch[O].fuse(i, j)
+# CHECK-NEXT:  sch[O].parallel(j)
 # CHECK-NEXT:  sch[O_W0].compute_at(sch[O], j1)
 # CHECK-NEXT:  i, j, = O_W0.op.axis
 # CHECK-NEXT:  k, = O_W0.op.reduce_axis
@@ -305,7 +309,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  i1, i_ = sch[O].split(i1, factor=1)
 # CHECK-NEXT:  j1, j_ = sch[O].split(j1, factor=32)
 # CHECK-NEXT:  sch[O].reorder(i, j, i1, j1, i_, j_)
-# CHECK-NEXT:  sch[O].parallel(i)
+# CHECK-NEXT:  j = sch[O].fuse(i, j)
+# CHECK-NEXT:  sch[O].parallel(j)
 # CHECK-NEXT:  sch[O_W0].compute_at(sch[O], j1)
 # CHECK-NEXT:  i, j, = O_W0.op.axis
 # CHECK-NEXT:  k, = O_W0.op.reduce_axis

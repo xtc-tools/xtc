@@ -40,7 +40,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  sch[O].unroll(s1)
 # CHECK-NEXT:  sch[O].unroll(r1)
 # CHECK-NEXT:  sch[O].vectorize(f3)
-# CHECK-NEXT:  sch[O].parallel(b)
+# CHECK-NEXT:  f = sch[O].fuse(b, h, w, f)
+# CHECK-NEXT:  sch[O].parallel(f)
 # CHECK-NEXT:  
 # CHECK-NEXT:  schedule O1: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
 # CHECK-NEXT:  O = obj['%2']
@@ -69,7 +70,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  sch[O].unroll(s1)
 # CHECK-NEXT:  sch[O].unroll(r1)
 # CHECK-NEXT:  sch[O].vectorize(f3)
-# CHECK-NEXT:  sch[O].parallel(b)
+# CHECK-NEXT:  f = sch[O].fuse(b, h, w, f)
+# CHECK-NEXT:  sch[O].parallel(f)
 # CHECK-NEXT:  
 # CHECK-NEXT:  schedule O2: [1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 16, 1, 1, 1, 1]
 # CHECK-NEXT:  O = obj['%2']
@@ -85,7 +87,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  w1, w_ = sch[O].split(w1, factor=2)
 # CHECK-NEXT:  f1, f_ = sch[O].split(f1, factor=16)
 # CHECK-NEXT:  sch[O].reorder(b, h, w, f, b1, h1, w1, f1, b_, h_, w_, f_)
-# CHECK-NEXT:  sch[O].parallel(b)
+# CHECK-NEXT:  f = sch[O].fuse(b, h, w, f)
+# CHECK-NEXT:  sch[O].parallel(f)
 # CHECK-NEXT:  sch[O_W0].compute_at(sch[O], f1)
 # CHECK-NEXT:  b, h, w, f, = O_W0.op.axis
 # CHECK-NEXT:  r, s, c, = O_W0.op.reduce_axis
@@ -123,7 +126,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  w1, w_ = sch[O].split(w1, factor=2)
 # CHECK-NEXT:  f1, f_ = sch[O].split(f1, factor=16)
 # CHECK-NEXT:  sch[O].reorder(b, h, w, f, b1, h1, w1, f1, b_, h_, w_, f_)
-# CHECK-NEXT:  sch[O].parallel(b)
+# CHECK-NEXT:  f = sch[O].fuse(b, h, w, f)
+# CHECK-NEXT:  sch[O].parallel(f)
 # CHECK-NEXT:  sch[O_W0].compute_at(sch[O], f1)
 # CHECK-NEXT:  b, h, w, f, = O_W0.op.axis
 # CHECK-NEXT:  r, s, c, = O_W0.op.reduce_axis
@@ -361,7 +365,8 @@ utils.print_exhaustive_samples(backend, strategy, 200)
 # CHECK-NEXT:  w1, w_ = sch[O].split(w1, factor=2)
 # CHECK-NEXT:  f1, f_ = sch[O].split(f1, factor=32)
 # CHECK-NEXT:  sch[O].reorder(b, h, w, f, b1, h1, w1, f1, b_, h_, w_, f_)
-# CHECK-NEXT:  sch[O].parallel(b)
+# CHECK-NEXT:  f = sch[O].fuse(b, h, w, f)
+# CHECK-NEXT:  sch[O].parallel(f)
 # CHECK-NEXT:  sch[O_W0].compute_at(sch[O], f1)
 # CHECK-NEXT:  b, h, w, f, = O_W0.op.axis
 # CHECK-NEXT:  r, s, c, = O_W0.op.reduce_axis

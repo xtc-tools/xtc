@@ -811,7 +811,7 @@ def get_result_callbacks(
             args.db_file,
             "native",
             args.threads,
-            args.strategy,
+            get_strategy_name(args.strategy),
         )
         args.db_callback.set_graph(graph)  # TODO: fix, not really clean
         callbacks.append(args.db_callback)
@@ -899,13 +899,17 @@ def optimize(args: NS):
         )
 
 
-def get_strategy(graph: Graph, args: NS) -> Strategy:
+def get_strategy_name(strategy: str) -> str:
     def strat_name(name: str) -> str:
         alias = STRATEGIES_ALIASES.get(name)
         if alias is None:
             return name
         return strat_name(alias)
 
+    return strat_name(strategy)
+
+
+def get_strategy(graph: Graph, args: NS) -> Strategy:
     if args.descript:
         try:
             from xtc.search.strategies import Strategy_Descript_Explore
@@ -916,11 +920,10 @@ def get_strategy(graph: Graph, args: NS) -> Strategy:
         except ModuleNotFoundError:
             raise Exception("Descript requires the xvs sampler to be installed.")
 
-    name = strat_name(args.strategy)
+    name = get_strategy_name(args.strategy)
     options = dict(
         threads=args.threads,
-        max_unroll=args.max_unroll,
-        vec_size=VEC_SIZE,
+        **(dict(max_unroll=args.max_unroll) if args.max_unroll is not None else {}),
     )
     strat_args = name.split(":")
     if len(strat_args) > 1:
@@ -932,8 +935,6 @@ def get_strategy(graph: Graph, args: NS) -> Strategy:
 
 
 HOME = os.environ.get("HOME", "")
-
-THREADS = None
 
 DTYPES_MAP = {
     "f32": "float32",
@@ -1037,13 +1038,6 @@ def list_operations_dims(operator: str):
 
 
 def setup_args(args: NS):
-    global THREADS
-    global MAX_UNROLL
-    global VEC_SIZE
-    THREADS = args.threads
-    MAX_UNROLL = args.max_unroll
-    VEC_SIZE = 16
-
     if args.graph_file is not None:
         args.operator = None
 
@@ -1119,7 +1113,6 @@ def main():
     default_op = "matmul"
     default_dtype = OPERATORS[default_op]["default_type"]
     default_jobs = max(1, multiprocessing.cpu_count() // 2)
-    default_unroll = 512
     choice_strategies = list(Strategies.names()) + list(STRATEGIES_ALIASES.keys())
     parser = argparse.ArgumentParser(
         description="Autotune Operator",
@@ -1209,8 +1202,7 @@ def main():
     parser.add_argument(
         "--max-unroll",
         type=int,
-        default=default_unroll,
-        help="max unroll in tiling strategies",
+        help="max unroll in tiling strategies, or strategy default",
     )
     parser.add_argument("--seed", type=int, default=0, help="seed")
     parser.add_argument(
