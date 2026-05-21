@@ -449,6 +449,7 @@ class Descript:
             yaml_parser = YAMLParser()
             spec = yaml_parser.parse(spec)
 
+        constraints = spec.pop("constraints", [])
         # Parse the specification into an AST
         parser = ScheduleParser()
         ast = parser.parse(spec)
@@ -461,7 +462,11 @@ class Descript:
             partial_tiles=self.partial_tiles,
             partial_unrolls=self.partial_unrolls,
         )
-        return interpreter.interpret(ast, root=node_name)
+        loop_nest = interpreter.interpret(ast, root=node_name)
+        root = loop_nest.root_node
+        if constraints and root:
+            root.constraints += constraints
+        return loop_nest
 
     def apply_sample(
         self,

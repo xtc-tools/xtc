@@ -311,6 +311,7 @@ class YAMLParser:
 
     def _parse(self, spec: dict[str, Any]) -> dict[str, dict]:
         """Parses a dict YAML specification into a schedule specification."""
+        constraints = spec.pop("constraints", [])
         descript_spec = dict()
         for a, v in spec.items():
             if isinstance(v, str):
@@ -329,6 +330,8 @@ class YAMLParser:
                 descript_spec[a] = self._parse(d)
             else:
                 descript_spec[a] = d
+        if constraints:
+            descript_spec["constraints"] = constraints
         return descript_spec
 
     def _split(self, s: str) -> dict[str, Any]:

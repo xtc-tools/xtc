@@ -20,19 +20,6 @@ with O.graph(name="matmul") as gb:
 graph = gb.graph
 backend = utils.get_backend(graph, "tvm")
 
-spec = """
-    j:
-    k:
-    B: pack
-    i:
-    A: pack
-    j#nc:
-    i#mc:
-    k#kc: unroll=kr
-    i#mr: unroll full
-    j#nr: vectorize full
-"""
-
 nb_registers = 32
 nb_fma = 2
 fma_latency = 4
@@ -44,16 +31,29 @@ nb_words_L1 = 32*1024//elt_size
 nb_words_L2 = 1024*1024//elt_size
 nb_words_L3 = 36*1024*1024//elt_size
 
-constraints = [
-f"1 + nvr + nvr * mr <= {nb_registers}",
-f"nr == {vector_size} * nvr",
-f"nvr * mr >= {ilp}",
-f"nvr * mr * kr <= {reorder_buffer}",
-f"kc * nr <= {nb_words_L1}",
-f"kc * mc <= {nb_words_L2}",
-f"kc * nc <= {nb_words_L3}",
-]
-strategy = Strategy(graph, spec, constraints=constraints, partial_tiles=True, partial_unrolls=True, initialize=False)
+spec = f"""
+    constraints: 
+        - 1 + nvr + nvr * mr <= {nb_registers}
+        - nr == {vector_size} * nvr
+        - nvr * mr >= {ilp}
+        - nvr * mr * kr <= {reorder_buffer}
+        - kc * nr <= {nb_words_L1}
+        - kc * mc <= {nb_words_L2}
+        - kc * nc <= {nb_words_L3}
+    j:
+    k:
+    B: pack
+    i:
+    A: pack
+    j#nc:
+    i#mc:
+    k#kc: unroll=kr
+    i#mr: unroll full
+    j#nr: vectorize full
+"""
+print(spec)
+
+strategy = Strategy(graph, spec, partial_tiles=True, partial_unrolls=True, initialize=False)
 
 print(sorted(strategy._constraints))
 print(sum(1 for _ in strategy.sample(100)))
