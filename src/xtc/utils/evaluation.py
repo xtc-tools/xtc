@@ -144,6 +144,9 @@ def validate_outputs(
             return ([], 1, "Error in validation: outputs differ")
     return ([], 0, "")
 
+DERIVED_METRICS_SIZES = {
+    "TopdownL1": 4
+}
 
 def evaluate_performance(
     func: Callable[[Any], Any],
@@ -157,10 +160,15 @@ def evaluate_performance(
     # TODO migrate host runtime to CommonRuntimeInterface
     cfunc = CFunc(func)
     args_tuples = cfunc.args_tuples([*parameters[0], *parameters[1]])
-    values_num = 1
+
     if len(pmu_counters) > 0:
-        values_num = len(pmu_counters)
-        # FIXME check if the PMU counters are supported by the target
+        values_num = 0
+        for counter in pmu_counters:
+            values_num += DERIVED_METRICS_SIZES.get(counter, 1)
+            # FIXME check if the PMU counters are supported by the target
+    else:
+        values_num = 1
+    print(f"[DEBUG] values_num : {values_num}")
     results_array = (ctypes.c_double * (repeat * values_num))()
     if cfunc.is_packed:
         args_array_packed = (CArgValue * len(args_tuples))(
@@ -180,12 +188,12 @@ def evaluate_performance(
             args_codes_packed,
             len(args_tuples),
         )
-        eval_results = [float(x) for x in results_array]
     else:
         args_array = (ctypes.c_voidp * len(args_tuples))(
             *[arg[0] for arg in args_tuples]
         )
-        eval_results = runtime.evaluate_perf(
+        runtime.evaluate_perf(
+            results_array,
             pmu_counters,
             repeat,
             number,
@@ -194,6 +202,8 @@ def evaluate_performance(
             args_array,
             len(args_array),
         )
+    print(f"results: {[round(x, 2) for x in results_array]}")
+    eval_results = [float(x) for x in results_array]
     return (eval_results, 0, "")
 
 

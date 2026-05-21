@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "perf_event.h"
+#include "perf_metrics.h"
 
 extern double fclock(void); /* from fclock.c */
 
@@ -188,45 +189,83 @@ void evaluate_perf(double *results, int events_num, const char *events_names[],
                    int repeat, int number, int min_repeat_ms,
                    void (*func)(), void **args, int nargs)
 {
+
+  metric_resolver_t resolver;
+  int is_derived_metric = 0;
+
+  int hw_events_num = events_num;
+  const char **hw_events_names = (const char **)events_names;
+  double *hw_results = results;
+
+  // Todo handle multiples tma from user
+  if (events_num == 1 && resolve_metric(events_names[0], &resolver)) {
+    if (!resolver.is_supported) {
+      fprintf(stderr,
+              "Error : The metric '%s' isn ot supported on this CPU.\n",
+              events_names[0]);
+      return;
+    }
+
+    is_derived_metric = 1;
+    hw_events_num = resolver.num_hw_events;
+    hw_events_names = resolver.hw_events;
+
+    hw_results = (double *)malloc(repeat * hw_events_num * sizeof(double));
+  }
+
   switch (nargs) {
-  case 0:
-    evaluate0_perf(results, events_num, events_names,
-                   repeat, number, min_repeat_ms,
-                   (func0_t)func);
-    break;
-  case 1:
-    evaluate1_perf(results, events_num, events_names,
-                   repeat, number, min_repeat_ms,
-                   (func1_t)func, args[0]);
-    break;
-  case 2:
-    evaluate2_perf(results, events_num, events_names,
-                   repeat, number, min_repeat_ms,
-                   (func2_t)func, args[0], args[1]);
-    break;
-  case 3:
-    evaluate3_perf(results, events_num, events_names,
-                   repeat, number, min_repeat_ms,
-                   (func3_t)func, args[0], args[1], args[2]);
-    break;
-  case 4:
-    evaluate4_perf(results, events_num, events_names,
-                   repeat, number, min_repeat_ms,
-                   (func4_t)func, args[0], args[1], args[2], args[3]);
-    break;
-  case 5:
-    evaluate5_perf(results, events_num, events_names,
-                   repeat, number, min_repeat_ms,
-                   (func5_t)func, args[0], args[1], args[2], args[3], args[4]);
-    break;
-  case 6:
-    evaluate6_perf(results, events_num, events_names,
-                   repeat, number, min_repeat_ms,
-                   (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]);
-    break;
-  default:
-    assert(0);
-    break;
+    case 0:
+      evaluate0_perf(hw_results, hw_events_num, hw_events_names,
+                     repeat, number, min_repeat_ms,
+                     (func0_t)func);
+      break;
+    case 1:
+      evaluate1_perf(hw_results, hw_events_num, hw_events_names,
+                     repeat, number, min_repeat_ms,
+                     (func1_t)func, args[0]);
+      break;
+    case 2:
+      evaluate2_perf(hw_results, hw_events_num, hw_events_names,
+                     repeat, number, min_repeat_ms,
+                     (func2_t)func, args[0], args[1]);
+      break;
+    case 3:
+      evaluate3_perf(hw_results, hw_events_num, hw_events_names,
+                     repeat, number, min_repeat_ms,
+                     (func3_t)func, args[0], args[1], args[2]);
+      break;
+    case 4:
+      evaluate4_perf(hw_results, hw_events_num, hw_events_names,
+                     repeat, number, min_repeat_ms,
+                     (func4_t)func, args[0], args[1], args[2], args[3]);
+      break;
+    case 5:
+      evaluate5_perf(hw_results, hw_events_num, hw_events_names,
+                     repeat, number, min_repeat_ms,
+                     (func5_t)func, args[0], args[1], args[2], args[3], args[4]);
+      break;
+    case 6:
+      evaluate6_perf(hw_results, hw_events_num, hw_events_names,
+                     repeat, number, min_repeat_ms,
+                     (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]);
+      break;
+    default:
+      assert(0);
+      break;
+  }
+  if (is_derived_metric) {
+    for (int r = 0; r < repeat; r++) {
+      const double *run_raw_values = &hw_results[r * hw_events_num];
+      double *run_final_results = &results[r * resolver.num_results];
+
+      printf("[DEBUG C] Run %d - Raw hardware counters per call:\n", r);
+      for (int e = 0; e < hw_events_num; e++) {
+        printf("  -> %-20s : %f\n", hw_events_names[e], run_raw_values[e]);
+      }
+
+      resolver.compute_formula(run_raw_values, run_final_results);
+    }
+    free(hw_results);
   }
 }
 
@@ -245,4 +284,13 @@ void evaluate_packed(double *results,
     evaluate_packed_perf(results, 0, NULL,
                          repeat, number, min_repeat_ms,
                          func, args, codes, nargs);
+}
+
+int get_total_results_size(int events_num, const char *events_names[])
+{
+    int total = 0;
+    for (int i = 0; i < events_num; i++) {
+        total += get_perf_metric_results_count(events_names[i]);
+    }
+    return total;
 }

@@ -81,7 +81,7 @@ static void init_perf_event_attr(struct perf_event_attr *attr_ptr)
 }
 
 
-int open_perf_event(perf_event_args_t event) {
+static int open_perf_event_group(perf_event_args_t event, int group_fd) {
   if (event.mode == PERF_ARG_INVALID) {
       return -1;
   } else if (event.mode == PERF_ARG_GENERIC) {
@@ -89,14 +89,17 @@ int open_perf_event(perf_event_args_t event) {
     init_perf_event_attr(&attr);
     attr.type = event.args.config_pair.type;
     attr.config = event.args.config_pair.event;
-    return sys_perf_event_open(&attr, 0 /*pid*/, -1 /*cpu*/, -1 /*group_fd*/,
-                               0 /*flags*/);
+    return sys_perf_event_open(&attr, 0 /*pid*/, -1 /*cpu*/, group_fd /*group fd*/, 0 /*flags*/);
   } else {
     local_pfm_perf_encode_arg_t *perf_gen = (local_pfm_perf_encode_arg_t *)event.args.config_ptr;
     return sys_perf_event_open(perf_gen->attr,
-                               0 /*pid*/, perf_gen->cpu /*cpu*/, -1 /*group_fd*/,
+                               0 /*pid*/, perf_gen->cpu /*cpu*/, group_fd /*group fd*/,
                                perf_gen->flags /*flags*/);
   }
+}
+
+int open_perf_event(perf_event_args_t event) {
+    return open_perf_event_group(event, -1);
 }
 
 static __attribute__((constructor)) void perf_event_init(void) {
@@ -128,12 +131,16 @@ void close_perf_event(int perf_fd) { close(perf_fd); }
 
 void open_perf_events(int n_events, const perf_event_args_t *events, int *fds) {
   assert(n_events <= PERF_EVENT_MAX_EVENTS);
+  int group_fd = -1; // group leader
   for (int i = 0; i < n_events; i++) {
     #if HAS_GPU
     if (events[i].mode == PERF_ARG_GPU) // FIXME do it more efficiently
       continue;
     #endif /* HAS_GPU */
-    fds[i] = open_perf_event(events[i]);
+    fds[i] = open_perf_event_group(events[i], group_fd);
+    if (group_fd == -1 && fds[i] >= 0) {
+        group_fd = fds[i];
+    }
   }
   #if HAS_GPU
   open_perf_events__gpu(n_events, events, fds);
@@ -215,13 +222,27 @@ int get_perf_event_config(const char *name, perf_event_args_t *event) {
       return 0;
     }
   }
-  
+
+  if (strncmp(name, "@skl_", 5) == 0) {
+    event->mode = PERF_ARG_GENERIC;
+    event->args.config_pair.type = PERF_TYPE_RAW;
+
+    if (strcmp(name, "@skl_slots") == 0)         event->args.config_pair.event = 0x003c;
+    else if (strcmp(name, "@skl_fe_bound") == 0) event->args.config_pair.event = 0x019c;
+    else if (strcmp(name, "@skl_issued") == 0)   event->args.config_pair.event = 0x010e;
+    else if (strcmp(name, "@skl_retiring") == 0) event->args.config_pair.event = 0x02c2;
+    else if (strcmp(name, "@skl_recovery") == 0) event->args.config_pair.event = 0x0100019d;
+    else return 1;
+
+    return 0;
+}
+
   #if HAS_GPU
   if (strncmp(name, "gpu.", 4) == 0) {
     return get_perf_event_config__gpu(name, event);
   }
   #endif /* HAS_GPU */
-  
+
   #if HAS_PFM
   struct perf_event_attr *attr = malloc(sizeof(struct perf_event_attr));
   init_perf_event_attr(attr);
@@ -239,6 +260,9 @@ int get_perf_event_config(const char *name, perf_event_args_t *event) {
     event->mode = PERF_ARG_PTR;
     event->args.config_ptr = (const void *)arg;
     return 0;
+  } else {
+    fprintf(stderr, "[DEBUG] libpfm4 unknow event '%s' : %s\n", name,
+            pfm_strerror(ret));
   }
   free(arg);
   free(attr);
@@ -253,6 +277,6 @@ void perf_event_args_destroy(perf_event_args_t args) {
         local_pfm_perf_encode_arg_t* pfm = (local_pfm_perf_encode_arg_t*) args.args.config_ptr;
         free((void*)pfm->attr);
         free((void*)args.args.config_ptr);
-        args.args.config_ptr = NULL; 
-    }    
+        args.args.config_ptr = NULL;
+    }
 }
