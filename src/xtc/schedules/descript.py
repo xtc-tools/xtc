@@ -37,7 +37,7 @@ def descript_scheduler(
     scheduler: Scheduler,
     node_name: str,
     abstract_dims: list[str],
-    spec: dict[str, dict[str, Any]],
+    spec: dict[str, dict[str, Any]] | str,
     abstract_dim_sizes: dict[str, int] = {},
     abstract_matrix: list[str] = [],
     sample: dict[str, int] = {},

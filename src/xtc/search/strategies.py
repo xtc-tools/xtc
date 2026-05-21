@@ -977,10 +977,6 @@ try:
             loop_nest = descript.loop_nest(node_name=DEFAULT_ROOT, spec=spec)
             self._loop_nest = loop_nest
             input_constraints = loop_nest.collect_constraints()
-            # for a, v in self._sizes.items():
-            #     for i, s in enumerate(constraints):
-            #         assert isinstance(s, str)
-            #         constraints[i] = s.replace(f"[{a}]", str(v))
             self._orders: dict[str, list] = {}
             self._constraints = constraints + input_constraints
             self._initialized = False
@@ -993,6 +989,9 @@ try:
 
         def _initialize(self):
             if self._initialized:
+                return
+            if not self._constraints:
+                self._initialized = True
                 return
             max_enum = int(1 + np.log2(max(self._sizes.values())))
             context = Context()
@@ -1019,10 +1018,6 @@ try:
         @override
         def generate(self, scheduler: Scheduler, sample: Sample) -> None:
             descript = self._descript
-            # for a, p in self._orders.items():
-            #     if a in sample:
-            #         if isinstance(sample[a], int):
-            #             sample[a] = p[sample[a]]
             descript.apply_sample(
                 loop_nest=self._loop_nest, scheduler=scheduler, sample=sample
             )
@@ -1033,8 +1028,10 @@ try:
             for x in samples:
                 yield {a: v for (a, v) in x}
 
-        def sample_once(self, num: int) -> Iterator[Sample]:
+        def sample_once(self, num: int) -> list[Sample]:
             self._initialize()
+            if not self._constraints:
+                return [{}]
             draw = execute_dynamic(
                 self._methods,
                 self._properties,
