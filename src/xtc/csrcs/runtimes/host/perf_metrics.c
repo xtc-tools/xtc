@@ -219,8 +219,9 @@ static void compute_skl_tma_l1(const double *raw_values, double *final_results) 
     double fe_bound_raw = raw_values[1];
     double issued_raw = raw_values[2];
     double retiring_raw = raw_values[3];
-    double bad_spec_raw = raw_values[4]; // recovery
+    double bad_spec_raw = raw_values[4];
 
+    // Pipeline width = 4 on Intel Skylake
     double slots = 4.0 * cycles;
 
     if (slots > 0) {
@@ -237,6 +238,42 @@ static void compute_skl_tma_l1(const double *raw_values, double *final_results) 
         final_results[0] = final_results[1] = final_results[2] = final_results[3] = 0.0;
     }
 }
+
+static const char *amd_zen4_tma_l1_events[] = {
+    "@zen4_cyc",   // 0x0076 (Cycles)
+    "@zen4_fe",    // 0x1000001A0 (Dispatch slots empty because frontend is stalled)
+    "@zen4_disp",  // 0x07AA (Ops dispatched from any source)
+    "@zen4_ret"    // 0x00C1 (Ops retired)
+};
+
+static void compute_amd_zen4_tma_l1(const double *raw_values, double *final_results) {
+    double cycles   = raw_values[0];
+    double fe_raw   = raw_values[1];
+    double disp_raw = raw_values[2];
+    double ret_raw  = raw_values[3];
+
+    // Pipeline width = 6 on AMD Zen 4
+    double slots = 6.0 * cycles;
+
+    if (slots > 0) {
+        double r_fe_bound = fe_raw / slots;
+        double r_bad_spec = (disp_raw - ret_raw) / slots;
+        assert(r_bad_spec >= 0.0);
+        //if (r_bad_spec < 0.0) r_bad_spec = 0.0;
+        double r_retiring = ret_raw / slots;
+        double r_be_bound = 1.0 - (r_fe_bound + r_bad_spec + r_retiring);
+        //if (r_be_bound < 0.0) r_be_bound = 0.0;
+        assert(r_be_bound >= 0.0);
+
+        final_results[0] = r_retiring * 100.0;
+        final_results[1] = r_bad_spec * 100.0;
+        final_results[2] = r_fe_bound * 100.0;
+        final_results[3] = r_be_bound * 100.0;
+    } else {
+        final_results[0] = final_results[1] = final_results[2] = final_results[3] = 0.0;
+    }
+}
+
 
 int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
     //compute_test_tma_guil();
@@ -255,8 +292,12 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
             return 1;
         }
         else if (is_amd) {
-            // todo
-            return 0;
+            out_resolver->is_supported = 1;
+            out_resolver->num_hw_events = 4;
+            out_resolver->hw_events = amd_zen4_tma_l1_events;
+            out_resolver->num_results = 4;
+            out_resolver->compute_formula = compute_amd_zen4_tma_l1;
+            return 1;
         }
         else if (is_arm) {
             // todo

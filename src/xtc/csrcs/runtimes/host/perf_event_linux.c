@@ -212,7 +212,50 @@ void stop_perf_events(int n_events, const int *fds, uint64_t *results) {
   #endif /* HAS_GPU */
 }
 
+static int inline set_config_by_arch(const char *name, perf_event_args_t *event){
+    if (strncmp(name, "@skl_", 5) == 0) {
+      event->mode = PERF_ARG_GENERIC;
+      event->args.config_pair.type = PERF_TYPE_RAW;
+
+      if (strcmp(name, "@skl_slots") == 0)
+        event->args.config_pair.event = 0x003c;
+      else if (strcmp(name, "@skl_fe_bound") == 0)
+        event->args.config_pair.event = 0x019c;
+      else if (strcmp(name, "@skl_issued") == 0)
+        event->args.config_pair.event = 0x010e;
+      else if (strcmp(name, "@skl_retiring") == 0)
+        event->args.config_pair.event = 0x02c2;
+      else if (strcmp(name, "@skl_recovery") == 0)
+        event->args.config_pair.event = 0x0100019d;
+      else
+        return 1;
+
+      return 0;
+    }
+
+    else if (strncmp(name, "@zen4_", 6) == 0) {
+      event->mode = PERF_ARG_GENERIC;
+      event->args.config_pair.type = PERF_TYPE_RAW;
+
+      if (strcmp(name, "@zen4_cyc") == 0)
+        event->args.config_pair.event = 0x0076;
+      else if (strcmp(name, "@zen4_fe") == 0)
+        event->args.config_pair.event = 0x1000001A0ULL;
+      else if (strcmp(name, "@zen4_disp") == 0)
+        event->args.config_pair.event = 0x07AA;
+      else if (strcmp(name, "@zen4_ret") == 0)
+        event->args.config_pair.event = 0x00C1;
+      else
+        return 1; // unknow event
+
+      return 0;
+    }
+
+    return -1;
+}
+
 int get_perf_event_config(const char *name, perf_event_args_t *event) {
+  printf("[DEBUG] full name : %s\n",name);
   for (int e = 0; e < sizeof(perf_events_decl) / sizeof(*perf_events_decl);
        e++) {
     if (strcmp(name, perf_events_decl[e].name) == 0) {
@@ -223,25 +266,14 @@ int get_perf_event_config(const char *name, perf_event_args_t *event) {
     }
   }
 
-  if (strncmp(name, "@skl_", 5) == 0) {
-    event->mode = PERF_ARG_GENERIC;
-    event->args.config_pair.type = PERF_TYPE_RAW;
+ int arch_specific_config = set_config_by_arch(name,event);
+ if(arch_specific_config != -1) return arch_specific_config;
 
-    if (strcmp(name, "@skl_slots") == 0)         event->args.config_pair.event = 0x003c;
-    else if (strcmp(name, "@skl_fe_bound") == 0) event->args.config_pair.event = 0x019c;
-    else if (strcmp(name, "@skl_issued") == 0)   event->args.config_pair.event = 0x010e;
-    else if (strcmp(name, "@skl_retiring") == 0) event->args.config_pair.event = 0x02c2;
-    else if (strcmp(name, "@skl_recovery") == 0) event->args.config_pair.event = 0x0100019d;
-    else return 1;
-
-    return 0;
-}
-
-  #if HAS_GPU
+#if HAS_GPU
   if (strncmp(name, "gpu.", 4) == 0) {
     return get_perf_event_config__gpu(name, event);
   }
-  #endif /* HAS_GPU */
+#endif /* HAS_GPU */
 
   #if HAS_PFM
   struct perf_event_attr *attr = malloc(sizeof(struct perf_event_attr));
