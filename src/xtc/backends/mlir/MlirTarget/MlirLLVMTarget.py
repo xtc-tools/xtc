@@ -316,6 +316,7 @@ class MlirProgramToLLVMDialectPass:
             "convert-vector-to-llvm{enable-x86vector=true}",
             "convert-index-to-llvm",
             "convert-arith-to-llvm",
+            "convert-ub-to-llvm",
             "canonicalize",
             "cse",
             "sccp",
