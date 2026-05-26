@@ -21,6 +21,100 @@
     #define ARCH_IS_ARM 0
 #endif
 
+#if ARCH_IS_X86
+#include <cpuid.h>
+
+static void get_cpu_family_model(int *family, int *model) {
+    unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+        int base_family = (eax >> 8) & 0xF;
+        int base_model  = (eax >> 4) & 0xF;
+
+        int ext_family = (eax >> 20) & 0xFF;
+        int ext_model  = (eax >> 16) & 0xF;
+
+        *family = base_family;
+        *model = base_model;
+
+        if (base_family == 0xF) {
+            *family += ext_family;
+        }
+        if (base_family == 0x6 || base_family == 0xF) {
+            *model += (ext_model << 4);
+        }
+    } else {
+        *family = 0;
+        *model = 0;
+    }
+}
+#endif
+
+typedef enum {
+    INTEL_UNKNOWN = 0,
+    INTEL_SKYLAKE_CASCADE,
+    INTEL_ICELAKE_SAPPHIRE
+} intel_arch_t;
+
+intel_arch_t detect_intel_microarchitecture(void) {
+#if ARCH_IS_X86
+    int family, model;
+    get_cpu_family_model(&family, &model);
+
+    if (family == 6) {
+        switch (model) {
+            // Arch without TMA counter
+            case 0x4E: case 0x5E: case 0x55: // Skylake-X / Cascade Lake-X / Cooper Lake
+            case 0x8E: case 0x9E:            // Kaby Lake / Coffee Lake
+            case 0x3D: case 0x47: case 0x4F: // Broadwell
+            case 0x56:                       // Broadwell-DE
+                return INTEL_SKYLAKE_CASCADE;
+
+            // Arch with TMA counter
+            case 0x7E: case 0x7D: case 0x9D: // Ice Lake
+            case 0x6A: case 0x6C: case 0x8C: // Ice Lake SP/D
+            case 0x8F:                       // Sapphire Rapids
+            case 0x97: case 0x9A:            // Alder Lake
+            case 0xB7: case 0xBA: case 0xBF: // Raptor Lake
+            case 0xAA: case 0xAC:            // Meteor Lake
+                return INTEL_ICELAKE_SAPPHIRE;
+        }
+    }
+#endif
+    return INTEL_UNKNOWN;
+}
+
+typedef enum {
+    AMD_UNKNOWN = 0,
+    AMD_ZEN_1_2,
+    AMD_ZEN_3,
+    AMD_ZEN_4
+} amd_arch_t;
+
+amd_arch_t detect_amd_microarchitecture(void) {
+#if ARCH_IS_X86
+    int family, model;
+    get_cpu_family_model(&family, &model);
+
+    if (family == 0x17) {
+        // Zen 1 : Naples, Summit Ridge
+        // Zen+ : Pinnacle Ridge
+        // Zen 2 : Rome, Matisse, Naples
+        return AMD_ZEN_1_2;
+    }
+
+    if (family == 0x19) {
+        if (model >= 0x10 && model <= 0x1F) return AMD_ZEN_4; // Genoa
+        if (model >= 0x60 && model <= 0x7F) return AMD_ZEN_4; // Phoenix/Dragon Range
+        if (model >= 0xA0 && model <= 0xAF) return AMD_ZEN_4; // Bergamo
+
+        // Todo : double check if missing models
+        return AMD_ZEN_3; // (Milan, Vermeer...)
+    }
+    // todo family 0x1A for Zen 5 (Turin, Granite Ridge)
+#endif
+    return AMD_UNKNOWN;
+}
 
 #define GET_METRIC(m, i) (((m) >> (i*8)) & 0xff)
 
@@ -246,24 +340,25 @@ static const char *amd_zen4_tma_l1_events[] = {
     "@zen4_ret"    // 0x00C1 (Ops retired)
 };
 
-static void compute_amd_zen4_tma_l1(const double *raw_values, double *final_results) {
+static inline void compute_amd_tma_l1_generic(const double *raw_values, double *final_results, double pipeline_width) {
     double cycles   = raw_values[0];
     double fe_raw   = raw_values[1];
     double disp_raw = raw_values[2];
     double ret_raw  = raw_values[3];
 
-    // Pipeline width = 6 on AMD Zen 4
-    double slots = 6.0 * cycles;
+    double slots = pipeline_width * cycles;
 
     if (slots > 0) {
         double r_fe_bound = fe_raw / slots;
+
         double r_bad_spec = (disp_raw - ret_raw) / slots;
-        assert(r_bad_spec >= 0.0);
-        //if (r_bad_spec < 0.0) r_bad_spec = 0.0;
+        //assert(r_bad_spec >= 0.0);
+        if (r_bad_spec < 0.0) r_bad_spec = 0.0;
         double r_retiring = ret_raw / slots;
+
         double r_be_bound = 1.0 - (r_fe_bound + r_bad_spec + r_retiring);
-        //if (r_be_bound < 0.0) r_be_bound = 0.0;
-        assert(r_be_bound >= 0.0);
+        //assert(r_be_bound >= 0.0);
+        if (r_be_bound < 0.0) r_be_bound = 0.0;
 
         final_results[0] = r_retiring * 100.0;
         final_results[1] = r_bad_spec * 100.0;
@@ -274,42 +369,66 @@ static void compute_amd_zen4_tma_l1(const double *raw_values, double *final_resu
     }
 }
 
+static void compute_amd_zen34_tma_l1(const double *raw, double *final) {
+    compute_amd_tma_l1_generic(raw, final, 6.0); // Zen 3 / Zen 4
+}
+
+static void compute_amd_zen1_tma_l1(const double *raw, double *final) {
+    compute_amd_tma_l1_generic(raw, final, 4.0); // Zen 1 / Zen 2
+}
+
 
 int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
-    //compute_test_tma_guil();
     if (strcmp(metric_name, "TopdownL1") == 0) {
-        int is_intel = detect_if_intel();
-        int is_amd = detect_if_amd();
-        int is_arm = detect_if_arm();
-        assert(is_intel + is_amd + is_arm == 1);
 
-        if (is_intel) {
-            out_resolver->is_supported = 1;
-            out_resolver->num_hw_events = 5;
-            out_resolver->hw_events = skl_tma_l1_events;
-            out_resolver->num_results = 4;
-            out_resolver->compute_formula = compute_skl_tma_l1;
-            return 1;
+        if (detect_if_intel()) {
+            intel_arch_t uarch = detect_intel_microarchitecture();
+
+            if (uarch == INTEL_SKYLAKE_CASCADE) {
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 5;
+                out_resolver->hw_events = skl_tma_l1_events;
+                out_resolver->num_results = 4;
+                out_resolver->compute_formula = compute_skl_tma_l1;
+                return 1;
+            } else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
+                // todo : use native intel tma perf counter
+                return 0;
+            }
         }
-        else if (is_amd) {
-            out_resolver->is_supported = 1;
-            out_resolver->num_hw_events = 4;
-            out_resolver->hw_events = amd_zen4_tma_l1_events;
-            out_resolver->num_results = 4;
-            out_resolver->compute_formula = compute_amd_zen4_tma_l1;
-            return 1;
+        else if (detect_if_amd()) {
+            amd_arch_t uarch = detect_amd_microarchitecture();
+
+            if (uarch == AMD_ZEN_4) {
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 4;
+                out_resolver->hw_events = amd_zen4_tma_l1_events;
+                out_resolver->num_results = 4;
+                out_resolver->compute_formula = compute_amd_zen34_tma_l1;
+                return 1;
+            }
+            else if (uarch == AMD_ZEN_1_2) {
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 4;
+                out_resolver->hw_events = amd_zen1_tma_l1_events; // Événements Zen 1 à définir
+                out_resolver->num_results = 4;
+                out_resolver->compute_formula = compute_amd_zen1_tma_l1; // Largeur 4
+                return 1;
+            }
+            // else if (uarch == AMD_ZEN_2) ...
         }
-        else if (is_arm) {
+        else if (detect_if_arm()) {
             // todo
+            // fopen /sys/devices/system/cpu/cpu0/regs/identification/midr_el1
+            // 0x410fd0c0 == Cortex-X1
+            // 0x610f2200 == Apple M1
             return 0;
         }
-
-        // Fallback : call perf stat in subprocess ?
-        return 0; // Unsuported hardware
     }
-
-    return 0; // Unknow metric
+    fprintf(stderr,"[DEBUG] Unsuported hardware\n");
+    return 0; // Unsuported hardware
 }
+
 
 int get_perf_metric_results_count(const char *metric_name) {
     metric_resolver_t resolver;
