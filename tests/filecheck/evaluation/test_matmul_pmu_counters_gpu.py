@@ -5,7 +5,7 @@ import xtc.graphs.xtc.op as O
 from xtc.backends.mlir import Backend
 from sys import platform
 
-I, J, K, dtype = 4, 32, 512, "float32"
+I, J, K, dtype = 32, 32, 512, "float32"
 a = O.tensor((I, K), dtype, name="A")
 b = O.tensor((K, J), dtype, name="B")
 
@@ -17,9 +17,9 @@ graph = gb.graph
 impl = Backend(graph)
 
 sch = impl.get_scheduler()
-sch.tile("i", {"i1": 2})
+sch.tile("i", {"i1": 16})
 sch.tile("j", {"j1": 16})
-#sch.vectorize(["j1"]) Not supported yet for GPUs
+sch.vectorize(["j1"])
 sch.unroll({"i1": 2})
 sch.parallelize(["i"])
 sched = sch.schedule()
@@ -36,7 +36,7 @@ pmu_counters = [
     "instructions",
     "gpu.cycles",
     "gpu.clocks",
-    "gpu.smsp__sass_thread_inst_executed_op_fmul_pred_on.sum", # FP32 mul
+    "gpu.smsp__sass_thread_inst_executed_op_ffma_pred_on.sum", # FP32 fma
     "gpu.l1tex__texin_sm2tex_req_cycles_active.avg.pct_of_peak_sustained_elapsed", # Random metric from https://docs.nvidia.com/cupti/main/main.html#perfworks-metric-api
 ]
 
