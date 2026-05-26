@@ -213,6 +213,8 @@ void stop_perf_events(int n_events, const int *fds, uint64_t *results) {
 }
 
 static int inline set_config_by_arch(const char *name, perf_event_args_t *event){
+
+    // Old Intel
     if (strncmp(name, "@skl_", 5) == 0) {
       event->mode = PERF_ARG_GENERIC;
       event->args.config_pair.type = PERF_TYPE_RAW;
@@ -250,6 +252,21 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
 
       return 0;
     }
+
+    // Modern Intel
+    else if (strncmp(name, "@icl_", 5) == 0) {
+          event->mode = PERF_ARG_GENERIC;
+          event->args.config_pair.type = PERF_TYPE_RAW;
+
+          if (strcmp(name, "@icl_slots") == 0)         event->args.config_pair.event = 0x0400;
+          else if (strcmp(name, "@icl_retiring") == 0) event->args.config_pair.event = 0x8000;
+          else if (strcmp(name, "@icl_bad_spec") == 0) event->args.config_pair.event = 0x8100;
+          else if (strcmp(name, "@icl_fe_bound") == 0) event->args.config_pair.event = 0x8200;
+          else if (strcmp(name, "@icl_be_bound") == 0) event->args.config_pair.event = 0x8300;
+          else return 1; // Inconnu
+
+          return 0;
+      }
 
     return -1;
 }

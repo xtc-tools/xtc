@@ -65,7 +65,7 @@ intel_arch_t detect_intel_microarchitecture(void) {
         switch (model) {
             // Arch without TMA counter
             case 0x4E: case 0x5E: case 0x55: // Skylake-X / Cascade Lake-X / Cooper Lake
-            case 0x8E: case 0x9E:            // Kaby Lake / Coffee Lake
+            case 0x8E: case 0x9E:            // Whiskey Lake / Kaby Lake / Coffee Lake
             case 0x3D: case 0x47: case 0x4F: // Broadwell
             case 0x56:                       // Broadwell-DE
                 return INTEL_SKYLAKE_CASCADE;
@@ -333,6 +333,31 @@ static void compute_skl_tma_l1(const double *raw_values, double *final_results) 
     }
 }
 
+static const char *intel_modern_tma_l1_events[] = {
+    "@icl_slots",      // 0x0400 (Group Leader)
+    "@icl_retiring",   // 0x8000
+    "@icl_bad_spec",   // 0x8100
+    "@icl_fe_bound",   // 0x8200
+    "@icl_be_bound"    // 0x8300
+};
+
+static void compute_intel_modern_tma_l1(const double *raw_values, double *final_results) {
+    double slots    = raw_values[0];
+    double retiring = raw_values[1];
+    double bad_spec = raw_values[2];
+    double fe_bound = raw_values[3];
+    double be_bound = raw_values[4];
+
+    if (slots > 0) {
+        final_results[0] = (retiring / slots) * 100.0;
+        final_results[1] = (bad_spec / slots) * 100.0;
+        final_results[2] = (fe_bound / slots) * 100.0;
+        final_results[3] = (be_bound / slots) * 100.0;
+    } else {
+        final_results[0] = final_results[1] = final_results[2] = final_results[3] = 0.0;
+    }
+}
+
 static const char *amd_zen4_tma_l1_events[] = {
     "@zen4_cyc",   // 0x0076 (Cycles)
     "@zen4_fe",    // 0x1000001A0 (Dispatch slots empty because frontend is stalled)
@@ -382,9 +407,11 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
     if (strcmp(metric_name, "TopdownL1") == 0) {
 
         if (detect_if_intel()) {
+            fprintf(stderr,"[DEBUG] INTEL detected\n");
             intel_arch_t uarch = detect_intel_microarchitecture();
 
             if (uarch == INTEL_SKYLAKE_CASCADE) {
+                fprintf(stderr,"[DEBUG] Old Intel detected\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 5;
                 out_resolver->hw_events = skl_tma_l1_events;
@@ -392,14 +419,20 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 out_resolver->compute_formula = compute_skl_tma_l1;
                 return 1;
             } else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
-                // todo : use native intel tma perf counter
-                return 0;
+                fprintf(stderr,"[DEBUG] Modern Intel detected\n");
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 5;
+                out_resolver->hw_events = intel_modern_tma_l1_events;
+                out_resolver->num_results = 4;
+                out_resolver->compute_formula = compute_intel_modern_tma_l1;
+                return 1;
             }
         }
         else if (detect_if_amd()) {
             amd_arch_t uarch = detect_amd_microarchitecture();
 
             if (uarch == AMD_ZEN_4) {
+                fprintf(stderr,"[DEBUG] AMD_ZEN_4 detected\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 4;
                 out_resolver->hw_events = amd_zen4_tma_l1_events;
@@ -408,16 +441,18 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 return 1;
             }
             else if (uarch == AMD_ZEN_1_2) {
+                fprintf(stderr,"[DEBUG] AMD_ZEN_1_2 detected\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 4;
-                out_resolver->hw_events = amd_zen1_tma_l1_events; // Événements Zen 1 à définir
+                out_resolver->hw_events = amd_zen4_tma_l1_events;
                 out_resolver->num_results = 4;
-                out_resolver->compute_formula = compute_amd_zen1_tma_l1; // Largeur 4
+                out_resolver->compute_formula = compute_amd_zen34_tma_l1; //compute_amd_zen1_tma_l1;
                 return 1;
             }
             // else if (uarch == AMD_ZEN_2) ...
         }
         else if (detect_if_arm()) {
+            fprintf(stderr,"[DEBUG] ARM detected\n");
             // todo
             // fopen /sys/devices/system/cpu/cpu0/regs/identification/midr_el1
             // 0x410fd0c0 == Cortex-X1
