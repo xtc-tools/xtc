@@ -191,115 +191,6 @@ int detect_if_arm(void) {
     return ARCH_IS_ARM;
 }
 
-#include <time.h>
-#include <stdio.h>
-static void compute_test_tma_doc(){
-    uint64_t slots_a = read_slots();
-	uint64_t metric_a = read_metrics();
-
-	{
-    	srand(time(NULL));
-    	for(int i = 0; i<100000;i++){
-            asm("":::"memory");
-            volatile int a = rand();
-            asm("":::"memory");
-
-    	}
-	}
-
-	uint64_t slots_b = read_slots();
-	uint64_t metric_b = read_metrics();
-
-	// compute scaled metrics for measurement a
-	uint64_t retiring_slots_a = GET_METRIC(metric_a, 0) * slots_a;
-	uint64_t bad_spec_slots_a = GET_METRIC(metric_a, 1) * slots_a;
-	uint64_t fe_bound_slots_a = GET_METRIC(metric_a, 2) * slots_a;
-	uint64_t be_bound_slots_a = GET_METRIC(metric_a, 3) * slots_a;
-
-	// compute delta scaled metrics between b and a
-	uint64_t retiring_slots = GET_METRIC(metric_b, 0) * slots_b - retiring_slots_a;
-	uint64_t bad_spec_slots = GET_METRIC(metric_b, 1) * slots_b - bad_spec_slots_a;
-	uint64_t fe_bound_slots = GET_METRIC(metric_b, 2) * slots_b - fe_bound_slots_a;
-	uint64_t be_bound_slots = GET_METRIC(metric_b, 3) * slots_b - be_bound_slots_a;
-
-	uint64_t slots_delta = slots_b - slots_a;
-	float retiring_ratio = (float)retiring_slots / slots_delta;
-	float bad_spec_ratio = (float)bad_spec_slots / slots_delta;
-	float fe_bound_ratio = (float)fe_bound_slots / slots_delta;
-	float be_bound_ratio = (float)be_bound_slots / slots_delta;
-
-	printf("Retiring %.2f%% Bad Speculation %.2f%% FE Bound %.2f%% BE Bound %.2f%%\n",
-		retiring_ratio * 100.,
-		bad_spec_ratio * 100.,
-		fe_bound_ratio * 100.,
-		be_bound_ratio * 100.);
-
-	/*
-    The individual ratios of L2 metric events for the measurement period can be
-    recreated from L1 and L2 metric counters. (Available on Sapphire Rapids and
-    later platforms)
-    */
-
-	// compute scaled metrics for measurement a
-	uint64_t heavy_ops_slots_a = GET_METRIC(metric_a, 4) * slots_a;
-	uint64_t br_mispredict_slots_a = GET_METRIC(metric_a, 5) * slots_a;
-	uint64_t fetch_lat_slots_a = GET_METRIC(metric_a, 6) * slots_a;
-	uint64_t mem_bound_slots_a = GET_METRIC(metric_a, 7) * slots_a;
-
-	// compute delta scaled metrics between b and a
-	uint64_t heavy_ops_slots = GET_METRIC(metric_b, 4) * slots_b - heavy_ops_slots_a;
-	uint64_t br_mispredict_slots = GET_METRIC(metric_b, 5) * slots_b - br_mispredict_slots_a;
-	uint64_t fetch_lat_slots = GET_METRIC(metric_b, 6) * slots_b - fetch_lat_slots_a;
-	uint64_t mem_bound_slots = GET_METRIC(metric_b, 7) * slots_b - mem_bound_slots_a;
-
-	slots_delta = slots_b - slots_a;
-	float heavy_ops_ratio = (float)heavy_ops_slots / slots_delta;
-	float light_ops_ratio = retiring_ratio - heavy_ops_ratio;
-
-	float br_mispredict_ratio = (float)br_mispredict_slots / slots_delta;
-	float machine_clears_ratio = bad_spec_ratio - br_mispredict_ratio;
-
-	float fetch_lat_ratio = (float)fetch_lat_slots / slots_delta;
-	float fetch_bw_ratio = fe_bound_ratio - fetch_lat_ratio;
-
-	float mem_bound_ratio = (float)mem_bound_slots / slots_delta;
-	float core_bound_ratio = be_bound_ratio - mem_bound_ratio;
-
-	printf("Heavy Operations %.2f%% Light Operations %.2f%% "
-	       "Branch Mispredict %.2f%% Machine Clears %.2f%% "
-	       "Fetch Latency %.2f%% Fetch Bandwidth %.2f%% "
-	       "Mem Bound %.2f%% Core Bound %.2f%%\n",
-		heavy_ops_ratio * 100.,
-		light_ops_ratio * 100.,
-		br_mispredict_ratio * 100.,
-		machine_clears_ratio * 100.,
-		fetch_lat_ratio * 100.,
-		fetch_bw_ratio * 100.,
-		mem_bound_ratio * 100.,
-		core_bound_ratio * 100.);
-
-}
-
-#include "perf_topdown.h"
-static void compute_test_tma_guil(){
-    perf_topdown_init();
-    perf_topdown_start();
-
-	{
-    	srand(time(NULL));
-    	for(int i = 0; i<100000;i++){
-            asm("":::"memory");
-            volatile int a = rand();
-            asm("":::"memory");
-
-    	}
-	}
-
-    perf_topdown_stop();
-    perf_topdown_dump(fdopen(1, "w"));
-    perf_topdown_fini();
-}
-
 static const char *skl_tma_l1_events[] = {
     "@skl_slots",      // 0x003c (Cycles)
     "@skl_fe_bound",   // 0x019c
@@ -358,6 +249,56 @@ static void compute_intel_modern_tma_l1(const double *raw_values, double *final_
     }
 }
 
+static const char *intel_modern_tma_l2_events[] = {
+    "@icl_slots",
+    "@icl_retiring",
+    "@icl_heavy_ops",
+    "@icl_bad_spec",
+    "@icl_br_mispredict",
+    "@icl_fe_bound",
+    "@icl_fetch_lat",
+    "@icl_be_bound",
+    "@icl_mem_bound"
+};
+
+static void compute_intel_modern_tma_l2(const double *raw, double *final) {
+    double slots = raw[0];
+
+    if (slots > 0) {
+      double retiring = raw[1];
+      double heavy_ops = raw[2];
+      double bad_spec = raw[3];
+      double br_mispredict = raw[4];
+      double fe_bound = raw[5];
+      double fetch_lat = raw[6];
+      double be_bound = raw[7];
+      double mem_bound = raw[8];
+
+      // Retiring
+      final[0] = ((retiring - heavy_ops) / slots) * 100.0; // Light Ops
+      final[1] = (heavy_ops / slots) * 100.0;              // Heavy Ops
+
+      // Bad Speculation
+      final[2] = ((bad_spec - br_mispredict) / slots) * 100.0; // Machine Clears
+      final[3] = (br_mispredict / slots) * 100.0; // Branch Mispredicts
+
+      // Frontend Bound
+      final[4] = ((fe_bound - fetch_lat) / slots) * 100.0; // Fetch Bandwidth
+      final[5] = (fetch_lat / slots) * 100.0;              // Fetch Latency
+
+      // Backend Bound
+      final[6] = ((be_bound - mem_bound) / slots) * 100.0; // Core Bound
+      final[7] = (mem_bound / slots) * 100.0;              // Memory Bound
+
+      for (int i = 0; i < 8; i++) {
+        if (final[i] < 0.0)
+          final[i] = 0.0;
+      }
+    } else {
+        for (int i = 0; i < 8; i++) final[i] = 0.0;
+    }
+}
+
 static const char *amd_zen4_tma_l1_events[] = {
     "@zen4_cyc",   // 0x0076 (Cycles)
     "@zen4_fe",    // 0x1000001A0 (Dispatch slots empty because frontend is stalled)
@@ -402,7 +343,21 @@ static void compute_amd_zen1_tma_l1(const double *raw, double *final) {
     compute_amd_tma_l1_generic(raw, final, 4.0); // Zen 1 / Zen 2
 }
 
-
+/*
+ * Tested TopdownL1 :
+ *  - INTEL_SKYLAKE_CASCADE (skylake)
+ *  - INTEL_ICELAKE_SAPPHIRE (raptor lake)
+ *
+ *  Untested :
+ *  - AMD_ZEN_1_2
+ *  - AMD_ZEN_4
+ *
+ *  Not implemented :
+ *  - Aarch64
+ *  - Zen 3
+ *
+ *
+ */
 int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
     if (strcmp(metric_name, "TopdownL1") == 0) {
 
@@ -449,7 +404,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 out_resolver->compute_formula = compute_amd_zen34_tma_l1; //compute_amd_zen1_tma_l1;
                 return 1;
             }
-            // else if (uarch == AMD_ZEN_2) ...
+            // else if (uarch == AMD_ZEN_3) ...
         }
         else if (detect_if_arm()) {
             fprintf(stderr,"[DEBUG] ARM detected\n");
@@ -460,6 +415,27 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
             return 0;
         }
     }
+    else if (strcmp(metric_name, "TopdownL2") == 0) {
+        if (detect_if_intel()) {
+            intel_arch_t uarch = detect_intel_microarchitecture();
+
+            if (uarch == INTEL_SKYLAKE_CASCADE) {
+                fprintf(stderr,"[DEBUG] Unsuported INTEL_SKYLAKE_CASCADE for L2\n");
+                // todo : need multiplexing
+                return 0;
+            }
+            else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 9;
+                out_resolver->hw_events = intel_modern_tma_l2_events;
+                out_resolver->num_results = 8;
+                out_resolver->compute_formula = compute_intel_modern_tma_l2;
+                return 1;
+            }
+        }
+        return 0;
+    }
+
     fprintf(stderr,"[DEBUG] Unsuported hardware\n");
     return 0; // Unsuported hardware
 }

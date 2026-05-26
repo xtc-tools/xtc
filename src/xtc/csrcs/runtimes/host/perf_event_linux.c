@@ -259,11 +259,17 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
           event->args.config_pair.type = PERF_TYPE_RAW;
 
           if (strcmp(name, "@icl_slots") == 0)         event->args.config_pair.event = 0x0400;
+          // TopDownL1
           else if (strcmp(name, "@icl_retiring") == 0) event->args.config_pair.event = 0x8000;
           else if (strcmp(name, "@icl_bad_spec") == 0) event->args.config_pair.event = 0x8100;
           else if (strcmp(name, "@icl_fe_bound") == 0) event->args.config_pair.event = 0x8200;
           else if (strcmp(name, "@icl_be_bound") == 0) event->args.config_pair.event = 0x8300;
-          else return 1; // Inconnu
+          // TopDownL2
+          else if (strcmp(name, "@icl_heavy_ops") == 0)     event->args.config_pair.event = 0x8400;
+          else if (strcmp(name, "@icl_br_mispredict") == 0) event->args.config_pair.event = 0x8500;
+          else if (strcmp(name, "@icl_fetch_lat") == 0)     event->args.config_pair.event = 0x8600;
+          else if (strcmp(name, "@icl_mem_bound") == 0)     event->args.config_pair.event = 0x8700;
+          else return 1;
 
           return 0;
       }

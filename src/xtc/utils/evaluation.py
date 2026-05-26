@@ -145,7 +145,8 @@ def validate_outputs(
     return ([], 0, "")
 
 DERIVED_METRICS_SIZES = {
-    "TopdownL1": 4
+    "TopdownL1": 4,
+    "TopdownL2": 8
 }
 
 def evaluate_performance(

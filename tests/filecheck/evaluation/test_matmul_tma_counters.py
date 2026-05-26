@@ -52,7 +52,33 @@ evaluator = module.get_evaluator(
 results, code, error = evaluator.evaluate()
 print(f"CODE: {code}")
 print(f"counters: {tma_counters}")
-print(f"results: {[int(x) for x in results]}")
+print(f"results TopDownL1: {[int(x) for x in results]}")
+
+print("=============\n")
+
+tma_counters = []
+
+# Linux Perf counters
+if platform == "linux":
+    tma_counters += [
+        "TopdownL2",
+    ]
+elif platform == "darwin":
+    # On MacOS, requires sudo to get counters
+    # TODO: should be tested ideally
+    tma_counters = []
+
+
+evaluator = module.get_evaluator(
+    validate=True,
+    pmu_counters=tma_counters,
+)
+results, code, error = evaluator.evaluate()
+print(f"CODE: {code}")
+print(f"counters: {tma_counters}")
+print(f"results TopDownL2: {[int(x) for x in results]}")
+
+
 # CHECK:       CODE: 0
 # CHECK-NEXT:  counters:
 # CHECK-NEXT:  results:
