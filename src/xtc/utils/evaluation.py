@@ -6,6 +6,12 @@ from typing import Any, Callable, cast
 from xtc.itf.graph import Graph
 import ctypes
 import numpy as np
+import subprocess
+import shutil
+import os
+import signal
+import time
+from typing import Callable, Any
 from xtc.utils.numpy import np_init
 from xtc.runtimes.types.ndarray import NDArray
 from xtc.graphs.xtc.graph import XTCGraph
@@ -144,9 +150,15 @@ def validate_outputs(
             return ([], 1, "Error in validation: outputs differ")
     return ([], 0, "")
 
+
+# perf list --no-desc | grep -i -E -A 59 tma_L[1-4]_group:
 DERIVED_METRICS_SIZES = {
-    "TopdownL1": 4,
-    "TopdownL2": 8
+    "TopdownL1": 4, # tma_backend_bound, tma_bad_speculation, tma_frontend_bound, tma_info_core_coreipc, tma_info_inst_mix_instructions, tma_info_thread_slots, tma_retiring
+    "TopdownL2": 8, # tma_branch_mispredicts, tma_core_bound, tma_fetch_bandwidth, tma_fetch_latency, tma_heavy_operations, tma_light_operations, tma_machine_clears, tma_memory_bound
+    "TopdownL3": 26, # tma_branch_resteers, tma_divider, tma_dram_bound, tma_dsb, tma_dsb_switches, tma_few_uops_instructions, tma_fp_arith, tma_fused_instructions, tma_icache_misses, tma_itlb_misses, tma_l1_bound, tma_l2_bound, tma_l3_bound, tma_lcp, tma_memory_operations, tma_microcode_sequencer, tma_mite, tma_ms_switches, tma_non_fused_branches, tma_other_light_ops, tma_other_mispredicts, tma_other_nukes, tma_pmm_bound, tma_ports_utilization, tma_serializing_operation, tma_store_bound
+    "TopdownL4": 32, # tma_4k_aliasing, tma_assists, tma_cisc, tma_clears_resteers, tma_contested_accesses, tma_data_sharing, tma_decoder0_alone, tma_dtlb_load, tma_dtlb_store, tma_false_sharing, tma_fb_full, tma_fp_scalar, tma_fp_vector, tma_l1_hit_latency, tma_l3_hit_latency, tma_lock_latency, tma_mem_bandwidth, tma_mem_latency, tma_mispredicts_resteers, tma_nop_instructions, tma_ports_utilized_0, tma_ports_utilized_1, tma_ports_utilized_2, tma_ports_utilized_3m, tma_slow_pause, tma_split_loads, tma_split_stores, tma_sq_full, tma_store_fwd_blk, tma_store_latency, tma_unknown_branches, tma_x87_use
+    "TopdownL5": 15, # tma_alu_op_utilization, tma_fp_assists, tma_fp_vector_128b, tma_fp_vector_256b, tma_fp_vector_512b, tma_load_op_utilization, tma_load_stlb_hit, tma_load_stlb_miss, tma_local_mem, tma_mixing_vectors, tma_remote_cache, tma_remote_mem, tma_store_op_utilization, tma_store_stlb_hit, tma_store_stlb_miss
+    "TopdownL6": 8 # tma_port_0, tma_port_1, tma_port_2, tma_port_3, tma_port_4, tma_port_5, tma_port_6, tma_port_7
 }
 
 def evaluate_performance(
@@ -205,7 +217,59 @@ def evaluate_performance(
         )
     print(f"results: {[round(x, 2) for x in results_array]}")
     eval_results = [float(x) for x in results_array]
+
+    needs_fallback = False
+    if len(pmu_counters) > 0:
+        if eval_results[0] == -1.0 or all(x == 0.0 for x in eval_results):
+            needs_fallback = True
+
+    # Fallback call perf in subprocess
+    if needs_fallback:
+        print(f"[WARNING] Hardware not supported by internal resolver. Fallback to 'perf stat' for {pmu_counters}...")
+
+        perf_path = shutil.which("perf")
+        if not perf_path:
+            return ([], 1, "perf tool not found in PATH")
+
+        metric_str = ",".join(pmu_counters)
+        my_pid = str(os.getpid())
+
+        # cmd: perf stat -p <PID> -M <metric>
+        cmd = [perf_path, "stat", "-p", my_pid, "-M", metric_str]
+
+        try:
+            print("[DEBUG] Starting perf...")
+            perf_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+            # time to hook to Python
+            time.sleep(0.5)
+
+            # Rerun evaluation without HW counters
+            dummy_results = (ctypes.c_double * repeat)()
+            if cfunc.is_packed:
+                print("[DEBUG] Rerun packed...")
+                _ = runtime.evaluate_packed_perf(dummy_results, [], repeat, number, min_repeat_ms, cfunc, args_array_packed, args_codes_packed, len(args_tuples))
+            else:
+                print("[DEBUG] Rerun not packed...")
+                runtime.evaluate_perf(dummy_results, [], repeat, number, min_repeat_ms, cfunc, args_array, len(args_array))
+
+            print("[DEBUG] Stoping perf...")
+            perf_proc.send_signal(signal.SIGINT)
+            _, stderr_output = perf_proc.communicate(timeout=5.0)
+
+            print("\n====== Fallback 'perf stat' Output ======\n")
+            print(stderr_output)
+            print("===================================\n")
+
+            return ([], 0, "Fallback used: printed to stderr")
+
+        except Exception as e:
+            print(f"[DEBUG] Fallback perf stat failed : {e}")
+            return ([], 1, f"Fallback perf stat failed: {e}")
+
+    # Return API result
     return (eval_results, 0, "")
+
 
 
 def copy_outputs(

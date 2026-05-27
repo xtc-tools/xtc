@@ -161,7 +161,6 @@ def _compile_runtime(out_dll: str, tdir: str, runtime_type: RuntimeType):
         "alloc.c",
         "fclock.c",
         "evaluate_flops.c",
-        "perf_topdown_x86_64.c",
         "perf_event_darwin.c" if platform == "darwin" else "perf_event_linux.c",
     ]
     top_dir = Path(__file__).parents[2]
