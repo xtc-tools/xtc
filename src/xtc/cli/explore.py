@@ -41,7 +41,10 @@ from xtc.itf.graph import Graph
 from xtc.itf.comp import Module
 from xtc.itf.search import Strategy, Sample
 
-from xtc.search.strategies import Strategies, BaseStrategyPRTScheme
+from xtc.search.strategies import (
+    Strategies,
+    BaseStrategyPRTScheme,
+)
 
 from xtc.utils.numpy import (
     np_init,
@@ -823,6 +826,16 @@ def get_strategy(graph: Graph, args: NS) -> Strategy:
             return name
         return strat_name(alias)
 
+    if args.descript:
+        try:
+            from xtc.search.strategies import Strategy_Descript_Explore
+
+            with open(args.descript, "r") as f:
+                spec = f.read()
+                return Strategy_Descript_Explore(graph=graph, spec=spec)
+        except ModuleNotFoundError:
+            raise Exception("Descript requires the xvs sampler to be installed.")
+
     name = strat_name(args.strategy)
     options = dict(
         threads=args.threads,
@@ -1022,6 +1035,11 @@ def main():
         "--strategy",
         type=str,
         help=f"tile strategy to use, default to operator's default. One of {choice_strategies}",
+    )
+    parser.add_argument(
+        "--descript",
+        type=str,
+        help="path to a descript specification to use. Ignores --strategy if used.",
     )
     parser.add_argument(
         "--search",

@@ -12,4 +12,4 @@ func.func @matmul(%A: memref<256x512xf64>, %B: memref<512x256xf64>, %C: memref<2
 	outs(%C: memref<256x256xf64>)
 	return
 }
-// CHECK: `{"parallelize" = 1}`: parameterized parallelization not implemented.
+// CHECK: `{"parallelize" = 1}`: parallelization parameter should be True, False or a string.

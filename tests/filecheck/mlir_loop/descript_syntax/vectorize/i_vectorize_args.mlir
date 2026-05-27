@@ -17,4 +17,4 @@ func.func @matmul(%A: memref<256x512xf64>, %B: memref<512x256xf64>, %C: memref<2
 	return
 }
 
-// CHECK: `{"vectorize" = 1}`: parameterized vectorization not implemented.
+// CHECK: `{"vectorize" = 1}`: vectorization parameter should be True, False or a string.
