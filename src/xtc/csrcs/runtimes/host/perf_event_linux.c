@@ -212,6 +212,15 @@ void stop_perf_events(int n_events, const int *fds, uint64_t *results) {
   #endif /* HAS_GPU */
 }
 
+/*
+ * Source
+ * Intel : https://github.com/torvalds/linux/blob/master/arch/x86/events/intel/core.c
+ * AMD : https://github.com/torvalds/linux/blob/master/arch/x86/events/amd/core.c
+ *
+ * https://github.com/intel/perfmon
+ *
+ * todo ARM : https://developer.arm.com/documentation/ddi0434/a/performance-monitoring-unit/performance-monitoring-register-descriptions/event-type-select-register?lang=en
+ */
 static int inline set_config_by_arch(const char *name, perf_event_args_t *event){
 
     // Old Intel
