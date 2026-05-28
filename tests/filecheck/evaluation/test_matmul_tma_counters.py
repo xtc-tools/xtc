@@ -5,8 +5,9 @@ import xtc.graphs.xtc.op as O
 from xtc.backends.mlir import Backend
 from sys import platform
 
-#I, J, K, dtype = 4, 32, 512, "float32"
-I, J, K, dtype = 1024, 2048, 4096, "float32"
+#I, J, K, dtype = 4, 32, 512, "float32"             # small
+I, J, K, dtype = 1024, 2048, 4096, "float32"        # medium
+#I, J, K, dtype = 4096, 8192, 16384, "float32"      # large
 
 a = O.tensor((I, K), dtype, name="A")
 b = O.tensor((K, J), dtype, name="B")
