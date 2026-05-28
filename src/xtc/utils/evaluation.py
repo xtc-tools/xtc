@@ -261,7 +261,7 @@ def evaluate_performance(
             print(stderr_output)
             print("===================================\n")
 
-            return ([], 0, "Fallback used: printed to stderr")
+            return ([-1.0], 0, stderr_output)
 
         except Exception as e:
             print(f"[DEBUG] Fallback perf stat failed : {e}")
