@@ -449,7 +449,23 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ### TODO: explication `descript++` (variables et contraintes)
+    `descript` can also be used to describe loop structures without specifying every tile size. This allows you to easily write a set of strategies to explore.
+
+    For example:
+    ```python
+    i:
+    j:
+    k:
+    j#16:
+    k#32:
+    i#i1: unroll
+    j#j1: vectorize
+    ```
+    leaves the sizes of the inner kernel as variables to explore.
+
+    On top of that, variables can also be used to explore configurations for optimizations, for instance: `i#i1: unroll=i_r` allows exploring different unroll sizes, and `j#j1: vectorize=j_v` allows toggling the vectorization.
+
+    Finally, it is also possible to use additional constraints to limit the search space with expert intuitions. For example, limiting the size of the kernel to fit in the CPU registers: `j1+j1*i1 < 128`
     """)
     return
 
@@ -539,10 +555,12 @@ def _(mo):
       i:
       j:
       k:
+      j#16:
+      k#32: unroll
       i#i1: unroll=i_u
       j#j1: vectorize=j_v
       constraints:
-          i1+i1*j1<64
+          - j1+j1*i1<128
        """
        strategy = Strategy(graph, schedule_spec, partial_unrolls=True)
        backend = MLIR_Backend
