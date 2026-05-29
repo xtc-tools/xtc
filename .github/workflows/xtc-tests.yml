@@ -63,7 +63,16 @@ jobs:
           env | sort
       - name: Run Checks
         run: |
-          make check
+          COV=scripts/coverage/coverage_run.sh
+          $COV make check
+      - name: Generate Coverage Reports
+        run: |
+          coverage combine >/dev/null
+          coverage report
+          mkdir -p artifacts/coverage
+          coverage xml -o artifacts/coverage/coverage.xml
+          coverage report --format=markdown >artifacts/coverage/coverage.md
+          coverage html -d artifacts/coverage/html
       - name: Run Explore One Shot
         run: |
           env STRATEGIES=tile8dvr BACKENDS="tvm mlir" ./scripts/explore/run-explore-one-shot.sh artifacts/explore
@@ -77,3 +86,12 @@ jobs:
         with:
           name: artifacts-os-${{ matrix.os }}
           path: artifacts/
+      - name: Publish Coverage
+        if: matrix.python-version == '3.12' && matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v5
+        with:
+          files: artifacts/coverage/coverage.xml
+          flags: py${{ matrix.python-version }}-${{ matrix.os }}
+          name: py${{ matrix.python-version }}-${{ matrix.os }}
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true

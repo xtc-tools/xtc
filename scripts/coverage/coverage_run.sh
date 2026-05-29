@@ -26,7 +26,7 @@
 
 set -euo pipefail
 
-dir="$(readlink -e "$(dirname "$0")")"
+dir="$(dirname "$(readlink -f "$0")")"
 
 # These vars must be preserved in subprocesses' environment
 export PYTHONPATH="$dir/sitecustomize${PYTHONPATH+:$PYTHONPATH}"
