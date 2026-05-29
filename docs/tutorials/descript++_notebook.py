@@ -567,10 +567,10 @@ def _(mo):
       j#j1: vectorize=j_v
       constraints:
           - j1+j1*i1<128
-          - i1*j1 > 8
+          - i1*j1 > 16
        """
        strategy = Strategy(graph, schedule_spec, partial_unrolls=False, partial_tiles=False)
-       backend = TVM_Backend
+       backend = MLIR_Backend
        configurations = list(strategy.sample(1000))
        total = len(configurations)
 
