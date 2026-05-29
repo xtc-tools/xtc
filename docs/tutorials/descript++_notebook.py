@@ -22,6 +22,7 @@ def _(mo):
     import time
     import multiprocessing as mp
     import exec_utils
+    import matplotlib.pyplot as plt
 
     def get_backend_import(backend_name: str) -> str:
         """Return the import statement for the selected backend."""
@@ -157,7 +158,7 @@ def _(mo):
             captured_info.update(get_info())
 
         sorted_results = sorted(results, key=lambda x: x["perf"], reverse=True)
-        return sorted_results, captured_info
+        return sorted_results, captured_info, results
 
     def start_streaming_execution(
         *,
@@ -251,6 +252,7 @@ def _(mo):
         execute_editor_code,
         get_backend_class,
         get_print_opts_dict,
+        plt,
         render_editor_output,
         run_exploration,
         start_streaming_execution,
@@ -561,8 +563,9 @@ def _(mo):
       j#j1: vectorize=j_v
       constraints:
           - j1+j1*i1<128
+          - i1*j1 > 16
        """
-       strategy = Strategy(graph, schedule_spec, partial_unrolls=True)
+       strategy = Strategy(graph, schedule_spec, partial_unrolls=False, partial_tiles=False)
        backend = MLIR_Backend
        configurations = list(strategy.sample(1000))
        total = len(configurations)
@@ -586,6 +589,7 @@ def _(
     explore_schedules_code,
     explore_schedules_intro,
     mo,
+    plt,
     run_exploration,
     run_explore_button,
     traceback,
@@ -600,7 +604,7 @@ def _(
     except Exception:
         mo.stop(True, mo.md(f"**Code error:**\n```\n{traceback.format_exc()}\n```"))
 
-    _results, _captured_info = _namespace.get("results", ([], {}))
+    _results, _captured_info, _unsorted_results = _namespace.get("results", ([], {}))
 
     # Build results summary
     if not _results:
@@ -633,7 +637,24 @@ def _(
         f"#### Best configuration: **{_best['sample']}** ({_best['perf']:.2f}% of peak)",
     ])
 
-    mo.md("\n".join(_summary_lines))
+    max_perf = _unsorted_results[0]["perf"]
+    cumul = [max_perf]
+    for d in _unsorted_results[1:]:
+        max_perf = max(max_perf, d["perf"])
+        if d["perf"] > max_perf:
+            raise Exception("HEIN")
+        cumul.append(max_perf)
+
+
+    plt.plot(cumul)
+    plt.xlabel('Number of samples')
+    plt.ylabel('% of peak performance')
+    plt.title('Cumulative best performance')
+    plt.grid(True)
+
+    ax = mo.ui.matplotlib(plt.gca())
+
+    mo.vstack([mo.md("\n".join(_summary_lines)), ax])
     return
 
 
