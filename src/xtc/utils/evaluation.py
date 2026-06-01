@@ -218,33 +218,45 @@ def evaluate_performance(
     print(f"results: {[round(x, 2) for x in results_array]}")
     eval_results = [float(x) for x in results_array]
 
-    needs_fallback = False
-    if len(pmu_counters) > 0:
-        if eval_results[0] == -1.0 or all(x == 0.0 for x in eval_results):
-            needs_fallback = True
+    failed_counters = []
+    current_idx = 0
 
-    # Fallback call perf in subprocess
-    if needs_fallback:
-        print(f"[WARNING] Hardware not supported by internal resolver. Fallback to 'perf stat' for {pmu_counters}...")
+    for counter in pmu_counters:
+        size = DERIVED_METRICS_SIZES.get(counter, 1)
+        chunk = eval_results[current_idx : current_idx + size]
+
+        if any(x == -1.0 for x in chunk) or all(x == 0.0 for x in chunk):
+            failed_counters.append(counter)
+
+        current_idx += size
+
+    # Fallback on linux perf tool
+    if failed_counters:
+        print(f"[WARNING] Some hardware counters failed: {failed_counters}. Fallback to 'perf stat'...")
 
         perf_path = shutil.which("perf")
         if not perf_path:
-            return ([], 1, "perf tool not found in PATH")
+            return (eval_results, 1, "perf tool not found in PATH")
 
-        metric_str = ",".join(pmu_counters)
         my_pid = str(os.getpid())
 
-        # cmd: perf stat -p <PID> -M <metric>
-        cmd = [perf_path, "stat", "-p", my_pid, "-M", metric_str]
+        perf_metrics = [c for c in failed_counters if c in DERIVED_METRICS_SIZES]
+        perf_events  = [c for c in failed_counters if c not in DERIVED_METRICS_SIZES]
+
+        cmd = [perf_path, "stat", "-p", my_pid]
+
+        if len(perf_events) > 0:
+            cmd.extend(["-e", ",".join(perf_events)])
+        if len(perf_metrics) > 0:
+            cmd.extend(["-M", ",".join(perf_metrics)])
 
         try:
             print("[DEBUG] Starting perf...")
             perf_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-            # time to hook to Python
-            time.sleep(0.5)
+            time.sleep(1.5)
 
-            # Rerun evaluation without HW counters
+            # Rerun evaluation without HW counters to generate activity for perf
             dummy_results = (ctypes.c_double * repeat)()
             if cfunc.is_packed:
                 print("[DEBUG] Rerun packed...")
@@ -253,23 +265,25 @@ def evaluate_performance(
                 print("[DEBUG] Rerun not packed...")
                 runtime.evaluate_perf(dummy_results, [], repeat, number, min_repeat_ms, cfunc, args_array, len(args_array))
 
-            print("[DEBUG] Stoping perf...")
+            print("[DEBUG] Stopping perf...")
             perf_proc.send_signal(signal.SIGINT)
             _, stderr_output = perf_proc.communicate(timeout=5.0)
 
-            print("\n====== Fallback 'perf stat' Output ======\n")
+            cmd_str = " ".join(cmd)
+            formatted_fallback_output = f"$ {cmd_str}\n\n{stderr_output}"
+
+            print(f"\n====== Fallback 'perf stat' Output for {failed_counters} ======\n")
             print(stderr_output)
             print("===================================\n")
 
-            return ([-1.0], 0, stderr_output)
+            return (eval_results, 0, formatted_fallback_output)
 
         except Exception as e:
             print(f"[DEBUG] Fallback perf stat failed : {e}")
-            return ([], 1, f"Fallback perf stat failed: {e}")
+            return (eval_results, 1, f"Fallback perf stat failed: {e}")
 
     # Return API result
     return (eval_results, 0, "")
-
 
 
 def copy_outputs(

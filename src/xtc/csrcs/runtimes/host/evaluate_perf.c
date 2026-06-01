@@ -184,6 +184,12 @@ void evaluate6_perf(double *results, int events_num, const char *events_names[],
   define_evaluateN(func, arg0, arg1, arg2, arg3, arg4, arg5);
 }
 
+typedef struct {
+  int is_derived;
+  metric_resolver_t resolver;
+  int hw_offset;
+  int out_offset;
+} metric_map_t;
 
 void evaluate_perf(double *results, int events_num, const char *events_names[],
                    int repeat, int number, int min_repeat_ms,
@@ -191,82 +197,109 @@ void evaluate_perf(double *results, int events_num, const char *events_names[],
 {
 
   metric_resolver_t resolver;
-  int is_derived_metric = 0;
+  int total_hw_events = 0;
+  int total_out_results = 0;
+  int has_derived = 0;
 
+  metric_map_t *map = NULL;
   int hw_events_num = events_num;
   const char **hw_events_names = (const char **)events_names;
   double *hw_results = results;
 
-  // Todo handle multiples tma from user
-  if (events_num == 1 && resolve_metric(events_names[0], &resolver)) {
-    if (!resolver.is_supported) {
-      fprintf(stderr,
-              "Error : The metric '%s' isn ot supported on this CPU.\n",
-              events_names[0]);
-      return;
+  if (events_num > 0) {
+    map = (metric_map_t *)malloc(events_num * sizeof(metric_map_t));
+
+    for (int i = 0; i < events_num; i++) {
+      map[i].hw_offset = total_hw_events;
+      map[i].out_offset = total_out_results;
+
+      if (resolve_metric(events_names[i], &map[i].resolver)) {
+        if (!map[i].resolver.is_supported) {
+          map[i].is_derived = 0;
+          total_hw_events += 1;
+          total_out_results += 1;
+        } else {
+          map[i].is_derived = 1;
+          has_derived = 1;
+          total_hw_events += map[i].resolver.num_hw_events;
+          total_out_results += map[i].resolver.num_results;
+        }
+      } else {
+        map[i].is_derived = 0;
+        total_hw_events += 1;
+        total_out_results += 1;
+      }
     }
+  }
 
-    is_derived_metric = 1;
-    hw_events_num = resolver.num_hw_events;
-    hw_events_names = resolver.hw_events;
+  if (has_derived) {
+    hw_events_names = (const char **)malloc(total_hw_events * sizeof(char *));
+    int hw_idx = 0;
 
-    hw_results = (double *)malloc(repeat * hw_events_num * sizeof(double));
+    for (int i = 0; i < events_num; i++) {
+      if (map[i].is_derived) {
+        for (int j = 0; j < map[i].resolver.num_hw_events; j++) {
+          hw_events_names[hw_idx++] = map[i].resolver.hw_events[j];
+        }
+      } else {
+        hw_events_names[hw_idx++] = events_names[i];
+      }
+    }
+    hw_results = (double *)malloc(repeat * total_hw_events * sizeof(double));
+  } else {
+    total_hw_events = events_num;
   }
 
   switch (nargs) {
-    case 0:
-      evaluate0_perf(hw_results, hw_events_num, hw_events_names,
-                     repeat, number, min_repeat_ms,
-                     (func0_t)func);
-      break;
-    case 1:
-      evaluate1_perf(hw_results, hw_events_num, hw_events_names,
-                     repeat, number, min_repeat_ms,
-                     (func1_t)func, args[0]);
-      break;
-    case 2:
-      evaluate2_perf(hw_results, hw_events_num, hw_events_names,
-                     repeat, number, min_repeat_ms,
-                     (func2_t)func, args[0], args[1]);
-      break;
-    case 3:
-      evaluate3_perf(hw_results, hw_events_num, hw_events_names,
-                     repeat, number, min_repeat_ms,
-                     (func3_t)func, args[0], args[1], args[2]);
-      break;
-    case 4:
-      evaluate4_perf(hw_results, hw_events_num, hw_events_names,
-                     repeat, number, min_repeat_ms,
-                     (func4_t)func, args[0], args[1], args[2], args[3]);
-      break;
-    case 5:
-      evaluate5_perf(hw_results, hw_events_num, hw_events_names,
-                     repeat, number, min_repeat_ms,
-                     (func5_t)func, args[0], args[1], args[2], args[3], args[4]);
-      break;
-    case 6:
-      evaluate6_perf(hw_results, hw_events_num, hw_events_names,
-                     repeat, number, min_repeat_ms,
-                     (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]);
-      break;
-    default:
-      assert(0);
-      break;
-  }
-  if (is_derived_metric) {
-    for (int r = 0; r < repeat; r++) {
-      const double *run_raw_values = &hw_results[r * hw_events_num];
-      double *run_final_results = &results[r * resolver.num_results];
-
-      printf("[DEBUG C] Run %d - Raw hardware counters per call:\n", r);
-      for (int e = 0; e < hw_events_num; e++) {
-        printf("  -> %-20s : %f\n", hw_events_names[e], run_raw_values[e]);
-      }
-
-      resolver.compute_formula(run_raw_values, run_final_results);
+      case 0:
+        evaluate0_perf(hw_results, total_hw_events, hw_events_names, repeat, number, min_repeat_ms, (func0_t)func);
+        break;
+      case 1:
+        evaluate1_perf(hw_results, total_hw_events, hw_events_names, repeat, number, min_repeat_ms, (func1_t)func, args[0]);
+        break;
+      case 2:
+        evaluate2_perf(hw_results, total_hw_events, hw_events_names, repeat, number, min_repeat_ms, (func2_t)func, args[0], args[1]);
+        break;
+      case 3:
+        evaluate3_perf(hw_results, total_hw_events, hw_events_names, repeat, number, min_repeat_ms, (func3_t)func, args[0], args[1], args[2]);
+        break;
+      case 4:
+        evaluate4_perf(hw_results, total_hw_events, hw_events_names, repeat, number, min_repeat_ms, (func4_t)func, args[0], args[1], args[2], args[3]);
+        break;
+      case 5:
+        evaluate5_perf(hw_results, total_hw_events, hw_events_names, repeat, number, min_repeat_ms, (func5_t)func, args[0], args[1], args[2], args[3], args[4]);
+        break;
+      case 6:
+        evaluate6_perf(hw_results, total_hw_events, hw_events_names, repeat, number, min_repeat_ms, (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]);
+        break;
+      default:
+        assert(0);
+        break;
     }
-    free(hw_results);
-  }
+  if (has_derived) {
+      for (int r = 0; r < repeat; r++) {
+        for (int i = 0; i < events_num; i++) {
+          const double *run_raw = &hw_results[r * total_hw_events + map[i].hw_offset];
+          double *run_final = &results[r * total_out_results + map[i].out_offset];
+
+          if (map[i].is_derived) {
+            // Sécurité : si le noyau Linux a refusé d'ouvrir l'événement matériel (dépassement limite)
+            if (run_raw[0] == -1.0) {
+              for (int res_idx = 0; res_idx < map[i].resolver.num_results; res_idx++) {
+                run_final[res_idx] = -1.0;
+              }
+            } else {
+              map[i].resolver.compute_formula(run_raw, run_final);
+            }
+          } else {
+            // Copie simple pour les PMU normaux
+            run_final[0] = run_raw[0];
+          }
+        }
+      }
+      free(hw_events_names);
+      free(hw_results);
+    }
 }
 
 void evaluate(double *results,
