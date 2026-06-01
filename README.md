@@ -1,5 +1,7 @@
 ![logo.png](logo.png)
 
+[![codecov](https://codecov.io/github/xtc-tools/xtc/graph/badge.svg)](https://codecov.io/github/xtc-tools/xtc)
+
 # XTC
 
 ## Links
