@@ -1,6 +1,6 @@
 --index-url https://gitlab.inria.fr/api/v4/groups/corse/-/packages/pypi/simple
 xtc-llvm-tools==21.1.2.6
-xtc-mlir-tools==21.1.2.7
-xtc-mlir-python-bindings==21.1.2.7
+xtc-mlir-tools==21.1.2.8
+xtc-mlir-python-bindings==21.1.2.8
 polygeist==18.0.0.2024042201
 jir==0.3.5
