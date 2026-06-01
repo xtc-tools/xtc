@@ -7,9 +7,12 @@
 
 typedef struct {
     int is_supported;
-    int num_hw_events;
-    const char **hw_events;
     int num_results;
+
+    int num_passes;
+    int num_hw_events;          // Total events with all passes
+    const int *events_per_pass; // events per passes (ex: {4, 4, 4})
+    const char **hw_events;     // flat array with all events name
 
     void (*compute_formula)(const double *raw_values, double *final_results);
 } metric_resolver_t;

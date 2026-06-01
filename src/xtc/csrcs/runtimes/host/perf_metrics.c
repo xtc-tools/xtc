@@ -192,6 +192,16 @@ int detect_if_arm(void) {
     return ARCH_IS_ARM;
 }
 
+
+static const int pass_1[] = {1};
+static const int pass_4[] = {4};
+static const int pass_5[] = {5};
+static const int pass_9[] = {9};
+
+
+// === Skylake arch ===
+
+
 static const char *skl_tma_l1_events[] = {
     "@skl_slots",      // 0x003c (Cycles)
     "@skl_fe_bound",   // 0x019c
@@ -224,6 +234,85 @@ static void compute_skl_tma_l1(const double *raw_values, double *final_results) 
         final_results[0] = final_results[1] = final_results[2] = final_results[3] = 0.0;
     }
 }
+
+static const int skl_l2_passes[] = {4, 4, 4}; // 3 passes of 4 counters
+static const char *skl_tma_l2_events[] = {
+    // Passe 1 : L1 Base + Backend
+    "@skl_slots",                     // Fixe (0)
+    "cycle_activity:stalls_mem_any",  // GP 1 (Memory Bound)
+    "resource_stalls:any",            // GP 2 (Core Bound base)
+    "@skl_fe_bound",                  // GP 3
+
+    // Passe 2 : Frontend
+    "@skl_slots",                     // Fixe (4)
+    "icache_16b:ifdata_stall",        // GP 1 (Fetch Latency)
+    "icache_64b:iftag_stall",         // GP 2 (Fetch Latency)
+    "@skl_retiring",                  // GP 3
+
+    // Passe 3 : Retiring + Bad Speculation
+    "@skl_slots",                     // Fixe (8)
+    "idq:ms_uops",                    // GP 1 (Heavy Ops)
+    "br_misp_retired:all_branches",   // GP 2 (Branch Mispredicts)
+    "machine_clears:count"            // GP 3 (Machine Clears)
+};
+
+
+static void compute_skl_tma_l2(const double *raw, double *final) {
+    // Passe 1 : 0 (slots), 1 (mem), 2 (core), 3 (fe)
+    // Passe 2 : 4 (slots), 5 (lat_d), 6 (lat_t), 7 (ret)
+    // Passe 3 : 8 (slots), 9 (heavy), 10 (misp), 11 (clears)
+
+    // Use the slot of each group to not mess up ratio
+    double slots_p1 = raw[0] * 4.0;
+    double slots_p2 = raw[4] * 4.0;
+    double slots_p3 = raw[8] * 4.0;
+
+    if (slots_p1 > 0 && slots_p2 > 0 && slots_p3 > 0) {
+        // 1. Frontend
+        double fe_bound = raw[3] / slots_p1;
+        double fetch_lat = (raw[5] + raw[6]) / slots_p2;
+        double fetch_bw = fe_bound - fetch_lat;
+
+        // 2. Retiring
+        double retiring = raw[7] / slots_p2;
+        double heavy_ops = raw[9] / slots_p3;
+        double light_ops = retiring - heavy_ops;
+
+        // 3. Bad Speculation
+        double br_misp = raw[10] / slots_p3;
+        double m_clears = raw[11] / slots_p3;
+        double bad_spec = br_misp + m_clears;
+
+        // 4. Backend
+        double mem_bound = raw[1] / slots_p1;
+        double core_bound = raw[2] / slots_p1;
+
+        // Global backend
+        double be_bound = 1.0 - (fe_bound + bad_spec + retiring);
+        double total_be_raw = mem_bound + core_bound;
+        if (total_be_raw > 0) {
+            mem_bound = be_bound * (mem_bound / total_be_raw);
+            core_bound = be_bound * (core_bound / total_be_raw);
+        } else {
+            mem_bound = be_bound; core_bound = 0;
+        }
+
+        final[0] = light_ops * 100.0;
+        final[1] = heavy_ops * 100.0;
+        final[2] = m_clears * 100.0;
+        final[3] = br_misp * 100.0;
+        final[4] = fetch_bw * 100.0;
+        final[5] = fetch_lat * 100.0;
+        final[6] = core_bound * 100.0;
+        final[7] = mem_bound * 100.0;
+
+        for(int i=0; i<8; i++) if (final[i] < 0.0) final[i] = 0.0;
+    } else {
+        for(int i=0; i<8; i++) final[i] = 0.0;
+    }
+}
+
+//  === Modern Inter arch ===
 
 static const char *intel_modern_tma_l1_events[] = {
     "@icl_slots",      // 0x0400 (Group Leader)
@@ -300,6 +389,8 @@ static void compute_intel_modern_tma_l2(const double *raw, double *final) {
     }
 }
 
+// === Zen arch ===
+
 static const char *amd_zen4_tma_l1_events[] = {
     "@zen4_cyc",   // 0x0076 (Cycles)
     "@zen4_fe",    // 0x1000001A0 (Dispatch slots empty because frontend is stalled)
@@ -343,6 +434,12 @@ static void compute_amd_zen34_tma_l1(const double *raw, double *final) {
 static void compute_amd_zen1_tma_l1(const double *raw, double *final) {
     compute_amd_tma_l1_generic(raw, final, 4.0); // Zen 1 / Zen 2
 }
+
+
+
+
+// === Core logic ===
+
 
 /*
  * Tested TopdownL1 :
