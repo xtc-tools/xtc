@@ -15,7 +15,7 @@ with app.setup:
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     # Hardware Performance Counters & Top-down Analysis
 
@@ -29,7 +29,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     > **Disclaimer and prerequisites:**
     > Results will vary depending on your hardware architecture (MacOS is currently not supported).
@@ -45,32 +45,34 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     ## 1. Defining the Workload & Schedule
     We define a medium-sized matrix multiplication (1024x2048x4096).
 
-    **Use the code editor below** to modify the scheduling specification using the `descript` notation. Once you modify the code, apply the changes to dynamically recompile the MLIR code and update the hardware counters in real-time.
+    **Use the code editor below** to modify the scheduling specification using the `descript` notation.
+
+    **Interactive Workflow:**
+    1. Adjust the sliders in the sidebar to see how the Cache Footprint updates instantly.
+    2. Click the **"Compile & Evaluate"** button in the sidebar to apply the schedule and update the TMA metrics.
     """)
     return
 
 
 @app.cell
-def _():
+def _(mo):
     # Interactive UI elements for the schedule
     tile_i_ui = mo.ui.slider(start=1, stop=64, step=1, value=3, label="Tile I (Rows)")
     tile_j_ui = mo.ui.slider(start=8, stop=512, step=8, value=24, label="Tile J (Cols)")
     unroll_ui = mo.ui.slider(start=1, stop=8, step=1, value=2, label="Unroll factor")
-
-    schedule_ui = mo.hstack([tile_i_ui, tile_j_ui, unroll_ui])
     return tile_i_ui, tile_j_ui, unroll_ui
 
 
 @app.cell
-def _():
+def _(mo):
     _editor_code = '''import xtc.graphs.xtc.op as O
-    from xtc.backends.mlir import Backend
-    from xtc.schedules.descript import descript_scheduler
+from xtc.backends.mlir import Backend
+from xtc.schedules.descript import descript_scheduler
 
     # Problem setup
     I, J, K, dtype = 1024, 2048, 4096, "float32"
@@ -121,36 +123,54 @@ def _(descript_editor):
 
 
 @app.cell
-def _(descript_editor, tile_i_ui, tile_j_ui, unroll_ui):
-    # Execute the user's code safely to extract the module and parameters
+def _(descript_editor, mo, tile_i_ui, tile_j_ui, unroll_ui):
+    # State management to isolate heavy computation from slider movement
+    compile_params, set_compile_params = mo.state(None)
+
+    def _trigger_compile(_):
+        set_compile_params({
+            "code": descript_editor.value,
+            "i": tile_i_ui.value,
+            "j": tile_j_ui.value,
+            "unroll": unroll_ui.value
+        })
+
+    compile_btn = mo.ui.button(
+        label="Compile & Evaluate",
+        kind="success",
+        on_click=_trigger_compile
+    )
+    return compile_btn, compile_params, set_compile_params
+
+
+@app.cell
+def _(compile_params, mo):
+    mo.stop(compile_params() is None, mo.md("*👈 Click **'Compile & Evaluate'** in the sidebar to start.*"))
+
+    _params = compile_params()
     local_vars = {}
 
-    # Inject the slider values dynamically into the execution context
     global_vars = globals().copy()
     global_vars.update({
-        "slider_i": tile_i_ui.value,
-        "slider_j": tile_j_ui.value,
-        "slider_unroll": unroll_ui.value,
+        "slider_i": _params["i"],
+        "slider_j": _params["j"],
+        "slider_unroll": _params["unroll"],
     })
 
     exec_error = None
     module = None
-    I_val, J_val, K_val = 1024, 2048, 4096
 
     try:
-        exec(descript_editor.value, global_vars, local_vars)
+        exec(_params["code"], global_vars, local_vars)
         module = local_vars.get("module")
-        I_val = local_vars.get("I", 1024)
-        J_val = local_vars.get("J", 2048)
-        K_val = local_vars.get("K", 4096)
     except Exception as e:
         exec_error = str(e)
-    return I_val, J_val, K_val, exec_error, module
+
+    return exec_error, module
 
 
 @app.cell
-def _(I_val, J_val, K_val, tile_i_ui, tile_j_ui, unroll_ui):
-    # Fetch hardware cache sizes dynamically (Linux sysfs)
+def _(compile_btn, mo, os, sys, tile_i_ui, tile_j_ui, unroll_ui):
     caches_kb = {}
     if sys.platform == "linux" and os.path.exists("/sys/devices/system/cpu/cpu0/cache"):
         try:
@@ -180,7 +200,9 @@ def _(I_val, J_val, K_val, tile_i_ui, tile_j_ui, unroll_ui):
     if "L2" not in caches_kb: caches_kb["L2"] = 1
     if len(caches_kb) <= 2 and "L3" not in caches_kb: caches_kb["L3"] = 1
 
-    b_size = 4 # float32 (4 bytes)
+    _I, _J, _K = 1024, 2048, 4096
+    b_size = 4 # float32
+    # todo : check element size dynamicly
 
     def fmt(b):
         if b >= 1024**2: return f"{b / 1024**2:.1f} MiB"
@@ -190,14 +212,13 @@ def _(I_val, J_val, K_val, tile_i_ui, tile_j_ui, unroll_ui):
     geo_md = f"""
     | Tensor | Total Size | 1 Row | 1 Col |
     |---|---|---|---|
-    | **A** ({I_val}×{K_val}) | {fmt(I_val*K_val*b_size)} | {fmt(K_val*b_size)} | {fmt(I_val*b_size)} |
-    | **B** ({K_val}×{J_val}) | {fmt(K_val*J_val*b_size)} | {fmt(J_val*b_size)} | {fmt(K_val*b_size)} |
-    | **C** ({I_val}×{J_val}) | {fmt(I_val*J_val*b_size)} | {fmt(J_val*b_size)} | {fmt(I_val*b_size)} |
+    | **A** ({_I}×{_K}) | {fmt(_I*_K*b_size)} | {fmt(_K*b_size)} | {fmt(_I*b_size)} |
+    | **B** ({_K}×{_J}) | {fmt(_K*_J*b_size)} | {fmt(_J*b_size)} | {fmt(_K*b_size)} |
+    | **C** ({_I}×{_J}) | {fmt(_I*_J*b_size)} | {fmt(_J*b_size)} | {fmt(_I*b_size)} |
     """
 
-    # Extra Metrics
     tile_c_bytes = tile_i_ui.value * tile_j_ui.value * b_size
-    flops = 2 * I_val * J_val * K_val
+    flops = 2 * _I * _J * _K
     gflops = flops / 1e9
 
     def format_cache(name, kb):
@@ -216,8 +237,9 @@ def _(I_val, J_val, K_val, tile_i_ui, tile_j_ui, unroll_ui):
 
     sidebar = mo.sidebar(
         mo.vstack([
-            mo.md("### Schedule Information"),
-            mo.md("Modify parameters to update TMA metrics in real-time."),
+            compile_btn,
+            mo.md("---"),
+            mo.md("### Schedule Controls"),
             tile_i_ui,
             tile_j_ui,
             unroll_ui,
@@ -229,8 +251,7 @@ def _(I_val, J_val, K_val, tile_i_ui, tile_j_ui, unroll_ui):
             mo.md("---"),
             mo.md("### Your CPU Caches"),
             mo.md(cache_md),
-            mo.md("<br><sub>*Compare row/col sizes to your caches to predict bottlenecks!*</sub>"),
-            mo.md("<br><sub>*If cache size is 1, parsing of `/sys/devices/system/cpu/cpu0/cache/` failed.*</sub>")
+            mo.md("<br><sub>*Compare row/col sizes to your caches to predict bottlenecks!*</sub>")
         ])
     )
     return (sidebar,)
@@ -243,7 +264,7 @@ def _(sidebar):
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     ## 2. Raw Hardware Counters (PMU)
     CPUs expose raw counters to track specific events. We can ask the CPU exactly how many cycles were spent or how many L1/L2 cache misses occurred.
@@ -254,7 +275,7 @@ def _():
 
 
 @app.cell
-def _(exec_error, module):
+def _(exec_error, mo, module, platform):
     if module is None:
         pmu_ui = mo.md(f"**Compilation Error in Sandbox:**\n```python\n{exec_error}\n```")
     else:
@@ -277,7 +298,7 @@ def _(exec_error, module):
             mo.md(f"**Execution Code:** `{code_pmu}`"),
             mo.ui.table(_pmu_data, label="Raw PMU Results")
         ])
-    return (pmu_ui,)
+    return evaluator_pmu, pmu_counters, pmu_ui, results_pmu
 
 
 @app.cell
@@ -287,7 +308,7 @@ def _(pmu_ui):
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     ## 3. Top-down Microarchitecture Analysis (Level 1)
     Raw counters are hard to interpret: *Is 5 million cache misses bad? Does it actually stall the CPU?*
@@ -302,7 +323,7 @@ def _():
 
 
 @app.cell
-def _(exec_error, module):
+def _(exec_error, mo, module, platform):
     if module is None:
         l1_ui = mo.md(f"**Compilation Error in Sandbox:**\n```python\n{exec_error}\n```")
     else:
@@ -327,7 +348,7 @@ def _(exec_error, module):
             mo.md(f"**Execution Code:** `{code_l1}`"),
             _l1_ui_table
         ])
-    return (l1_ui,)
+    return code_l1, error_l1, evaluator_l1, l1_ui, results_l1, tma_l1_counters
 
 
 @app.cell
@@ -337,7 +358,7 @@ def _(l1_ui):
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     ## 4. Drilling Down (Topdown Level 2)
     If our code is heavily **Backend Bound**, we need to know why! Is it because our math is too complex for the ALU/FPU (`Core Bound`), or are we constantly waiting for the RAM (`Memory Bound`)?
@@ -351,7 +372,7 @@ def _():
 
 
 @app.cell
-def _(exec_error, module):
+def _(exec_error, mo, module, platform):
     if module is None:
         l2_ui = mo.md(f"**Compilation Error in Sandbox:**\n```python\n{exec_error}\n```")
     else:
@@ -386,7 +407,7 @@ def _(exec_error, module):
             mo.md(f"**Execution Code:** `{code_l2}`"),
             _l2_ui_table
         ])
-    return (l2_ui,)
+    return code_l2, error_l2, evaluator_l2, l2_ui, results_l2, tma_l2_counters
 
 
 @app.cell
@@ -396,7 +417,7 @@ def _(l2_ui):
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     ## How to fix Core Bound vs Memory Bound?
 
@@ -416,7 +437,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     ## Going deeper: Topdown L3, L4 and beyond...
 
@@ -507,6 +528,7 @@ def _(mo, module, sandbox_form):
             sandbox_output = mo.md(f"**Error parsing your list:** {e}")
 
     return custom_counters, evaluator_sb, output_lines, results_sb, sandbox_output
+
 
 @app.cell
 def _(sandbox_output):
