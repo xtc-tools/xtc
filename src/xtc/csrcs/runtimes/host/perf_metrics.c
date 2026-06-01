@@ -437,8 +437,8 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
         return 0;
     }
 
-    fprintf(stderr,"[DEBUG] Unsuported hardware\n");
-    return 0; // Unsuported hardware
+    // Unsuported hardware / metric or the event is a pmu
+    return 0;
 }
 
 

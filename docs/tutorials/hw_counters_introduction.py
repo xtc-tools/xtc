@@ -484,14 +484,22 @@ def _(mo, sandbox_form):
 
         Curious about branch misses or raw L1 cache loads? Write your own list of PMU/TMA events below.
 
-        *Temporary TMA metrics must be evaluate one at time without be mix up with PMU*
+        > **/!\\ Important Hardware Limits:**
+
+        > CPUs only has a few programmable counters (usually 4 or 8).
+
+        > * TMA metrics (like `TopdownL1`) consume up to 5 counters at once!
+
+        > * If you ask for too many events, the CPU will run out of hardware counters. Linux will silently disable the overflowing ones.
+
+        > * **Symptom:** You will see mathematically aberrant data, such as `[-0.0, -0.0]` or an absurdly high ones.If you see this, shorten your list!
+
 
         *This cell will not run automatically. You must click the button to evaluate the kernel.*
         """),
         sandbox_form
     ])
     return
-
 
 @app.cell
 def _(mo, module, sandbox_form):
@@ -516,16 +524,56 @@ def _(mo, module, sandbox_form):
                 output_lines.append(f"**Terminal Output / Errors:**\n```text\n{err_sb}\n```")
 
             output_lines.append("**Raw Results:**\n```text")
-            for c, v in zip(custom_counters, results_sb):
-                output_lines.append(f"{c:35} : {v}")
+
+            DERIVED_METRICS_SIZES = {
+                "TopdownL1": 4, # tma_backend_bound, tma_bad_speculation, tma_frontend_bound, tma_info_core_coreipc, tma_info_inst_mix_instructions, tma_info_thread_slots, tma_retiring
+                "TopdownL2": 8, # tma_branch_mispredicts, tma_core_bound, tma_fetch_bandwidth, tma_fetch_latency, tma_heavy_operations, tma_light_operations, tma_machine_clears, tma_memory_bound
+                "TopdownL3": 26, # tma_branch_resteers, tma_divider, tma_dram_bound, tma_dsb, tma_dsb_switches, tma_few_uops_instructions, tma_fp_arith, tma_fused_instructions, tma_icache_misses, tma_itlb_misses, tma_l1_bound, tma_l2_bound, tma_l3_bound, tma_lcp, tma_memory_operations, tma_microcode_sequencer, tma_mite, tma_ms_switches, tma_non_fused_branches, tma_other_light_ops, tma_other_mispredicts, tma_other_nukes, tma_pmm_bound, tma_ports_utilization, tma_serializing_operation, tma_store_bound
+                "TopdownL4": 32, # tma_4k_aliasing, tma_assists, tma_cisc, tma_clears_resteers, tma_contested_accesses, tma_data_sharing, tma_decoder0_alone, tma_dtlb_load, tma_dtlb_store, tma_false_sharing, tma_fb_full, tma_fp_scalar, tma_fp_vector, tma_l1_hit_latency, tma_l3_hit_latency, tma_lock_latency, tma_mem_bandwidth, tma_mem_latency, tma_mispredicts_resteers, tma_nop_instructions, tma_ports_utilized_0, tma_ports_utilized_1, tma_ports_utilized_2, tma_ports_utilized_3m, tma_slow_pause, tma_split_loads, tma_split_stores, tma_sq_full, tma_store_fwd_blk, tma_store_latency, tma_unknown_branches, tma_x87_use
+                "TopdownL5": 15, # tma_alu_op_utilization, tma_fp_assists, tma_fp_vector_128b, tma_fp_vector_256b, tma_fp_vector_512b, tma_load_op_utilization, tma_load_stlb_hit, tma_load_stlb_miss, tma_local_mem, tma_mixing_vectors, tma_remote_cache, tma_remote_mem, tma_store_op_utilization, tma_store_stlb_hit, tma_store_stlb_miss
+                "TopdownL6": 8 # tma_port_0, tma_port_1, tma_port_2, tma_port_3, tma_port_4, tma_port_5, tma_port_6, tma_port_7
+            }
+            current_idx = 0
+            hw_limit_exceeded = False
+
+            for c in custom_counters:
+                size = DERIVED_METRICS_SIZES.get(c, 1)
+                chunk = results_sb[current_idx : current_idx + size]
+
+                if size == 1:
+                    output_lines.append(f"{c:35} : {int(chunk[0])}")
+                else:
+                    rounded_chunk = [round(x, 2) for x in chunk]
+                    output_lines.append(f"{c:35} : {rounded_chunk} (%)")
+
+                    # Missing hardware counters detection
+                    if rounded_chunk == [0.0, 0.0, 0.0, 100.0] or all(x == 0.0 for x in rounded_chunk):
+                        hw_limit_exceeded = True
+
+                current_idx += size
+
             output_lines.append("```")
+
+            if hw_limit_exceeded:
+                alert_msg = (
+                    " **Hardware Counter Limit Exceeded!**\n\n"
+                    "Your CPU only has a limited number of programmable counters (usually 4 or 8). "
+                    "You requested too many events at the same time. The Linux kernel failed to schedule the TMA events, "
+                    "returning zeros (which mathematically defaults to 100% Backend Bound).\n\n"
+                    "**Fix:** Remove some PMU counters from your list to make room for TMA."
+                )
+                output_lines.append(mo.callout(mo.md(alert_msg), kind="danger")._repr_html_())
 
             sandbox_output = mo.md("\n".join(output_lines))
 
         except Exception as e:
             sandbox_output = mo.md(f"**Error parsing your list:** {e}")
 
-    return custom_counters, evaluator_sb, output_lines, results_sb, sandbox_output
+    return custom_counters, evaluator_sb, hw_limit_exceeded, output_lines, results_sb, sandbox_output
+
+
+
+
 
 
 @app.cell
