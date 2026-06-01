@@ -86,22 +86,20 @@ from xtc.schedules.descript import descript_scheduler
     backend = Backend(gb.graph)
 
     # Schedule specification
-    # slider_i, slider_j and slider_unroll are magically injected from the UI sliders!
     schedule_spec = {
-        "i": {},
         "j": {},
+        "i": {},
         "k": {},
-        f"i#{slider_i}": {"unroll": slider_unroll},
-        f"j#{slider_j}": {"vectorize": True}
+        f"j#{slider_j}": {"unroll": slider_unroll},
+        f"i#{slider_i}": {"vectorize": True}
     }
 
-    # Compile
     scheduler = backend.get_scheduler()
     descript_scheduler(
-    scheduler=scheduler,
-    node_name="C",
-    abstract_dims=["i", "j", "k"],
-    spec=schedule_spec
+        scheduler=scheduler,
+        node_name="C",
+        abstract_dims=["j", "i", "k"],
+        spec=schedule_spec
     )
     sched = scheduler.schedule()
 
