@@ -33,75 +33,52 @@ comp = impl.get_compiler(
 )
 module = comp.compile(sched)
 
-tma_counters = []
+hw_counters = []
 
 # Linux Perf counters
 if platform == "linux":
-    tma_counters += [
+    hw_counters += [
         "TopdownL1"
     ]
 elif platform == "darwin":
     # On MacOS, requires sudo to get counters
     # TODO: should be tested ideally
-    tma_counters = []
+    hw_counters = []
 
 
 evaluator = module.get_evaluator(
     validate=True,
-    pmu_counters=tma_counters,
+    pmu_counters=hw_counters,
 )
 results, code, error = evaluator.evaluate()
 print(f"CODE: {code}")
-print(f"counters: {tma_counters}")
+print(f"counters: {hw_counters}")
 print(f"results TopDownL1: {[int(x) for x in results]}")
 
 print("=============\n")
 
-tma_counters = []
+hw_counters = ["mem_load_retired.l1_miss","mem_load_retired.l2_miss","mem_load_retired.l3_miss"]
 
 # Linux Perf counters
 if platform == "linux":
-    tma_counters += [
-        "TopdownL2"
-    ]
-elif platform == "darwin":
-    # On MacOS, requires sudo to get counters
-    # TODO: should be tested ideally
-    tma_counters = []
-
-
-evaluator = module.get_evaluator(
-    validate=True,
-    pmu_counters=tma_counters,
-)
-results, code, error = evaluator.evaluate()
-print(f"CODE: {code}")
-print(f"counters: {tma_counters}")
-print(f"results TopDownL2: {[int(x) for x in results]}")
-
-print("=============\n")
-
-tma_counters = []
-
-# Linux Perf counters
-if platform == "linux":
-    tma_counters += [
+    hw_counters += [
+        "TopdownL2",
         "TopdownL3"
     ]
 elif platform == "darwin":
     # On MacOS, requires sudo to get counters
     # TODO: should be tested ideally
-    tma_counters = []
+    hw_counters = []
 
 
 evaluator = module.get_evaluator(
     validate=True,
-    pmu_counters=tma_counters,
+    pmu_counters=hw_counters,
 )
 results, code, error = evaluator.evaluate()
 print(f"CODE: {code}")
-print(f"counters: {tma_counters}")
-print(f"results TopDownL2: {[int(x) for x in results]}")
+print(f"counters: {hw_counters}")
+print(f"results : {[int(x) for x in results]}")
 
 # CHECK:       CODE: 0
 # CHECK-NEXT:  counters:
