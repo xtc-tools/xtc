@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+from pathlib import Path
 from typing import Any
 from typing_extensions import override
 
@@ -71,7 +72,7 @@ class GPUModule(itf.comp.Module):
         return self._file_name
 
     @override
-    def export(self) -> None:
+    def export(self, out_dir: str | Path, **kwargs: Any) -> None:
         raise NotImplementedError("GPUModule.export is not implemented")
 
     @override

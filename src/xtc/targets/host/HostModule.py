@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+from pathlib import Path
 from typing_extensions import override
 from typing import Any
 
@@ -92,8 +93,16 @@ class HostModule(itf.comp.Module):
         return self._file_name
 
     @override
-    def export(self) -> None:
-        pass
+    def export(self, out_dir: str | Path, **kwargs: Any) -> None:
+        if self._file_type != "shlib":
+            raise NotImplementedError(
+                f"export only supports shlib modules (got {self._file_type})"
+            )
+        from .HostCppExport import HostCppExporter
+
+        name = kwargs.get("name")
+        seed = kwargs.get("seed", 0)
+        HostCppExporter(self, Path(out_dir), name=name, seed=seed).export()
 
     @override
     def get_evaluator(self, **kwargs: Any) -> itf.exec.Evaluator:

@@ -3,6 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any
 
 from ..exec import Evaluator, Executor
@@ -72,12 +73,13 @@ class Module(ABC):
         ...
 
     @abstractmethod
-    def export(self) -> None:
-        """Exports the module to a format suitable for execution.
+    def export(self, out_dir: str | Path, **kwargs: Any) -> None:
+        """Export the module for use from external C/C++ code.
 
-        This method handles the final step of making the compiled code
-        available for execution, typically by writing it to a shared
-        object file or similar executable format.
+        Args:
+            out_dir: Destination directory for exported artifacts (header,
+                shared library, test harness, etc.).
+            kwargs: Target-specific options (e.g. export name, random seed).
         """
         ...
 

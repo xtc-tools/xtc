@@ -48,7 +48,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.pyright]
 pythonVersion = "3.10"
-include = ["src/xtc/itf", "src/xtc/backends", "src/xtc/graphs", "src/xtc/search", "src/xtc/runtimes", "docs/marimo"]
+include = ["src/xtc/itf", "src/xtc/backends", "src/xtc/graphs", "src/xtc/search", "src/xtc/runtimes", "src/xtc/integration", "docs/marimo"]
 reportMissingParameterType = "error"
 reportImplicitOverride = "error"
 reportUninitializedInstanceVariable = "error"
@@ -67,7 +67,7 @@ reportMissingImports = false
 
 [tool.mypy]
 python_version = "3.10"
-packages = ["xtc.itf", "xtc.backends", "xtc.graphs", "xtc.search", "xtc.runtimes", "docs.marimo"]
+packages = ["xtc.itf", "xtc.backends", "xtc.graphs", "xtc.search", "xtc.runtimes", "xtc.integration", "docs.marimo"]
 ignore_missing_imports = true
 check_untyped_defs = true
 
