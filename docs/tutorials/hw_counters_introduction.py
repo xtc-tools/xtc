@@ -71,8 +71,8 @@ def _(mo):
 @app.cell
 def _(mo):
     _editor_code = '''import xtc.graphs.xtc.op as O
-from xtc.backends.mlir import Backend
-from xtc.schedules.descript import descript_scheduler
+    from xtc.backends.mlir import Backend
+    from xtc.schedules.descript import descript_scheduler
 
     # Problem setup
     I, J, K, dtype = 1024, 2048, 4096, "float32"
@@ -138,7 +138,7 @@ def _(descript_editor, mo, tile_i_ui, tile_j_ui, unroll_ui):
         kind="success",
         on_click=_trigger_compile
     )
-    return compile_btn, compile_params, set_compile_params
+    return compile_btn, compile_params
 
 
 @app.cell
@@ -163,7 +163,6 @@ def _(compile_params, mo):
         module = local_vars.get("module")
     except Exception as e:
         exec_error = str(e)
-
     return exec_error, module
 
 
@@ -175,12 +174,12 @@ def _(compile_btn, mo, os, sys, tile_i_ui, tile_j_ui, unroll_ui):
             for i in range(4): # Usually index0 to index3 (L1d, L1i, L2, L3)
                 path = f"/sys/devices/system/cpu/cpu0/cache/index{i}"
                 if os.path.exists(path):
-                    with open(f"{path}/level", "r") as f:
-                        level = int(f.read().strip())
-                    with open(f"{path}/type", "r") as f:
-                        ctype = f.read().strip()
-                    with open(f"{path}/size", "r") as f:
-                        size_str = f.read().strip()
+                    with open(f"{path}/level", "r") as _f:
+                        level = int(_f.read().strip())
+                    with open(f"{path}/type", "r") as _f:
+                        ctype = _f.read().strip()
+                    with open(f"{path}/size", "r") as _f:
+                        size_str = _f.read().strip()
 
                     s_kb = 0
                     if size_str.endswith('K'): s_kb = int(size_str[:-1])
@@ -279,11 +278,25 @@ def _(exec_error, mo, module, platform):
     else:
         pmu_counters = ["cycles", "instructions"]
 
-        if platform == "linux":
-            pmu_counters += [
-                "mem_load_retired.l1_miss",
-                "mem_load_retired.l2_miss"
-            ]
+        if sys.platform == "linux":
+            is_amd = False
+            try:
+                with open("/proc/cpuinfo", "r") as f:
+                    if "AuthenticAMD" in f.read():
+                        is_amd = True
+            except Exception:
+                pass
+
+            if is_amd:
+                pmu_counters += [
+                    "all_l1_data_cache_fills",
+                    "all_l2_cache_misses"
+                ]
+            else:
+                pmu_counters += [
+                    "mem_load_retired.l1_miss",
+                    "mem_load_retired.l2_miss"
+                ]
 
         evaluator_pmu = module.get_evaluator(
             validate=True,
@@ -296,7 +309,7 @@ def _(exec_error, mo, module, platform):
             mo.md(f"**Execution Code:** `{code_pmu}`"),
             mo.ui.table(_pmu_data, label="Raw PMU Results")
         ])
-    return evaluator_pmu, pmu_counters, pmu_ui, results_pmu
+    return (pmu_ui,)
 
 
 @app.cell
@@ -346,7 +359,7 @@ def _(exec_error, mo, module, platform):
             mo.md(f"**Execution Code:** `{code_l1}`"),
             _l1_ui_table
         ])
-    return code_l1, error_l1, evaluator_l1, l1_ui, results_l1, tma_l1_counters
+    return (l1_ui,)
 
 
 @app.cell
@@ -405,7 +418,7 @@ def _(exec_error, mo, module, platform):
             mo.md(f"**Execution Code:** `{code_l2}`"),
             _l2_ui_table
         ])
-    return code_l2, error_l2, evaluator_l2, l2_ui, results_l2, tma_l2_counters
+    return (l2_ui,)
 
 
 @app.cell
@@ -465,14 +478,14 @@ def _(mo):
     "branch-misses",
     "L1-dcache-loads",
     "L1-dcache-load-misses"
-]'''
+    ]'''
     sandbox_editor = mo.ui.code_editor(
         value=_sandbox_default,
         language="python",
     )
 
     sandbox_form = sandbox_editor.form(submit_button_label=" Run Custom Metrics")
-    return sandbox_editor, sandbox_form
+    return (sandbox_form,)
 
 
 @app.cell
@@ -501,6 +514,7 @@ def _(mo, sandbox_form):
     ])
     return
 
+
 @app.cell
 def _(mo, module, sandbox_form):
     mo.stop(sandbox_form.value is None, mo.md("*Click 'Run Custom Metrics' to see the results.*"))
@@ -526,7 +540,7 @@ def _(mo, module, sandbox_form):
             output_lines.append("**Raw Results:**\n```text")
 
             DERIVED_METRICS_SIZES = {
-                "TopdownL1": 4, # tma_backend_bound, tma_bad_speculation, tma_frontend_bound, tma_info_core_coreipc, tma_info_inst_mix_instructions, tma_info_thread_slots, tma_retiring
+                "TopdownL1": 4, # tma_backend_bound, tma_bad_speculation, tma_frontend_bound, tma_info_core_coreipc, tma_info_inst_mix_instructions, tma_info_thread_slots, tma_retiring
                 "TopdownL2": 8, # tma_branch_mispredicts, tma_core_bound, tma_fetch_bandwidth, tma_fetch_latency, tma_heavy_operations, tma_light_operations, tma_machine_clears, tma_memory_bound
                 "TopdownL3": 26, # tma_branch_resteers, tma_divider, tma_dram_bound, tma_dsb, tma_dsb_switches, tma_few_uops_instructions, tma_fp_arith, tma_fused_instructions, tma_icache_misses, tma_itlb_misses, tma_l1_bound, tma_l2_bound, tma_l3_bound, tma_lcp, tma_memory_operations, tma_microcode_sequencer, tma_mite, tma_ms_switches, tma_non_fused_branches, tma_other_light_ops, tma_other_mispredicts, tma_other_nukes, tma_pmm_bound, tma_ports_utilization, tma_serializing_operation, tma_store_bound
                 "TopdownL4": 32, # tma_4k_aliasing, tma_assists, tma_cisc, tma_clears_resteers, tma_contested_accesses, tma_data_sharing, tma_decoder0_alone, tma_dtlb_load, tma_dtlb_store, tma_false_sharing, tma_fb_full, tma_fp_scalar, tma_fp_vector, tma_l1_hit_latency, tma_l3_hit_latency, tma_lock_latency, tma_mem_bandwidth, tma_mem_latency, tma_mispredicts_resteers, tma_nop_instructions, tma_ports_utilized_0, tma_ports_utilized_1, tma_ports_utilized_2, tma_ports_utilized_3m, tma_slow_pause, tma_split_loads, tma_split_stores, tma_sq_full, tma_store_fwd_blk, tma_store_latency, tma_unknown_branches, tma_x87_use
@@ -568,12 +582,7 @@ def _(mo, module, sandbox_form):
 
         except Exception as e:
             sandbox_output = mo.md(f"**Error parsing your list:** {e}")
-
-    return custom_counters, evaluator_sb, hw_limit_exceeded, output_lines, results_sb, sandbox_output
-
-
-
-
+    return (sandbox_output,)
 
 
 @app.cell
