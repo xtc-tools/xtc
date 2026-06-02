@@ -469,6 +469,8 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 out_resolver->num_hw_events = 5;
                 out_resolver->hw_events = skl_tma_l1_events;
                 out_resolver->num_results = 4;
+                out_resolver->num_passes = 1;
+                out_resolver->events_per_pass = pass_5;
                 out_resolver->compute_formula = compute_skl_tma_l1;
                 return 1;
             } else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
@@ -477,6 +479,8 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 out_resolver->num_hw_events = 5;
                 out_resolver->hw_events = intel_modern_tma_l1_events;
                 out_resolver->num_results = 4;
+                out_resolver->num_passes = 1;
+                out_resolver->events_per_pass = pass_5;
                 out_resolver->compute_formula = compute_intel_modern_tma_l1;
                 return 1;
             }
@@ -490,6 +494,8 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 out_resolver->num_hw_events = 4;
                 out_resolver->hw_events = amd_zen4_tma_l1_events;
                 out_resolver->num_results = 4;
+                out_resolver->num_passes = 1;
+                out_resolver->events_per_pass = pass_4;
                 out_resolver->compute_formula = compute_amd_zen34_tma_l1;
                 return 1;
             }
@@ -497,9 +503,11 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 fprintf(stderr,"[DEBUG] AMD_ZEN_1_2 detected\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 4;
-                out_resolver->hw_events = amd_zen4_tma_l1_events;
+                out_resolver->hw_events = amd_zen4_tma_l1_events; // Todo change to zen1
                 out_resolver->num_results = 4;
-                out_resolver->compute_formula = compute_amd_zen34_tma_l1; //compute_amd_zen1_tma_l1;
+                out_resolver->num_passes = 1;
+                out_resolver->events_per_pass = pass_4;
+                out_resolver->compute_formula = compute_amd_zen34_tma_l1; // Todo change to zen1
                 return 1;
             }
             // else if (uarch == AMD_ZEN_3) ...
@@ -507,9 +515,6 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
         else if (detect_if_arm()) {
             fprintf(stderr,"[DEBUG] ARM detected\n");
             // todo
-            // fopen /sys/devices/system/cpu/cpu0/regs/identification/midr_el1
-            // 0x410fd0c0 == Cortex-X1
-            // 0x610f2200 == Apple M1
             return 0;
         }
     }
@@ -518,15 +523,23 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
             intel_arch_t uarch = detect_intel_microarchitecture();
 
             if (uarch == INTEL_SKYLAKE_CASCADE) {
-                fprintf(stderr,"[DEBUG] Unsuported INTEL_SKYLAKE_CASCADE for L2\n");
-                // todo : need multiplexing
-                return 0;
+                fprintf(stderr,"[DEBUG] INTEL_SKYLAKE_CASCADE L2 (Multi-Pass)\n");
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 12;
+                out_resolver->hw_events = skl_tma_l2_events;
+                out_resolver->num_results = 8;
+                out_resolver->num_passes = 3;
+                out_resolver->events_per_pass = skl_l2_passes; // Tableau {4, 4, 4}
+                out_resolver->compute_formula = compute_skl_tma_l2;
+                return 1;
             }
             else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 9;
                 out_resolver->hw_events = intel_modern_tma_l2_events;
                 out_resolver->num_results = 8;
+                out_resolver->num_passes = 1;
+                out_resolver->events_per_pass = pass_9;
                 out_resolver->compute_formula = compute_intel_modern_tma_l2;
                 return 1;
             }
@@ -537,7 +550,6 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
     // Unsuported hardware / metric or the event is a pmu
     return 0;
 }
-
 
 int get_perf_metric_results_count(const char *metric_name) {
     metric_resolver_t resolver;
