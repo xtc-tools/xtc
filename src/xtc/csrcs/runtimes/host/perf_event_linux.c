@@ -216,6 +216,7 @@ void stop_perf_events(int n_events, const int *fds, uint64_t *results) {
  * Source
  * Intel : https://github.com/torvalds/linux/blob/master/arch/x86/events/intel/core.c
  * AMD : https://github.com/torvalds/linux/blob/master/arch/x86/events/amd/core.c
+ *       tools/perf/pmu-events/arch/x86/amdzen4/pipeline.json
  *
  * https://github.com/intel/perfmon
  *
@@ -262,6 +263,7 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
       event->mode = PERF_ARG_GENERIC;
       event->args.config_pair.type = PERF_TYPE_RAW;
 
+      // L1
       if (strcmp(name, "@zen4_cyc") == 0)
         event->args.config_pair.event = 0x0076;
       else if (strcmp(name, "@zen4_fe") == 0)
@@ -270,32 +272,62 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
         event->args.config_pair.event = 0x07AA;
       else if (strcmp(name, "@zen4_ret") == 0)
         event->args.config_pair.event = 0x00C1;
+
+      // L2
+      else if (strcmp(name, "@zen4_be_mem") == 0)
+        event->args.config_pair.event = 0x1000002A9ULL;
+      else if (strcmp(name, "@zen4_be_cpu") == 0)
+        event->args.config_pair.event = 0x1000004A9ULL;
+
+      // L2 Frontend (cmask=0x6 add 0x06000000)
+      else if (strcmp(name, "@zen4_fe_lat") == 0)
+        event->args.config_pair.event = 0x1060001A9ULL;
+      else if (strcmp(name, "@zen4_fe_tot") == 0)
+        event->args.config_pair.event = 0x1000001A9ULL;
+
+      // L2 Bad Speculation + Retiring
+      else if (strcmp(name, "@zen4_bs_misp") == 0)
+        event->args.config_pair.event = 0x0008000C1ULL;
+      else if (strcmp(name, "@zen4_bs_resync") == 0)
+        event->args.config_pair.event = 0x0002000C1ULL;
+      else if (strcmp(name, "@zen4_ret_micro") == 0)
+        event->args.config_pair.event = 0x0001000C1ULL;
       else
-        return 1; // unknow event
+        return 1;
 
       return 0;
     }
 
     // Modern Intel
     else if (strncmp(name, "@icl_", 5) == 0) {
-          event->mode = PERF_ARG_GENERIC;
-          event->args.config_pair.type = PERF_TYPE_RAW;
+      event->mode = PERF_ARG_GENERIC;
+      event->args.config_pair.type = PERF_TYPE_RAW;
 
-          if (strcmp(name, "@icl_slots") == 0)         event->args.config_pair.event = 0x0400;
-          // TopDownL1
-          else if (strcmp(name, "@icl_retiring") == 0) event->args.config_pair.event = 0x8000;
-          else if (strcmp(name, "@icl_bad_spec") == 0) event->args.config_pair.event = 0x8100;
-          else if (strcmp(name, "@icl_fe_bound") == 0) event->args.config_pair.event = 0x8200;
-          else if (strcmp(name, "@icl_be_bound") == 0) event->args.config_pair.event = 0x8300;
-          // TopDownL2
-          else if (strcmp(name, "@icl_heavy_ops") == 0)     event->args.config_pair.event = 0x8400;
-          else if (strcmp(name, "@icl_br_mispredict") == 0) event->args.config_pair.event = 0x8500;
-          else if (strcmp(name, "@icl_fetch_lat") == 0)     event->args.config_pair.event = 0x8600;
-          else if (strcmp(name, "@icl_mem_bound") == 0)     event->args.config_pair.event = 0x8700;
-          else return 1;
+      if (strcmp(name, "@icl_slots") == 0)
+        event->args.config_pair.event = 0x0400;
+      // TopDownL1
+      else if (strcmp(name, "@icl_retiring") == 0)
+        event->args.config_pair.event = 0x8000;
+      else if (strcmp(name, "@icl_bad_spec") == 0)
+        event->args.config_pair.event = 0x8100;
+      else if (strcmp(name, "@icl_fe_bound") == 0)
+        event->args.config_pair.event = 0x8200;
+      else if (strcmp(name, "@icl_be_bound") == 0)
+        event->args.config_pair.event = 0x8300;
+      // TopDownL2
+      else if (strcmp(name, "@icl_heavy_ops") == 0)
+        event->args.config_pair.event = 0x8400;
+      else if (strcmp(name, "@icl_br_mispredict") == 0)
+        event->args.config_pair.event = 0x8500;
+      else if (strcmp(name, "@icl_fetch_lat") == 0)
+        event->args.config_pair.event = 0x8600;
+      else if (strcmp(name, "@icl_mem_bound") == 0)
+        event->args.config_pair.event = 0x8700;
+      else
+        return 1;
 
-          return 0;
-      }
+      return 0;
+    }
 
     return -1;
 }

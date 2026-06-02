@@ -238,22 +238,22 @@ static void compute_skl_tma_l1(const double *raw_values, double *final_results) 
 static const int skl_l2_passes[] = {4, 4, 4}; // 3 passes of 4 counters
 static const char *skl_tma_l2_events[] = {
     // Passe 1 : L1 Base + Backend
-    "@skl_slots",                     // Fixe (0)
-    "cycle_activity:stalls_mem_any",  // GP 1 (Memory Bound)
-    "resource_stalls:any",            // GP 2 (Core Bound base)
-    "@skl_fe_bound",                  // GP 3
+    "@skl_slots",
+    "cycle_activity:stalls_mem_any",  // Memory Bound
+    "resource_stalls:any",            // Core Bound base
+    "@skl_fe_bound",
 
     // Passe 2 : Frontend
-    "@skl_slots",                     // Fixe (4)
-    "icache_16b:ifdata_stall",        // GP 1 (Fetch Latency)
-    "icache_64b:iftag_stall",         // GP 2 (Fetch Latency)
-    "@skl_retiring",                  // GP 3
+    "@skl_slots",
+    "icache_16b:ifdata_stall",        // Fetch Latency
+    "icache_64b:iftag_stall",         // Fetch Latency
+    "@skl_retiring",
 
     // Passe 3 : Retiring + Bad Speculation
-    "@skl_slots",                     // Fixe (8)
-    "idq:ms_uops",                    // GP 1 (Heavy Ops)
-    "br_misp_retired:all_branches",   // GP 2 (Branch Mispredicts)
-    "machine_clears:count"            // GP 3 (Machine Clears)
+    "@skl_slots",
+    "idq:ms_uops",                    // Heavy Ops
+    "br_misp_retired:all_branches",   // Branch Mispredicts
+    "machine_clears:count"            // Machine Clears
 };
 
 
@@ -435,24 +435,91 @@ static void compute_amd_zen1_tma_l1(const double *raw, double *final) {
     compute_amd_tma_l1_generic(raw, final, 4.0); // Zen 1 / Zen 2
 }
 
+static const int amd_zen4_l2_passes[] = {5, 4};
+
+static const char *amd_zen4_tma_l2_events[] = {
+    "@zen4_cyc",
+    "@zen4_be_mem",     // mem stall
+    "@zen4_be_cpu",     // cpu stall
+    "@zen4_fe_lat",     // fetch latency
+    "@zen4_fe_tot",     // total frontend (no cmask)
+
+    "@zen4_cyc",
+    "@zen4_bs_misp",    // branch mispredict
+    "@zen4_bs_resync",  // pipeline restart (machine clear)
+    "@zen4_ret_micro"   // Heavy ops
+};
+
+static void compute_amd_zen4_tma_l2(const double *raw, double *final) {
+    double slots_p1 = raw[0] * 6.0; // pipeline width
+    double slots_p2 = raw[4] * 6.0;
+
+    if (slots_p1 > 0 && slots_p2 > 0) {
+        //  Backend Bound
+        double be_mem = raw[1] / slots_p1;
+        double be_cpu = raw[2] / slots_p1;
+
+        // Frontend Bound (Bandwitdth = total - latency)
+        double fe_lat = raw[3] / slots_p1;
+        double fe_tot = raw[4] / slots_p1;
+        double fe_bw  = fe_tot - fe_lat;
+        if (fe_bw < 0.0) fe_bw = 0.0;
+
+        // 3. Bad Speculation
+        double bs_misp = raw[6] / slots_p2;
+        double bs_clear = raw[7] / slots_p2;
+
+        // 4. Retiring
+        double ret_heavy = raw[8] / slots_p2;
+
+        double total_retiring = 1.0 - (be_mem + be_cpu + fe_tot + bs_misp + bs_clear);
+        double ret_light = total_retiring - ret_heavy;
+
+        // L2 : Light, Heavy, Clears, Mispredicts, FE Bandwidth, FE Latency, Core Bound, Memory Bound
+        final[0] = ret_light * 100.0;
+        final[1] = ret_heavy * 100.0;
+        final[2] = bs_clear * 100.0;
+        final[3] = bs_misp * 100.0;
+        final[4] = fe_bw * 100.0;
+        final[5] = fe_lat * 100.0;
+        final[6] = be_cpu * 100.0;
+        final[7] = be_mem * 100.0;
+
+        for(int i=0; i<8; i++) if (final[i] < 0.0) final[i] = 0.0;
+    } else {
+        for(int i=0; i<8; i++) final[i] = 0.0;
+    }
+}
 
 
 
 // === Core logic ===
 
 
+/* AMD metrics
+ * backend_bound_memory = Memory bound
+ * backend_bound_cpu = Core Bound
+ * frontend_bound_latency = Fetch Latency
+ * frontend_bound_bw = Bandwidth
+ * bad_speculation_mispredicts = Branch Mispredicts
+ */
+
+
+
+
 /*
  * Tested TopdownL1 :
- *  - INTEL_SKYLAKE_CASCADE (skylake)
- *  - INTEL_ICELAKE_SAPPHIRE (raptor lake)
+ *  - INTEL_SKYLAKE_CASCADE (skylake)           L1,L2
+ *  - INTEL_ICELAKE_SAPPHIRE (raptor lake)      L1,L2
+ *  - AMD_ZEN_4                                 L1,L2
  *
  *  Untested :
  *  - AMD_ZEN_1_2
- *  - AMD_ZEN_4
  *
  *  Not implemented :
  *  - Aarch64
  *  - Zen 3
+ *  - L3 support
  *
  *
  */
@@ -500,26 +567,29 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 return 1;
             }
             else if (uarch == AMD_ZEN_1_2) {
-                fprintf(stderr,"[DEBUG] AMD_ZEN_1_2 detected\n");
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 4;
-                out_resolver->hw_events = amd_zen4_tma_l1_events; // Todo change to zen1
-                out_resolver->num_results = 4;
-                out_resolver->num_passes = 1;
-                out_resolver->events_per_pass = pass_4;
-                out_resolver->compute_formula = compute_amd_zen34_tma_l1; // Todo change to zen1
-                return 1;
+                fprintf(stderr,"[DEBUG] AMD_ZEN_1_2 detected (unsuported)\n");
+                //out_resolver->is_supported = 1;
+                //out_resolver->num_hw_events = 4;
+                //out_resolver->hw_events = amd_zen4_tma_l1_events; // Todo change to zen1
+                //out_resolver->num_results = 4;
+                //out_resolver->num_passes = 1;
+                //out_resolver->events_per_pass = pass_4;
+                //out_resolver->compute_formula = compute_amd_zen34_tma_l1; // Todo change to zen1
+                return 0;
             }
             // else if (uarch == AMD_ZEN_3) ...
         }
         else if (detect_if_arm()) {
             fprintf(stderr,"[DEBUG] ARM detected\n");
             // todo
+            // fopen /sys/devices/system/cpu/cpu0/regs/identification/midr_el1
+            // 0x410fd0c0 == Cortex-X1
+            // 0x610f2200 == Apple M1
             return 0;
         }
     }
     else if (strcmp(metric_name, "TopdownL2") == 0) {
-        if (detect_if_intel()) {
+        if (detect_if_intel()) { // L2 intel
             intel_arch_t uarch = detect_intel_microarchitecture();
 
             if (uarch == INTEL_SKYLAKE_CASCADE) {
@@ -534,6 +604,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 return 1;
             }
             else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
+                fprintf(stderr,"[DEBUG] INTEL_ICELAKE_SAPPHIRE L2\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 9;
                 out_resolver->hw_events = intel_modern_tma_l2_events;
@@ -541,6 +612,21 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 out_resolver->num_passes = 1;
                 out_resolver->events_per_pass = pass_9;
                 out_resolver->compute_formula = compute_intel_modern_tma_l2;
+                return 1;
+            }
+        }
+
+        else if (detect_if_amd()) { // L2 amd
+            amd_arch_t uarch = detect_amd_microarchitecture();
+            if (uarch == AMD_ZEN_4) {
+                fprintf(stderr,"[DEBUG] AMD_ZEN_4 L2 (Multi-Pass)\n");
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 9;
+                out_resolver->hw_events = amd_zen4_tma_l2_events;
+                out_resolver->num_results = 8;
+                out_resolver->num_passes = 2;
+                out_resolver->events_per_pass = amd_zen4_l2_passes;
+                out_resolver->compute_formula = compute_amd_zen4_tma_l2;
                 return 1;
             }
         }
