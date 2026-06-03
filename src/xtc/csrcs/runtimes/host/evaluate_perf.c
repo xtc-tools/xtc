@@ -189,6 +189,7 @@ typedef struct {
   metric_resolver_t resolver;
   int hw_offset;
   int out_offset;
+  int start_pass;
 } metric_map_t;
 
 void evaluate_perf(double *results, int events_num, const char *events_names[],
@@ -213,78 +214,91 @@ void evaluate_perf(double *results, int events_num, const char *events_names[],
   int max_passes = 1;
   int total_hw_events = 0;
   int total_out_results = 0;
+  int has_standard_pmus = 0;
   metric_map_t *map = (metric_map_t *)malloc(events_num * sizeof(metric_map_t));
 
   for (int i = 0; i < events_num; i++) {
-    map[i].hw_offset = total_hw_events;
-    map[i].out_offset = total_out_results;
+      map[i].hw_offset = total_hw_events;
+      map[i].out_offset = total_out_results;
 
-    if (resolve_metric(events_names[i], &map[i].resolver) && map[i].resolver.is_supported) {
-      map[i].is_derived = 1;
-      if (map[i].resolver.num_passes > max_passes) max_passes = map[i].resolver.num_passes;
-      total_hw_events += map[i].resolver.num_hw_events;
-      total_out_results += map[i].resolver.num_results;
-    } else {
-      map[i].is_derived = 0;
-      total_hw_events += 1;
-      total_out_results += 1;
+      if (resolve_metric(events_names[i], &map[i].resolver) && map[i].resolver.is_supported) {
+        map[i].is_derived = 1;
+
+        // isolate the TMA within it own passes
+        map[i].start_pass = max_passes;
+        max_passes += map[i].resolver.num_passes;
+
+        total_hw_events += map[i].resolver.num_hw_events;
+        total_out_results += map[i].resolver.num_results;
+      } else {
+        // All PMUs in pass 0
+        map[i].is_derived = 0;
+        map[i].start_pass = 0;
+        has_standard_pmus = 1;
+
+        total_hw_events += 1;
+        total_out_results += 1;
+      }
     }
-  }
 
   double *hw_results = (double *)malloc(repeat * total_hw_events * sizeof(double));
 
-  // Multi-pass
-  for (int pass = 0; pass < max_passes; pass++) {
-    int pass_events_num = 0;
-    const char **pass_events_names = (const char **)malloc(total_hw_events * sizeof(char *));
-    int *pass_hw_offsets = (int *)malloc(total_hw_events * sizeof(int));
+    for (int pass = 0; pass < max_passes; pass++) {
+      // No PMU, pass 0 is reserved to PMU
+      if (pass == 0 && !has_standard_pmus) continue;
 
-    for (int i = 0; i < events_num; i++) {
-      if (map[i].is_derived) {
-        if (pass < map[i].resolver.num_passes) {
-          int ev_start = 0;
-          for (int p = 0; p < pass; p++) ev_start += map[i].resolver.events_per_pass[p];
-          int ev_count = map[i].resolver.events_per_pass[pass];
+      int pass_events_num = 0;
+      const char **pass_events_names = (const char **)malloc(total_hw_events * sizeof(char *));
+      int *pass_hw_offsets = (int *)malloc(total_hw_events * sizeof(int));
 
-          for (int j = 0; j < ev_count; j++) {
-            pass_events_names[pass_events_num] = map[i].resolver.hw_events[ev_start + j];
-            pass_hw_offsets[pass_events_num] = map[i].hw_offset + ev_start + j;
+      for (int i = 0; i < events_num; i++) {
+        if (map[i].is_derived) {
+          // If current pass is owned by this TMA
+          if (pass >= map[i].start_pass && pass < map[i].start_pass + map[i].resolver.num_passes) {
+            int local_pass = pass - map[i].start_pass; // De 0 à N pour cette métrique
+
+            int ev_start = 0;
+            for (int p = 0; p < local_pass; p++) ev_start += map[i].resolver.events_per_pass[p];
+            int ev_count = map[i].resolver.events_per_pass[local_pass];
+
+            for (int j = 0; j < ev_count; j++) {
+              pass_events_names[pass_events_num] = map[i].resolver.hw_events[ev_start + j];
+              pass_hw_offsets[pass_events_num] = map[i].hw_offset + ev_start + j;
+              pass_events_num++;
+            }
+          }
+        } else {
+          if (pass == 0) {
+            pass_events_names[pass_events_num] = events_names[i];
+            pass_hw_offsets[pass_events_num] = map[i].hw_offset;
             pass_events_num++;
           }
         }
-      } else {
-        if (pass == 0) { // PMUs in the first pass
-          pass_events_names[pass_events_num] = events_names[i];
-          pass_hw_offsets[pass_events_num] = map[i].hw_offset;
-          pass_events_num++;
+      }
+
+      if (pass_events_num > 0) {
+        double *pass_results = (double *)malloc(repeat * pass_events_num * sizeof(double));
+
+        switch (nargs) {
+          case 0: evaluate0_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func0_t)func); break;
+          case 1: evaluate1_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func1_t)func, args[0]); break;
+          case 2: evaluate2_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func2_t)func, args[0], args[1]); break;
+          case 3: evaluate3_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func3_t)func, args[0], args[1], args[2]); break;
+          case 4: evaluate4_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func4_t)func, args[0], args[1], args[2], args[3]); break;
+          case 5: evaluate5_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func5_t)func, args[0], args[1], args[2], args[3], args[4]); break;
+          case 6: evaluate6_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]); break;
         }
-      }
-    }
-
-    if (pass_events_num > 0) {
-      double *pass_results = (double *)malloc(repeat * pass_events_num * sizeof(double));
-
-      switch (nargs) {
-        case 0: evaluate0_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func0_t)func); break;
-        case 1: evaluate1_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func1_t)func, args[0]); break;
-        case 2: evaluate2_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func2_t)func, args[0], args[1]); break;
-        case 3: evaluate3_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func3_t)func, args[0], args[1], args[2]); break;
-        case 4: evaluate4_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func4_t)func, args[0], args[1], args[2], args[3]); break;
-        case 5: evaluate5_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func5_t)func, args[0], args[1], args[2], args[3], args[4]); break;
-        case 6: evaluate6_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]); break;
-      }
-
-      // Gath results from passes
-      for (int r = 0; r < repeat; r++) {
-        for (int e = 0; e < pass_events_num; e++) {
-          hw_results[r * total_hw_events + pass_hw_offsets[e]] = pass_results[r * pass_events_num + e];
+        // Gather results from passes
+        for (int r = 0; r < repeat; r++) {
+          for (int e = 0; e < pass_events_num; e++) {
+            hw_results[r * total_hw_events + pass_hw_offsets[e]] = pass_results[r * pass_events_num + e];
+          }
         }
+        free(pass_results);
       }
-      free(pass_results);
+      free(pass_events_names);
+      free(pass_hw_offsets);
     }
-    free(pass_events_names);
-    free(pass_hw_offsets);
-  }
 
   // Postprocessing
   for (int r = 0; r < repeat; r++) {
