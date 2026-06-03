@@ -333,7 +333,6 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
 }
 
 int get_perf_event_config(const char *name, perf_event_args_t *event) {
-  printf("[DEBUG] full name : %s\n",name);
   for (int e = 0; e < sizeof(perf_events_decl) / sizeof(*perf_events_decl);
        e++) {
     if (strcmp(name, perf_events_decl[e].name) == 0) {
@@ -370,9 +369,6 @@ int get_perf_event_config(const char *name, perf_event_args_t *event) {
     event->mode = PERF_ARG_PTR;
     event->args.config_ptr = (const void *)arg;
     return 0;
-  } else {
-    fprintf(stderr, "[DEBUG] libpfm4 unknow event '%s' : %s\n", name,
-            pfm_strerror(ret));
   }
   free(arg);
   free(attr);

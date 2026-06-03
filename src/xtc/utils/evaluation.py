@@ -241,9 +241,7 @@ def evaluate_performance(
 
     # Fallback on linux perf tool
     if failed_counters:
-        print(
-            f"[WARNING] Some hardware counters failed: {failed_counters}. Fallback to 'perf stat'..."
-        )
+        print(f"[WARNING] Some hardware counters failed: {failed_counters}. Fallback to 'perf stat'...")
 
         perf_path = shutil.which("perf")
         if not perf_path:
@@ -288,12 +286,12 @@ def evaluate_performance(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
 
-            time.sleep(1.5)
+            time.sleep(0.75)
 
             # Rerun evaluation without HW counters to generate activity for perf
             dummy_results = (ctypes.c_double * repeat)()
             if cfunc.is_packed:
-                print("[DEBUG] Rerun packed...")
+                print("[DEBUG] Rerun packed (perf)...")
                 _ = runtime.evaluate_packed_perf(
                     dummy_results,
                     [],
@@ -306,7 +304,7 @@ def evaluate_performance(
                     len(args_tuples),
                 )
             else:
-                print("[DEBUG] Rerun not packed...")
+                print("[DEBUG] Rerun not packed (perf)...")
                 runtime.evaluate_perf(
                     dummy_results,
                     [],
