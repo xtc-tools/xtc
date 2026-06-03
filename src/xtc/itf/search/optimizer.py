@@ -47,14 +47,3 @@ class Optimizer(ABC):
         Used for cleaner logging
         """
         ...
-
-    @abstractmethod
-    def _sample_batch(self) -> list[VecSample]:
-        """Uses the sampler to get a large sample from the strategy sampler.
-
-        Used by suggest() to get a sample of candidates to choose from.
-
-        Returns:
-            A list of samples of size batch_candidates
-        """
-        ...

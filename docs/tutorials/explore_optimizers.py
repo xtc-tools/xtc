@@ -81,7 +81,7 @@ def _(mo, args):
     opt_names = Optimizers.names()
     opt_presets = {name: dict(Optimizers.from_name(name).PRESET) if hasattr(Optimizers.from_name(name),"PRESET") else None for name in opt_names}
     def get_optimizer_config_ui(opt_name, batch_size):
-        if opt_presets[opt_name] == None:
+        if not opt_presets[opt_name]:
             return mo.md("")
         # have a temp config file with the dict contents 
         ui = presets_to_marimo(opt_presets[opt_name], batch_size)

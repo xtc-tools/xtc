@@ -23,11 +23,10 @@ class BaseOptimizer(Optimizer):
         sample_fn: Callable[[int, int], Iterator[VecSample]],
         batch: int,
         seed: int,
-        batch_candidates: int,
+        **kwargs: Any,
     ):
         self.sample_fn = sample_fn
         self.batch = batch
-        self.batch_candidates = batch_candidates
         self.rng = random.Random(seed)
 
     @override
@@ -42,10 +41,9 @@ class BaseOptimizer(Optimizer):
     def finished(self):
         pass
 
-    @override
-    def _sample_batch(self) -> list[VecSample]:
+    def _sample(self, num: int) -> list[VecSample]:
         seed = self.rng.randint(0, 2**32 - 1)
-        return list(self.sample_fn(self.batch_candidates, seed))
+        return list(self.sample_fn(num, seed))
 
 
 class RandomOptimizer(BaseOptimizer):
@@ -54,19 +52,16 @@ class RandomOptimizer(BaseOptimizer):
         sample_fn: Callable[[int, int], Iterator[VecSample]],
         batch: int,
         seed: int,
-        batch_candidates: int = 1000,
     ):
         super().__init__(
             sample_fn=sample_fn,
             batch=batch,
             seed=seed,
-            batch_candidates=batch_candidates,
         )
 
     @override
     def suggest(self):
-        candidates = self._sample_batch()
-        return self.rng.choices(candidates, k=self.batch)
+        return self._sample(self.batch)
 
 
 class RandomForestOptimizer(BaseOptimizer):
@@ -85,7 +80,8 @@ class RandomForestOptimizer(BaseOptimizer):
         min_samples_leaf: int,
         max_features: float,
     ):
-        super().__init__(sample_fn, batch, seed, batch_candidates)
+        super().__init__(sample_fn, batch, seed)
+        self.batch_candidates = batch_candidates
         self.update_first = update_first if update_first else batch
         self.update_period = update_period if update_period else batch
         self.beta = beta
@@ -113,7 +109,7 @@ class RandomForestOptimizer(BaseOptimizer):
 
     @override
     def suggest(self):
-        candidates = self._sample_batch()
+        candidates = self._sample(self.batch_candidates)
         if len(self.X) < self.update_first:
             return self.rng.choices(candidates, k=self.batch)
 
@@ -158,7 +154,28 @@ class RandomForestOptimizer(BaseOptimizer):
         logger.info(self.log_str)
 
 
-class RandomForestPreset_Default(RandomForestOptimizer):
+class BaseOptimizerPreset(BaseOptimizer):
+    PRESET: dict[str, Any] = {}
+
+    def __init__(
+        self,
+        sample_fn: Callable[[int, int], Iterator[VecSample]],
+        batch: int,
+        seed: int,
+        config_file: str = "",
+    ):
+        config = dict(self.PRESET)
+        if config_file:
+            with open(config_file, "r") as f:
+                config.update(yaml.safe_load(f))
+        super().__init__(sample_fn, batch, seed, **config)
+
+
+class RandomOptimizerPreset(BaseOptimizerPreset, RandomOptimizer):
+    pass
+
+
+class RandomForestPreset_Default(BaseOptimizerPreset, RandomForestOptimizer):
     PRESET: dict[str, Any] = {
         "batch_candidates": 1000,
         "beta": 2.5,
@@ -171,23 +188,8 @@ class RandomForestPreset_Default(RandomForestOptimizer):
         "max_features": 0.8,
     }
 
-    def __init__(
-        self,
-        sample_fn: Callable[[int, int], Iterator[VecSample]],
-        batch: int,
-        seed: int,
-        config_file: str = "",
-    ):
-        config = dict(self.PRESET)
-        if config_file:
-            with open(config_file, "r") as f:
-                logger.info("loaded custom config")
-                config.update(yaml.safe_load(f))
-        logger.info("\n%s", yaml.dump(config, sort_keys=False))
-        super().__init__(sample_fn, batch, seed, **config)
 
-
-class RandomForestPreset_Explore(RandomForestPreset_Default):
+class RandomForestPreset_Explore(BaseOptimizerPreset, RandomForestOptimizer):
     PRESET: dict[str, Any] = {
         "batch_candidates": 1000,
         "beta": 5,
@@ -201,7 +203,7 @@ class RandomForestPreset_Explore(RandomForestPreset_Default):
     }
 
 
-class RandomForestPreset_Aggressive(RandomForestPreset_Default):
+class RandomForestPreset_Aggressive(BaseOptimizerPreset, RandomForestOptimizer):
     PRESET: dict[str, Any] = {
         "batch_candidates": 1000,
         "beta": 2,
@@ -215,32 +217,19 @@ class RandomForestPreset_Aggressive(RandomForestPreset_Default):
     }
 
 
-class RandomForestOptimizer_Custom(RandomForestOptimizer):
-    def __init__(
-        self,
-        sample_fn: Callable[[int, int], Iterator[VecSample]],
-        batch: int,
-        seed: int,
-        config_file: str,
-    ):
-        with open(config_file, "r") as f:
-            custom = yaml.safe_load(f)
-            super().__init__(sample_fn, batch, seed, **custom)
-
-
 class Optimizers:
     @classmethod
     def names(cls) -> Sequence[str]:
         return list(cls._map.keys())
 
     @classmethod
-    def from_name(cls, name: str) -> type[BaseOptimizer]:
+    def from_name(cls, name: str) -> type[BaseOptimizerPreset]:
         if name not in cls._map:
             raise ValueError(f"unknown optimizer name: {name}")
         return cls._map[name]
 
-    _map: ClassVar[dict[str, type[BaseOptimizer]]] = {
-        "random": RandomOptimizer,
+    _map: ClassVar[dict[str, type[BaseOptimizerPreset]]] = {
+        "random": RandomOptimizerPreset,
         "random-forest-explore": RandomForestPreset_Explore,
         "random-forest-default": RandomForestPreset_Default,
         "random-forest-aggressive": RandomForestPreset_Aggressive,
