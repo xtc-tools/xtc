@@ -15,7 +15,7 @@ with app.setup:
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     # Hardware Performance Counters & Top-down Analysis
 
@@ -29,7 +29,7 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     > **Disclaimer and prerequisites:**
     > Results will vary depending on your hardware architecture (MacOS is currently not supported).
@@ -45,23 +45,21 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     ## 1. Defining the Workload & Schedule
     We define a medium-sized matrix multiplication (1024x2048x4096).
 
-    **Use the code editor below** to modify the scheduling specification using the `descript` notation.
-
     **Interactive Workflow:**
-    1. Adjust the sliders in the sidebar to see how the Cache Footprint updates instantly.
-    2. Click the **"Compile & Evaluate"** button in the sidebar to apply the schedule and update the TMA metrics.
+    1. Adjust the sliders in the sidebar to update the tile size.
+    2. Click the evaluation buttons below each section to run the PMU/TMA counters on demand.
     """)
     return
 
 
 @app.cell
-def _(mo):
-    # Interactive UI elements for the schedule
+def _():
+    # UI sliders
     tile_i_ui = mo.ui.slider(start=1, stop=64, step=1, value=3, label="Tile I (Rows)")
     tile_j_ui = mo.ui.slider(start=8, stop=512, step=8, value=24, label="Tile J (Cols)")
     unroll_ui = mo.ui.slider(start=1, stop=8, step=1, value=2, label="Unroll factor")
@@ -69,7 +67,7 @@ def _(mo):
 
 
 @app.cell
-def _(mo):
+def _():
     _editor_code = '''import xtc.graphs.xtc.op as O
     from xtc.backends.mlir import Backend
     from xtc.schedules.descript import descript_scheduler
@@ -94,6 +92,7 @@ def _(mo):
         f"i#{slider_i}": {"vectorize": True}
     }
 
+    # Compile
     scheduler = backend.get_scheduler()
     descript_scheduler(
         scheduler=scheduler,
@@ -121,65 +120,48 @@ def _(descript_editor):
 
 
 @app.cell
-def _(descript_editor, mo, tile_i_ui, tile_j_ui, unroll_ui):
-    # State management to isolate heavy computation from slider movement
-    compile_params, set_compile_params = mo.state(None)
-
-    def _trigger_compile(_):
-        set_compile_params({
-            "code": descript_editor.value,
-            "i": tile_i_ui.value,
-            "j": tile_j_ui.value,
-            "unroll": unroll_ui.value
-        })
-
-    compile_btn = mo.ui.button(
-        label="Compile & Evaluate",
-        kind="success",
-        on_click=_trigger_compile
-    )
-    return compile_btn, compile_params
-
-
-@app.cell
-def _(compile_params, mo):
-    mo.stop(compile_params() is None, mo.md("*👈 Click **'Compile & Evaluate'** in the sidebar to start.*"))
-
-    _params = compile_params()
+def _(descript_editor, tile_i_ui, tile_j_ui, unroll_ui):
+    # Execute user code safely
     local_vars = {}
 
+    # Inject slider values into execution context
     global_vars = globals().copy()
     global_vars.update({
-        "slider_i": _params["i"],
-        "slider_j": _params["j"],
-        "slider_unroll": _params["unroll"],
+        "slider_i": tile_i_ui.value,
+        "slider_j": tile_j_ui.value,
+        "slider_unroll": unroll_ui.value,
     })
 
     exec_error = None
     module = None
+    I_val, J_val, K_val = 1024, 2048, 4096
 
     try:
-        exec(_params["code"], global_vars, local_vars)
+        exec(descript_editor.value, global_vars, local_vars)
         module = local_vars.get("module")
+        I_val = local_vars.get("I", 1024)
+        J_val = local_vars.get("J", 2048)
+        K_val = local_vars.get("K", 4096)
     except Exception as e:
         exec_error = str(e)
-    return exec_error, module
+    return I_val, J_val, K_val, exec_error, module
 
 
 @app.cell
-def _(compile_btn, mo, os, sys, tile_i_ui, tile_j_ui, unroll_ui):
+def _(I_val, J_val, K_val, tile_i_ui, tile_j_ui, unroll_ui):
+    # Fetch hardware cache sizes dynamically (sysfs)
     caches_kb = {}
     if sys.platform == "linux" and os.path.exists("/sys/devices/system/cpu/cpu0/cache"):
         try:
-            for i in range(4): # Usually index0 to index3 (L1d, L1i, L2, L3)
+            for i in range(4):
                 path = f"/sys/devices/system/cpu/cpu0/cache/index{i}"
                 if os.path.exists(path):
-                    with open(f"{path}/level", "r") as _f:
-                        level = int(_f.read().strip())
-                    with open(f"{path}/type", "r") as _f:
-                        ctype = _f.read().strip()
-                    with open(f"{path}/size", "r") as _f:
-                        size_str = _f.read().strip()
+                    with open(f"{path}/level", "r") as f:
+                        level = int(f.read().strip())
+                    with open(f"{path}/type", "r") as f:
+                        ctype = f.read().strip()
+                    with open(f"{path}/size", "r") as f:
+                        size_str = f.read().strip()
 
                     s_kb = 0
                     if size_str.endswith('K'): s_kb = int(size_str[:-1])
@@ -192,14 +174,12 @@ def _(compile_btn, mo, os, sys, tile_i_ui, tile_j_ui, unroll_ui):
         except Exception:
             pass
 
-    # Fallbacks in case reading failed
+    # Defaults if reading fails
     if "L1d" not in caches_kb: caches_kb["L1d"] = 1
     if "L2" not in caches_kb: caches_kb["L2"] = 1
     if len(caches_kb) <= 2 and "L3" not in caches_kb: caches_kb["L3"] = 1
 
-    _I, _J, _K = 1024, 2048, 4096
-    b_size = 4 # float32
-    # todo : check element size dynamicly
+    b_size = 4
 
     def fmt(b):
         if b >= 1024**2: return f"{b / 1024**2:.1f} MiB"
@@ -209,13 +189,13 @@ def _(compile_btn, mo, os, sys, tile_i_ui, tile_j_ui, unroll_ui):
     geo_md = f"""
     | Tensor | Total Size | 1 Row | 1 Col |
     |---|---|---|---|
-    | **A** ({_I}×{_K}) | {fmt(_I*_K*b_size)} | {fmt(_K*b_size)} | {fmt(_I*b_size)} |
-    | **B** ({_K}×{_J}) | {fmt(_K*_J*b_size)} | {fmt(_J*b_size)} | {fmt(_K*b_size)} |
-    | **C** ({_I}×{_J}) | {fmt(_I*_J*b_size)} | {fmt(_J*b_size)} | {fmt(_I*b_size)} |
+    | **A** ({I_val}×{K_val}) | {fmt(I_val*K_val*b_size)} | {fmt(K_val*b_size)} | {fmt(I_val*b_size)} |
+    | **B** ({K_val}×{J_val}) | {fmt(K_val*J_val*b_size)} | {fmt(J_val*b_size)} | {fmt(K_val*b_size)} |
+    | **C** ({I_val}×{J_val}) | {fmt(I_val*J_val*b_size)} | {fmt(J_val*b_size)} | {fmt(I_val*b_size)} |
     """
 
     tile_c_bytes = tile_i_ui.value * tile_j_ui.value * b_size
-    flops = 2 * _I * _J * _K
+    flops = 2 * I_val * J_val * K_val
     gflops = flops / 1e9
 
     def format_cache(name, kb):
@@ -234,8 +214,6 @@ def _(compile_btn, mo, os, sys, tile_i_ui, tile_j_ui, unroll_ui):
 
     sidebar = mo.sidebar(
         mo.vstack([
-            compile_btn,
-            mo.md("---"),
             mo.md("### Schedule Controls"),
             tile_i_ui,
             tile_j_ui,
@@ -246,9 +224,9 @@ def _(compile_btn, mo, os, sys, tile_i_ui, tile_j_ui, unroll_ui):
             mo.md(f"**Total Math:** `{gflops:.1f} GFLOPs`"),
             mo.md(f"**Current C-Tile (i×j):** `{fmt(tile_c_bytes)}`"),
             mo.md("---"),
-            mo.md("### Your CPU Caches"),
-            mo.md(cache_md),
-            mo.md("<br><sub>*Compare row/col sizes to your caches to predict bottlenecks!*</sub>")
+            mo.md("### CPU Caches"),
+            mo.md("<br><sub>*Compare row/col sizes to your caches to predict bottlenecks!*</sub>"),
+            mo.md(cache_md)
         ])
     )
     return (sidebar,)
@@ -260,69 +238,63 @@ def _(sidebar):
     return
 
 
+@app.cell
+def _():
+    # On-demand execution buttons
+    btn_pmu = mo.ui.run_button(kind="info", label="Evaluate Raw PMUs")
+    btn_l1 = mo.ui.run_button(kind="info", label="Evaluate Topdown L1")
+    btn_l2 = mo.ui.run_button(kind="info", label="Evaluate Topdown L2")
+
+    _sandbox_default = '[\n    "instructions",\n    "branches",\n    "branch-misses",\n    "L1-dcache-loads",\n    "L1-dcache-load-misses",\n    "TopdownL1",\n    "TopdownL2",\n    "TopdownL3"\n]'
+    sandbox_editor = mo.ui.code_editor(value=_sandbox_default, language="python")
+    btn_sandbox = mo.ui.run_button(kind="success", label="Run Custom Metrics")
+    return btn_l1, btn_l2, btn_pmu, btn_sandbox, sandbox_editor
+
+
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
+def _(btn_pmu):
+    mo.md(f"""
     ## 2. Raw Hardware Counters (PMU)
     CPUs expose raw counters to track specific events. We can ask the CPU exactly how many cycles were spent or how many L1/L2 cache misses occurred.
 
     *Note: Raw event names are highly architecture-dependent. `libpfm4` helps translating them. The `perf list` command can show you available ones.*
+
+    {btn_pmu}
     """)
     return
 
 
 @app.cell
-def _(exec_error, mo, module, platform):
+def _(btn_pmu, exec_error, module):
+    # Wait for button click
+    mo.stop(not btn_pmu.value, mo.md("*Click the button above to execute PMU Evaluation.*"))
+
     if module is None:
         pmu_ui = mo.md(f"**Compilation Error in Sandbox:**\n```python\n{exec_error}\n```")
     else:
         pmu_counters = ["cycles", "instructions"]
+        if platform == "linux":
+            pmu_counters += ["mem_load_retired.l1_miss", "mem_load_retired.l2_miss"]
 
-        if sys.platform == "linux":
-            is_amd = False
-            try:
-                with open("/proc/cpuinfo", "r") as f:
-                    if "AuthenticAMD" in f.read():
-                        is_amd = True
-            except Exception:
-                pass
-
-            if is_amd:
-                pmu_counters += [
-                    "all_l1_data_cache_fills",
-                    "all_l2_cache_misses"
-                ]
-            else:
-                pmu_counters += [
-                    "mem_load_retired.l1_miss",
-                    "mem_load_retired.l2_miss"
-                ]
-
-        evaluator_pmu = module.get_evaluator(
-            validate=True,
-            pmu_counters=pmu_counters,
-        )
+        evaluator_pmu = module.get_evaluator(validate=True, pmu_counters=pmu_counters)
         results_pmu, code_pmu, error_pmu = evaluator_pmu.evaluate()
 
-        _pmu_data = [{"Counter": c, "Value": int(v)} for c, v in zip(pmu_counters, results_pmu)]
+        _pmu_data = [{"Counter": c, "Value": "Fallback needed" if v == -1.0 else str(int(v))} for c, v in zip(pmu_counters, results_pmu)]
         pmu_ui = mo.vstack([
             mo.md(f"**Execution Code:** `{code_pmu}`"),
             mo.ui.table(_pmu_data, label="Raw PMU Results")
         ])
-    return (pmu_ui,)
 
-
-@app.cell
-def _(pmu_ui):
+    # Render UI
     pmu_ui
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
+def _(btn_l1):
+    mo.md(f"""
     ## 3. Top-down Microarchitecture Analysis (Level 1)
-    Raw counters are hard to interpret: *Is 5 million cache misses bad? Does it actually stall the CPU?*
+    Raw counters are hard to interpret. To solve this, **TMA** (Top-down Analysis) groups all CPU pipeline slots into 4 distinct categories, summing up to 100%:
 
     To solve this, **TMA** (Top-down Analysis) groups all CPU pipeline slots into 4 distinct categories, summing up to 100%:
     *   🟢 **Retiring:** Good! The CPU is doing useful work (executing our math).
@@ -334,7 +306,9 @@ def _(mo):
 
 
 @app.cell
-def _(exec_error, mo, module, platform):
+def _(btn_l1, exec_error, module):
+    mo.stop(not btn_l1.value, mo.md("*Click the button above to execute Topdown L1 Evaluation.*"))
+
     if module is None:
         l1_ui = mo.md(f"**Compilation Error in Sandbox:**\n```python\n{exec_error}\n```")
     else:
@@ -342,13 +316,11 @@ def _(exec_error, mo, module, platform):
         evaluator_l1 = module.get_evaluator(validate=False, pmu_counters=tma_l1_counters)
         results_l1, code_l1, error_l1 = evaluator_l1.evaluate()
 
-        _l1_labels = ["Retiring", "Bad Speculation", "Frontend Bound", "Backend Bound"]
+        _l1_labels = ["🟢 Retiring", "🔴 Bad Speculation", "🔵 Frontend Bound", "🟣 Backend Bound"]
 
         if tma_l1_counters and len(results_l1) > 0:
             if results_l1[0] < 0:
-                 _l1_ui_table = mo.accordion({
-                     "Fallback to `perf stat` output": mo.md(f"```text\n{error_l1}\n```")
-                 })
+                 _l1_ui_table = mo.accordion({"Fallback to `perf stat` output": mo.md(f"```text\n{error_l1}\n```")})
             else:
                 _l1_data = [{"Category": l, "Percentage (%)": round(v, 2)} for l, v in zip(_l1_labels, results_l1)]
                 _l1_ui_table = mo.ui.table(_l1_data, label="Topdown L1 Results")
@@ -359,31 +331,29 @@ def _(exec_error, mo, module, platform):
             mo.md(f"**Execution Code:** `{code_l1}`"),
             _l1_ui_table
         ])
-    return (l1_ui,)
 
-
-@app.cell
-def _(l1_ui):
     l1_ui
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
+def _(btn_l2):
+    mo.md(f"""
     ## 4. Drilling Down (Topdown Level 2)
-    If our code is heavily **Backend Bound**, we need to know why! Is it because our math is too complex for the ALU/FPU (`Core Bound`), or are we constantly waiting for the RAM (`Memory Bound`)?
+    If our code is heavily **Backend Bound**, we need to know why. TMA Level 2 splits the L1 categories further:
 
-    TMA Level 2 splits the L1 categories further. The Backend Bound is split into:
+    *   **Core Bound:** Lack of execution units (ALU/FPU) or data dependencies between instructions.
+    *   **Memory Bound:** Execution Units are starved because of non-completed in-flight memory demand loads.
 
-    *   **Core Bound:** The pipeline is likely stalled due to a lack of available execution units (ALU/FPU) or data dependencies between instructions preventing out-of-order execution.
-    *   **Memory Bound:** The pipeline is likely stalled due to demand load/store instructions. This represents the fraction of slots where Execution Units are starved because of non-completed in-flight memory demand loads, or occasionally when store buffers are completely full imposing backpressure.
+    {btn_l2}
     """)
     return
 
 
 @app.cell
-def _(exec_error, mo, module, platform):
+def _(btn_l2, exec_error, module):
+    mo.stop(not btn_l2.value, mo.md("*Click the button above to execute Topdown L2 Evaluation.*"))
+
     if module is None:
         l2_ui = mo.md(f"**Compilation Error in Sandbox:**\n```python\n{exec_error}\n```")
     else:
@@ -405,8 +375,8 @@ def _(exec_error, mo, module, platform):
         if tma_l2_counters and len(results_l2) > 0:
             if results_l2[0] < 0:
                  _l2_ui_table = mo.vstack([
-                     mo.callout(mo.md("⚠️ *Internal C resolver unsupported for L2. Showing `perf stat` output below.*"), kind="warn"),
-                     mo.accordion({"Terminal Output from `perf`": mo.md(f"```text\n{error_l2}\n```")})
+                     mo.callout(mo.md("*Internal C resolver unsupported for L2. Showing perf stat output below.*"), kind="warn"),
+                     mo.accordion({"Terminal Output from perf": mo.md(f"```text\n{error_l2}\n```")})
                  ])
             else:
                 _l2_data = [{"Sub-Category": l, "Percentage (%)": round(v, 2)} for l, v in zip(_l2_labels, results_l2)]
@@ -414,25 +384,16 @@ def _(exec_error, mo, module, platform):
         else:
             _l2_ui_table = mo.md("*TMA L2 is not supported on this machine.*")
 
-        l2_ui = mo.vstack([
-            mo.md(f"**Execution Code:** `{code_l2}`"),
-            _l2_ui_table
-        ])
-    return (l2_ui,)
+        l2_ui = mo.vstack([mo.md(f"**Execution Code:** `{code_l2}`"), _l2_ui_table])
 
-
-@app.cell
-def _(l2_ui):
     l2_ui
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def _():
     mo.md(r"""
     ## How to fix Core Bound vs Memory Bound?
-
-    Once you know where your bottleneck is, you can adapt your code or your MLIR schedule:
 
     ### If you are heavily Core Bound:
     Your CPU has all the data it needs in the caches, but it cannot crunch the numbers fast enough.
@@ -448,48 +409,7 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## Going deeper: Topdown L3, L4 and beyond...
-
-    Topdown Level 2 is great, but it sometimes leaves us with more questions. If you are 60% *Memory Bound*, you might wonder: *"Am I bound by the L1 cache, the L3 cache, or the Main Memory (DRAM)?"*
-
-    This is where Topdown Level 3 and Level 4 come in (often requiring specific `perf stat -M` metrics depending on your architecture).
-    For the moment depending of your microarchitecture XTC only support up to L2 topdown, the linux perf tool will be needed to go futher.
-
-    The **Memory Bound** category further splits into:
-    1.  **L1 Bound (L3):** Data is not in registers, but found extremely quickly in L1 cache. Often caused by high memory latency per instruction or bank conflicts.
-    2.  **L2 Bound (L3):** Data missed L1 but was found in L2.
-    3.  **L3 Bound (L3):** Data missed L1/L2 but was found in L3.
-    4.  **Ext. Memory Bound (L3):** Data missed ALL caches and had to be fetched from Main RAM. This is catastrophic for performance!
-        *    *Splits into L4:* **Mem Bandwidth** (the memory bus is saturated) vs **Mem Latency** (waiting for the RAM chip to respond).
-    5.  **Store Bound (L3):** The CPU's store buffers are full because it is writing too much data to memory too quickly.
-
-    > *Try increasing the `tile` values in the code sandbox to something huge. You will see the **Memory Bound** spike because the data chunk no longer fits in the fast caches!*
-    """)
-    return
-
-
-@app.cell
-def _(mo):
-    _sandbox_default = '''[
-    "instructions",
-    "branches",
-    "branch-misses",
-    "L1-dcache-loads",
-    "L1-dcache-load-misses"
-    ]'''
-    sandbox_editor = mo.ui.code_editor(
-        value=_sandbox_default,
-        language="python",
-    )
-
-    sandbox_form = sandbox_editor.form(submit_button_label=" Run Custom Metrics")
-    return (sandbox_form,)
-
-
-@app.cell
-def _(mo, sandbox_form):
+def _(btn_sandbox, sandbox_editor):
     mo.vstack([
         mo.md(r"""
         ---
@@ -501,54 +421,70 @@ def _(mo, sandbox_form):
 
         > CPUs only has a few programmable counters (usually 4 or 8).
 
-        > * TMA metrics (like `TopdownL1`) consume up to 5 counters at once!
-
         > * If you ask for too many events, the CPU will run out of hardware counters. Linux will silently disable the overflowing ones.
 
-        > * **Symptom:** You will see mathematically aberrant data, such as `[-0.0, -0.0]` or an absurdly high ones.If you see this, shorten your list!
+        > * Overflowing events from somes TMA can be handle by a multi-passes mechanic in XTC.*
+
+        > * **Symptom:** You will see mathematically aberrant data, such as `[-0.0, ..., -0.0]` or an absurdly high ones.If you see this, shorten your list!
 
 
         *This cell will not run automatically. You must click the button to evaluate the kernel.*
         """),
-        sandbox_form
+        sandbox_editor,
+        btn_sandbox
     ])
     return
 
 
 @app.cell
-def _(mo, module, sandbox_form):
-    mo.stop(sandbox_form.value is None, mo.md("*Click 'Run Custom Metrics' to see the results.*"))
+def _(mo):
+    tma_support_content = mo.md(
+        """
+        | Microarchitecture | Supported TMA Levels | Execution Mode |
+        |---|---|---|
+        | **Intel Skylake / Cascade Lake** | `TopdownL1`, `TopdownL2` | Native API *(Multi-pass)* |
+        | **Intel Modern (Ice Lake+)**     | `TopdownL1`, `TopdownL2` | Native API *(Single-pass)* |
+        | **AMD Zen 4**                    | `TopdownL1`, `TopdownL2` | Native API *(Multi-pass)* |
+        | **Generic Linux (`perf` tool)**  | `TopdownL1` -> `TopdownL6` | System Fallback *(Multiplexed)* |
+
+        *Metrics beyond L2 or unmapped architectures will automatically use the `perf` fallback.*
+        """
+    )
+
+    supported_arch_msg = mo.accordion({
+        "💡 View supported TMA architectures": tma_support_content
+    })
+
+    return supported_arch_msg,
+
+
+@app.cell
+def _(supported_arch_msg):
+    supported_arch_msg
+
+@app.cell
+def _(btn_sandbox, module, sandbox_editor):
+    mo.stop(not btn_sandbox.value, mo.md("*Click 'Run Custom Metrics' to see the results.*"))
 
     if module is None:
         sandbox_output = mo.md("**Module is not compiled.** Please fix the compilation sandbox above first.")
     else:
         import ast
         try:
-            # Safely parse the user's string into a Python list
-            custom_counters = ast.literal_eval(sandbox_form.value)
-            if not isinstance(custom_counters, list):
-                raise ValueError("Input must be a Python list.")
+            custom_counters = ast.literal_eval(sandbox_editor.value)
+            if not isinstance(custom_counters, list): raise ValueError("Input must be a Python list.")
 
             evaluator_sb = module.get_evaluator(validate=False, pmu_counters=custom_counters)
             results_sb, code_sb, err_sb = evaluator_sb.evaluate()
 
-            output_lines = [f"**Execution Code:** `{code_sb}`"]
+            output_lines = [f"**Execution Code:** `{code_sb}`\n"]
 
-            if err_sb:
-                output_lines.append(f"**Terminal Output / Errors:**\n```text\n{err_sb}\n```")
 
             output_lines.append("**Raw Results:**\n```text")
 
-            DERIVED_METRICS_SIZES = {
-                "TopdownL1": 4, # tma_backend_bound, tma_bad_speculation, tma_frontend_bound, tma_info_core_coreipc, tma_info_inst_mix_instructions, tma_info_thread_slots, tma_retiring
-                "TopdownL2": 8, # tma_branch_mispredicts, tma_core_bound, tma_fetch_bandwidth, tma_fetch_latency, tma_heavy_operations, tma_light_operations, tma_machine_clears, tma_memory_bound
-                "TopdownL3": 26, # tma_branch_resteers, tma_divider, tma_dram_bound, tma_dsb, tma_dsb_switches, tma_few_uops_instructions, tma_fp_arith, tma_fused_instructions, tma_icache_misses, tma_itlb_misses, tma_l1_bound, tma_l2_bound, tma_l3_bound, tma_lcp, tma_memory_operations, tma_microcode_sequencer, tma_mite, tma_ms_switches, tma_non_fused_branches, tma_other_light_ops, tma_other_mispredicts, tma_other_nukes, tma_pmm_bound, tma_ports_utilization, tma_serializing_operation, tma_store_bound
-                "TopdownL4": 32, # tma_4k_aliasing, tma_assists, tma_cisc, tma_clears_resteers, tma_contested_accesses, tma_data_sharing, tma_decoder0_alone, tma_dtlb_load, tma_dtlb_store, tma_false_sharing, tma_fb_full, tma_fp_scalar, tma_fp_vector, tma_l1_hit_latency, tma_l3_hit_latency, tma_lock_latency, tma_mem_bandwidth, tma_mem_latency, tma_mispredicts_resteers, tma_nop_instructions, tma_ports_utilized_0, tma_ports_utilized_1, tma_ports_utilized_2, tma_ports_utilized_3m, tma_slow_pause, tma_split_loads, tma_split_stores, tma_sq_full, tma_store_fwd_blk, tma_store_latency, tma_unknown_branches, tma_x87_use
-                "TopdownL5": 15, # tma_alu_op_utilization, tma_fp_assists, tma_fp_vector_128b, tma_fp_vector_256b, tma_fp_vector_512b, tma_load_op_utilization, tma_load_stlb_hit, tma_load_stlb_miss, tma_local_mem, tma_mixing_vectors, tma_remote_cache, tma_remote_mem, tma_store_op_utilization, tma_store_stlb_hit, tma_store_stlb_miss
-                "TopdownL6": 8 # tma_port_0, tma_port_1, tma_port_2, tma_port_3, tma_port_4, tma_port_5, tma_port_6, tma_port_7
-            }
+
+            DERIVED_METRICS_SIZES = {"TopdownL1": 4, "TopdownL2": 8, "TopdownL3": 26, "TopdownL4": 32, "TopdownL5": 15, "TopdownL6": 8}
             current_idx = 0
-            hw_limit_exceeded = False
 
             for c in custom_counters:
                 size = DERIVED_METRICS_SIZES.get(c, 1)
@@ -558,35 +494,19 @@ def _(mo, module, sandbox_form):
                     output_lines.append(f"{c:35} : {int(chunk[0])}")
                 else:
                     rounded_chunk = [round(x, 2) for x in chunk]
-                    output_lines.append(f"{c:35} : {rounded_chunk} (%)")
-
-                    # Missing hardware counters detection
-                    if rounded_chunk == [0.0, 0.0, 0.0, 100.0] or all(x == 0.0 for x in rounded_chunk):
-                        hw_limit_exceeded = True
-
+                    output_lines.append(f"{c:35} : {rounded_chunk}")
                 current_idx += size
 
             output_lines.append("```")
 
-            if hw_limit_exceeded:
-                alert_msg = (
-                    " **Hardware Counter Limit Exceeded!**\n\n"
-                    "Your CPU only has a limited number of programmable counters (usually 4 or 8). "
-                    "You requested too many events at the same time. The Linux kernel failed to schedule the TMA events, "
-                    "returning zeros (which mathematically defaults to 100% Backend Bound).\n\n"
-                    "**Fix:** Remove some PMU counters from your list to make room for TMA."
-                )
-                output_lines.append(mo.callout(mo.md(alert_msg), kind="danger")._repr_html_())
+            if err_sb:
+                output_lines.append(f"**Terminal Output / Errors:**\n```text\n{err_sb}\n```")
 
             sandbox_output = mo.md("\n".join(output_lines))
 
         except Exception as e:
             sandbox_output = mo.md(f"**Error parsing your list:** {e}")
-    return (sandbox_output,)
 
-
-@app.cell
-def _(sandbox_output):
     sandbox_output
     return
 
