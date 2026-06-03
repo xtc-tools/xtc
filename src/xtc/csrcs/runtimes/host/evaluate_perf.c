@@ -279,19 +279,42 @@ void evaluate_perf(double *results, int events_num, const char *events_names[],
       if (pass_events_num > 0) {
         double *pass_results = (double *)malloc(repeat * pass_events_num * sizeof(double));
 
-        switch (nargs) {
-          case 0: evaluate0_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func0_t)func); break;
-          case 1: evaluate1_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func1_t)func, args[0]); break;
-          case 2: evaluate2_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func2_t)func, args[0], args[1]); break;
-          case 3: evaluate3_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func3_t)func, args[0], args[1], args[2]); break;
-          case 4: evaluate4_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func4_t)func, args[0], args[1], args[2], args[3]); break;
-          case 5: evaluate5_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func5_t)func, args[0], args[1], args[2], args[3], args[4]); break;
-          case 6: evaluate6_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]); break;
+        int all_failed = 1;
+        perf_event_args_t *test_args = (perf_event_args_t *)malloc(pass_events_num * sizeof(perf_event_args_t));
+        int *test_fds = (int *)malloc(pass_events_num * sizeof(int));
+
+        for (int j = 0; j < pass_events_num; j++) GET_PERF_EVENT_CONFIG(pass_events_names[j], &test_args[j]);
+        OPEN_PERF_EVENTS(pass_events_num, test_args, test_fds);
+
+        for (int j = 0; j < pass_events_num; j++) if (test_fds[j] >= 0) all_failed = 0;
+
+        for (int j = 0; j < pass_events_num; j++) PERF_EVENT_ARGS_DESTROY(test_args[j]);
+        CLOSE_PERF_EVENTS(pass_events_num, test_fds);
+        free(test_args);
+        free(test_fds);
+
+        if (all_failed) {
+          fprintf(stderr,"[DEBUG] execution bypassed all events failed for the pass %d\n",pass_events_num);
+          // Bypass heavy kernel execution if counters failed
+          for (int r = 0; r < repeat; r++) {
+            for (int j = 0; j < pass_events_num; j++) pass_results[r * pass_events_num + j] = -1.0;
+          }
+        } else {
+            switch (nargs) {
+              case 0: evaluate0_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func0_t)func); break;
+              case 1: evaluate1_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func1_t)func, args[0]); break;
+              case 2: evaluate2_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func2_t)func, args[0], args[1]); break;
+              case 3: evaluate3_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func3_t)func, args[0], args[1], args[2]); break;
+              case 4: evaluate4_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func4_t)func, args[0], args[1], args[2], args[3]); break;
+              case 5: evaluate5_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func5_t)func, args[0], args[1], args[2], args[3], args[4]); break;
+              case 6: evaluate6_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]); break;
+            }
         }
         // Gather results from passes
         for (int r = 0; r < repeat; r++) {
           for (int e = 0; e < pass_events_num; e++) {
-            hw_results[r * total_hw_events + pass_hw_offsets[e]] = pass_results[r * pass_events_num + e];
+            hw_results[r * total_hw_events + pass_hw_offsets[e]] =
+                pass_results[r * pass_events_num + e];
           }
         }
         free(pass_results);
