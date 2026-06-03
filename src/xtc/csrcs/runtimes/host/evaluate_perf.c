@@ -255,7 +255,7 @@ void evaluate_perf(double *results, int events_num, const char *events_names[],
         if (map[i].is_derived) {
           // If current pass is owned by this TMA
           if (pass >= map[i].start_pass && pass < map[i].start_pass + map[i].resolver.num_passes) {
-            int local_pass = pass - map[i].start_pass; // De 0 à N pour cette métrique
+            int local_pass = pass - map[i].start_pass;
 
             int ev_start = 0;
             for (int p = 0; p < local_pass; p++) ev_start += map[i].resolver.events_per_pass[p];
