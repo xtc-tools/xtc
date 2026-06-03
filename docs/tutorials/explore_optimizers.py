@@ -7,19 +7,27 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     import marimo as mo
+    import argparse
     import xtc.search.explore as explore
-    return explore, mo
 
+    args = argparse.Namespace(
+        trials=64,
+        search_type="random",
+        batch=8,
+        opt_name="random-forest-default",
+    )
+    if not mo.running_in_notebook():
+        parser = argparse.ArgumentParser("Test notebook from CLI")
+        parser.add_argument("--trials", type=int, default=args.trials)
+        parser.add_argument("--search-type", type=str, default=args.search_type)
+        parser.add_argument("--opt-name", type=str, default=args.opt_name)
+        parser.add_argument("--batch", type=int, default=args.batch)
+        args = parser.parse_args()
+
+    return explore, mo, args
 
 @app.cell
-def _(explore):
-    def Args(**overrides):
-        return explore.default_exploration_config(**overrides)
-    return (Args,)
-
-
-@app.cell
-def _(mo):
+def _(mo, args):
     from xtc.artifacts import list_operations
     from xtc.search.strategies import Strategies
     from xtc.search.optimizers import Optimizers
@@ -47,11 +55,11 @@ def _(mo):
         placeholder="e.g. PPWRPRP"
     )
     seed_ui = mo.ui.number(start=0,stop=200,label="seed:")
-    trials_ui = mo.ui.number(start=0,stop=2048,value=64,label="trials:")
+    trials_ui = mo.ui.number(start=0,stop=2048,value=args.trials,label="trials:")
 
     search_types = ["random","iterative","exhaustive"]
-    search_select = mo.ui.radio(search_types,value=search_types[0],label="search:")
-    batch_ui = mo.ui.number(start=1,stop=64,value=8,label="batch size:")
+    search_select = mo.ui.radio(search_types,value=args.search_type,label="search:")
+    batch_ui = mo.ui.number(start=1,stop=64,value=args.batch,label="batch size:")
 
 
 
@@ -73,15 +81,13 @@ def _(mo):
     opt_names = Optimizers.names()
     opt_presets = {name: dict(Optimizers.from_name(name).PRESET) if hasattr(Optimizers.from_name(name),"PRESET") else None for name in opt_names}
     def get_optimizer_config_ui(opt_name, batch_size):
-        print(opt_name)
         if opt_presets[opt_name] == None:
             return mo.md("")
         # have a temp config file with the dict contents 
         ui = presets_to_marimo(opt_presets[opt_name], batch_size)
-        print("hello")
         return ui
 
-    optimizer_ui = mo.ui.radio(options=opt_names,value=opt_names[0],label="model type:")
+    optimizer_ui = mo.ui.radio(options=opt_names,value=args.opt_name,label="model type:")
     return (
         backend_ui,
         batch_ui,
@@ -153,7 +159,6 @@ def _(mo, search_ui):
 
 @app.cell
 def _(
-    Args,
     backend_ui,
     batch_ui,
     explore,
@@ -189,7 +194,7 @@ def _(
             strategy = f"{strategy_ui.value}:{strategy_param}"
         else:
             strategy = strategy_ui.value
-        args = Args(
+        args = explore.default_exploration_config(
             operator = operator_ui.value,
             backends = backend_ui.value,
             strategy = strategy,
@@ -250,12 +255,14 @@ def _(mo):
 
 @app.cell
 def _(button, mo, run_loop_explore):
-    mo.stop(not button.value)
-    with mo.status.spinner():
+    if mo.running_in_notebook():
+        mo.stop(not button.value)
+        with mo.status.spinner():
+            explore_out = run_loop_explore()
+    else:
         explore_out = run_loop_explore()
     mo.md(explore_out)
     return
-
 
 if __name__ == "__main__":
     app.run()
