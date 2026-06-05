@@ -10,6 +10,7 @@ help:
 	@echo "    make check-lit-nvgpu # run all lit checks for NVGPU target"
 	@echo "    make check-pytest  # run all pytest tests"
 	@echo "    make check-banwords # run banned words checks"
+	@echo "    make check-tutorials # run tutorials checks
 	@echo "  make format          # apply formatting (warning: change files in place)"
 	@echo "    make format-license # add licenses"
 	@echo "    make format-ruff   # format python files with ruff"
@@ -21,7 +22,7 @@ help:
 test:
 	pytest tests/pytest/unit tests/pytest/mlir tests/pytest/tvm tests/pytest/jir
 
-check: check-format check-banwords check-type check-lit-all check-pytest
+check: check-format check-banwords check-type check-lit-all check-pytest check-tutorials
 
 format: format-license format-ruff
 
@@ -63,6 +64,9 @@ check-lit-mppa:
 check-pytest:
 	scripts/pytest/run_pytest.sh -v
 
+check-tutorials:
+	scripts/tutorials/test_tutorial_explore_optimizers.sh
+
 format-ruff:
 	scripts/ruff/format.sh
 
@@ -78,5 +82,5 @@ claude:
 run-tutorial:
 	marimo run docs/tutorials/xtc_101.py
 
-.PHONY: help test check check-lit-all check-lit check-lit-c check-lit-nvpgu check-pytest check-type check-pyright check-mypy check-format check-format-ruff check-license check-banwords format format-ruff format-license agents claude run-tutorial
+.PHONY: help test check check-lit-all check-lit check-lit-c check-lit-nvpgu check-pytest check-type check-pyright check-mypy check-format check-format-ruff check-license check-banwords format format-ruff format-license agents claude check-tutorials run-tutorial
 .SUFFIXES:

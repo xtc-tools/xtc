@@ -3,6 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from abc import abstractmethod
+from dataclasses import dataclass, field
 from typing import TypeAlias, Any
 from typing_extensions import override
 from collections.abc import Sequence, Mapping, Iterator, Generator
@@ -25,9 +26,17 @@ from xtc.utils.algorithms import (
 
 __all__ = [
     "Strategies",
+    "StrategyRegistration",
 ]
 
 VecSample: TypeAlias = list[int]
+
+
+@dataclass(frozen=True)
+class StrategyRegistration:
+    cls: type[Strategy]
+    default_args: list[Any] = field(default_factory=list)
+    default_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 class BaseStrategy(Strategy):
@@ -1179,30 +1188,96 @@ except ModuleNotFoundError:
 
 
 class Strategies:
-    @classmethod
-    def names(cls) -> Sequence[str]:
-        return list(cls._map.keys())
+    _map: dict[str, StrategyRegistration] = {}
+    _aliases: dict[str, str] = {}
 
     @classmethod
-    def from_name(cls, name: str) -> type[BaseStrategy]:
+    def register(
+        cls,
+        name: str,
+        strategy_cls: type[Strategy],
+        *,
+        default_args: Sequence[Any] | None = None,
+        default_kwargs: Mapping[str, Any] | None = None,
+        aliases: Sequence[str] = (),
+    ) -> None:
+        """Register a strategy name with its class and default arguments."""
+        cls._map[name] = StrategyRegistration(
+            strategy_cls,
+            list(default_args or []),
+            dict(default_kwargs or {}),
+        )
+        for alias in aliases:
+            cls.register_alias(alias, name)
+
+    @classmethod
+    def register_alias(cls, alias: str, name: str) -> None:
+        cls._aliases[alias] = name
+
+    @classmethod
+    def names(cls, *, include_aliases: bool = False) -> Sequence[str]:
+        names = list(cls._map.keys())
+        if include_aliases:
+            names += list(cls._aliases.keys())
+        return names
+
+    @classmethod
+    def aliases(cls) -> Mapping[str, str]:
+        return dict(cls._aliases)
+
+    @classmethod
+    def resolve_name(cls, name: str) -> str:
+        seen: set[str] = set()
+        while name in cls._aliases:
+            if name in seen:
+                raise ValueError(f"strategy alias cycle involving: {name}")
+            seen.add(name)
+            name = cls._aliases[name]
+        return name
+
+    @classmethod
+    def registration(cls, name: str) -> StrategyRegistration:
+        name = cls.resolve_name(name)
         if name not in cls._map:
             raise ValueError(f"unknown strategy name: {name}")
         return cls._map[name]
 
-    _map = {
-        "tile_p1": Strategy_P1,
-        "tile_p1_v": Strategy_P1v,
-        "tile_oo": Strategy_OO,
-        "tile_prp": Strategy_PRP,
-        "tile_pprprp": Strategy_PPRPRP,
-        "tile_pprprp_v": Strategy_PPRPRPv,
-        "tile_pprprp_vr": Strategy_PPRPRPvr,
-        "tile_ppwrprp": Strategy_PPWRPRP,
-        "tile_ppwrprp_v": Strategy_PPWRPRPv,
-        "tile_ppwrprp_vr": Strategy_PPWRPRPvr,
-        "tile_pfpwrprp": Strategy_PFPWRPRP,
-        "tile_pfpwrprp_v": Strategy_PFPWRPRPv,
-        "tile_pfpwrprp_vr": Strategy_PFPWRPRPvr,
-        "tile_goto": Strategy_GOTO,
-        "tile_goto_r": Strategy_GOTO_R,
-    }
+    @classmethod
+    def from_name(cls, name: str) -> type[Strategy]:
+        return cls.registration(name).cls
+
+    @classmethod
+    def default_args(cls, name: str) -> list[Any]:
+        return list(cls.registration(name).default_args)
+
+    @classmethod
+    def default_kwargs(cls, name: str) -> dict[str, Any]:
+        return dict(cls.registration(name).default_kwargs)
+
+    @classmethod
+    def create(cls, name: str, graph: Graph, *args: Any, **kwargs: Any) -> Strategy:
+        registration = cls.registration(name)
+        all_args = {graph, *registration.default_args, *args}
+        all_kwargs = {**registration.default_kwargs, **kwargs}
+        return registration.cls(*all_args, **all_kwargs)
+
+
+Strategies.register("tile_p1", Strategy_P1)
+Strategies.register("tile_p1_v", Strategy_P1v)
+Strategies.register("tile_oo", Strategy_OO, aliases=("tile1d", "tile3d"))
+Strategies.register("tile_prp", Strategy_PRP)
+Strategies.register("tile_pprprp", Strategy_PPRPRP, aliases=("tile7d",))
+Strategies.register("tile_pprprp_v", Strategy_PPRPRPv, aliases=("tile7dv",))
+Strategies.register("tile_pprprp_vr", Strategy_PPRPRPvr, aliases=("tile7dvr",))
+Strategies.register("tile_ppwrprp", Strategy_PPWRPRP, aliases=("tile8d",))
+Strategies.register("tile_ppwrprp_v", Strategy_PPWRPRPv, aliases=("tile8dv",))
+Strategies.register("tile_ppwrprp_vr", Strategy_PPWRPRPvr, aliases=("tile8dvr",))
+Strategies.register("tile_pfpwrprp", Strategy_PFPWRPRP, aliases=("tile9d",))
+Strategies.register("tile_pfpwrprp_v", Strategy_PFPWRPRPv, aliases=("tile9dv",))
+Strategies.register("tile_pfpwrprp_vr", Strategy_PFPWRPRPvr, aliases=("tile9dvr",))
+Strategies.register("tile_goto", Strategy_GOTO)
+Strategies.register("tile_goto_r", Strategy_GOTO_R)
+Strategies.register("prt", BaseStrategyPRTScheme)
+# legacy tile4d* for matmul is same as tile_p1*
+Strategies.register_alias("tile4d", "tile_p1")
+Strategies.register_alias("tile4dv", "tile_p1_v")
