@@ -110,7 +110,7 @@ class MlirProgramInsertTransformPass:
         concluding_passes: list[str] = [],
         always_vectorize: bool = True,
         vectors_size: int | None = None,
-        using_tensors_hint: bool = False,
+        using_tensors: bool = False,
     ) -> None:
         self._mlir_program = mlir_program
         self._target = target
@@ -119,7 +119,7 @@ class MlirProgramInsertTransformPass:
         self._concluding_passes = concluding_passes
         self._always_vectorize = always_vectorize
         self._vectors_size = vectors_size
-        self._using_tensors_hint = using_tensors_hint
+        self._using_tensors = using_tensors
         self._super_vectorize = self._vectors_size is not None
         self._vecto_sequence: NamedSequenceOp | None = None
         self._super_vectorize_sequence: NamedSequenceOp | None = None
@@ -147,7 +147,7 @@ class MlirProgramInsertTransformPass:
                 [],
                 arg_attrs=[{"transform.consumed": UnitAttr.get()}],
             )
-            if self._using_tensors_hint:
+            if self._using_tensors:
                 self._post_bufferize_sequence = NamedSequenceOp(
                     _POST_BUFFERIZE_SEQ_NAME,
                     [transform.AnyOpType.get()],
@@ -461,43 +461,38 @@ class MlirProgramInsertTransformPass:
         if self._vectors_size is not None:
             return
         assert self._named_sequence is not None
-        vecto_handle = sched_state.handle
 
-        if self._using_tensors_hint:
+        if self._using_tensors:
             parent_op = get_parent_op(
                 transform.AnyOpType.get(),
                 sched_state.handle,
-                isolated_from_above=True,
             )
             with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
                 ApplyFoldUnitExtentDimsViaSlicesPatternsOp()
-            vecto_handle = structured_match(
+            sched_state.handle = structured_match(
                 results_=transform.AnyOpType.get(),
                 target=parent_op,
                 interface=MatchInterfaceEnum.LinalgOp,
             )
 
         if self._target.has_custom_vectorize():
-            self._target.apply_custom_vectorize(vecto_handle)
+            self._target.apply_custom_vectorize(sched_state.handle)
         else:
             transform.IncludeOp(
                 results_=[],
                 target=_VECTO_SEQ_NAME,
                 failure_propagation_mode=2,
-                operands_=[vecto_handle],
+                operands_=[sched_state.handle],
             )
 
     def _post_vectorize(self, sched_state: SchedulingState, schedule: MlirNodeSchedule):
         if self._vectors_size is not None:
             return
-        post_vec_annotation = "_apply_post_vectorize_patterns"
         parent_op = get_parent_op(
             transform.AnyOpType.get(),
             sched_state.handle,
             isolated_from_above=True,
         )
-        if self._using_tensors_hint:
-            transform.AnnotateOp(parent_op, post_vec_annotation)
         with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
             vector.ApplyVectorReductionToContractPatternsOp()
             vector.ApplyTransferPermutationPatternsOp()
@@ -508,6 +503,9 @@ class MlirProgramInsertTransformPass:
                 vector.ApplyLowerOuterProductPatternsOp()
                 vector.ApplyLowerContractionPatternsOp()
         else:
+            func_name = self._mlir_program.mlir_module.body.operations[0].attributes[
+                "sym_name"
+            ]
             with (
                 InsertionPoint.at_block_begin(self._post_bufferize_sequence.body),
                 self._mlir_program.mlir_context,
@@ -516,7 +514,7 @@ class MlirProgramInsertTransformPass:
                 handle = structured_match(
                     results_=transform.AnyOpType.get(),
                     target=self._post_bufferize_sequence.bodyTarget,
-                    op_attrs={post_vec_annotation: UnitAttr.get()},
+                    op_attrs={"sym_name": func_name},
                 )
                 with InsertionPoint(transform.ApplyPatternsOp(handle).patterns):
                     vector.ApplyLowerOuterProductPatternsOp()

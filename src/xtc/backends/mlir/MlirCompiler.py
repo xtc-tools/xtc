@@ -130,6 +130,12 @@ class MlirProgramCompiler:
         self.dump_file = kwargs.get("dump_file")
         # Register required Mlir extensions by the schedule
         self._register_mlir_extensions()
+        # check to see if tensors are used, will be removed in later patch
+        # used for now in order to not update all memref tests
+        func_type_str = str(
+            mlir_program.mlir_module.body.operations[0].attributes["function_type"]
+        )
+        self.using_tensors = "tensor" in func_type_str
 
     def dump_ir(self, title: str):
         print(f"// -----// {title} //----- //", file=sys.stderr)
@@ -143,7 +149,7 @@ class MlirProgramCompiler:
             always_vectorize=self._config.always_vectorize,
             vectors_size=self._config.vectors_size,
             target=self._target,
-            using_tensors_hint=self._config.using_tensors_hint,
+            using_tensors=self.using_tensors,
         )
         insert_transform_pass.run()
         if self._config.print_source_ir:
@@ -152,7 +158,7 @@ class MlirProgramCompiler:
     def mlir_apply_transform_pass(self) -> None:
         apply_transform_pass = MlirProgramApplyTransformPass(
             mlir_program=self._mlir_program,
-            clean_all=not self._config.using_tensors_hint,
+            clean_all=not self.using_tensors,
         )
         apply_transform_pass.run()
         if self._config.print_transformed_ir:
@@ -160,18 +166,16 @@ class MlirProgramCompiler:
 
     def mlir_apply_tensor_lowering_pass(self) -> None:
         apply_bufferization_passes(self._mlir_program)
+        # apply the post-bufferization transform sequence
+        if self.using_tensors:
+            apply_transform_pass = MlirProgramApplyTransformPass(
+                mlir_program=self._mlir_program,
+                clean_all=True,
+                custom_sequence=_POST_BUFFERIZE_SEQ_NAME,
+            )
+            apply_transform_pass.run()
         if self._config.print_bufferization_ir:
             self.dump_ir("IR Dump After Tensor Lowering")
-
-    def mlir_apply_post_bufferize_transform_pass(self) -> None:
-        apply_transform_pass = MlirProgramApplyTransformPass(
-            mlir_program=self._mlir_program,
-            clean_all=True,
-            custom_sequence=_POST_BUFFERIZE_SEQ_NAME,
-        )
-        apply_transform_pass.run()
-        if self._config.print_transformed_ir:
-            self.dump_ir("IR Dump After Post-Bufferize transform")
 
     def _save_temp(self, fname: str, content: Any) -> None:
         if not self._config.save_temps:
@@ -224,8 +228,6 @@ class MlirProgramCompiler:
         save_temp(mlir_atrn_dump_file, self._mlir_program.mlir_module)
 
         self.mlir_apply_tensor_lowering_pass()
-        if self._config.using_tensors_hint:
-            self.mlir_apply_post_bufferize_transform_pass()
-            save_temp(mlir_tlwr_dump_file, self._mlir_program.mlir_module)
+        save_temp(mlir_tlwr_dump_file, self._mlir_program.mlir_module)
 
         self._target.generate_code_for_target(self._mlir_program, dump_file=dump_file)

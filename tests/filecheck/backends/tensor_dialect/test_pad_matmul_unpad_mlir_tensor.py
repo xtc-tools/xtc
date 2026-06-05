@@ -22,7 +22,7 @@ sched = sch.schedule()
 
 comp = impl.get_compiler(
     shared_lib=True,
-    dump_file="gen_pad_tuple_matmul_unpad_mlir",
+    dump_file="gen_pad_tuple_matmul_unpad_mlir_tensor",
     print_source_ir=True,
     print_transformed_ir=True,
     print_bufferization_ir=True,
@@ -102,6 +102,9 @@ print(f"CODE: {res}")
 # CHECK-NEXT:   }
 # CHECK-NEXT:   transform.named_sequence @_vecto(%arg0: !transform.any_op {transform.consumed}) {
 # CHECK-NEXT:     transform.structured.vectorize %arg0 : !transform.any_op
+# CHECK-NEXT:     transform.yield 
+# CHECK-NEXT:   }
+# CHECK-NEXT:   transform.named_sequence @_post_bufferize(%arg0: !transform.any_op {transform.readonly}) {
 # CHECK-NEXT:     transform.yield 
 # CHECK-NEXT:   }
 # CHECK-NEXT:   transform.named_sequence @__transform_main(%arg0: !transform.any_op {transform.readonly}) {
@@ -282,6 +285,13 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     %extracted_slice = tensor.extract_slice %6[0, 0] [14, 14] [1, 1] {__xtc_id_C_} : tensor<16x16xf32> to tensor<14x14xf32>
 # CHECK-NEXT:     bufferization.materialize_in_destination %extracted_slice in restrict writable %arg2 : (tensor<14x14xf32>, memref<14x14xf32>) -> ()
 # CHECK-NEXT:     return
+# CHECK-NEXT:   }
+# CHECK-NEXT:   transform.named_sequence @_vecto(%arg0: !transform.any_op {transform.consumed}) {
+# CHECK-NEXT:     transform.structured.vectorize %arg0 : !transform.any_op
+# CHECK-NEXT:     transform.yield 
+# CHECK-NEXT:   }
+# CHECK-NEXT:   transform.named_sequence @_post_bufferize(%arg0: !transform.any_op {transform.readonly}) {
+# CHECK-NEXT:     transform.yield 
 # CHECK-NEXT:   }
 # CHECK-NEXT: }
 # CHECK-NEXT:  

@@ -51,6 +51,9 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     transform.structured.vectorize %arg0 : !transform.any_op
 # CHECK-NEXT:     transform.yield 
 # CHECK-NEXT:   }
+# CHECK-NEXT:   transform.named_sequence @_post_bufferize(%arg0: !transform.any_op {transform.readonly}) {
+# CHECK-NEXT:     transform.yield 
+# CHECK-NEXT:   }
 # CHECK-NEXT:   transform.named_sequence @__transform_main(%arg0: !transform.any_op {transform.readonly}) {
 # CHECK-NEXT:     %0 = transform.structured.match attributes {__xtc_id_D_0_} in %arg0 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:     %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
@@ -185,6 +188,13 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     } {"./i"}
 # CHECK-NEXT:     bufferization.materialize_in_destination %5 in restrict writable %arg3 : (tensor<32x32xf32>, memref<32x32xf32>) -> ()
 # CHECK-NEXT:     return
+# CHECK-NEXT:   }
+# CHECK-NEXT:   transform.named_sequence @_vecto(%arg0: !transform.any_op {transform.consumed}) {
+# CHECK-NEXT:     transform.structured.vectorize %arg0 : !transform.any_op
+# CHECK-NEXT:     transform.yield 
+# CHECK-NEXT:   }
+# CHECK-NEXT:   transform.named_sequence @_post_bufferize(%arg0: !transform.any_op {transform.readonly}) {
+# CHECK-NEXT:     transform.yield 
 # CHECK-NEXT:   }
 # CHECK-NEXT: }
 # CHECK-NEXT:  

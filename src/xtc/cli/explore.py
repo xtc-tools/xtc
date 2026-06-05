@@ -223,8 +223,6 @@ def compile_one(
         bare_ptr=args.bare_ptr,
         debug=args.debug_compile,
     )
-    if args.use_tensors:
-        compile_args["using_tensors_hint"] = True
     if args.dump:
         compile_args.update(
             dict(

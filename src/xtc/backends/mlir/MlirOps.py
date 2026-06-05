@@ -489,6 +489,7 @@ class MlirOperatorRelu(MlirOperator):
                 ]
             )
             if self.op_type == TensorType:
+                # TODO: re-introduce collapsing relu
                 out_operand = args[1]
                 inp_operand = args[0]
                 rank = len(out_shape)

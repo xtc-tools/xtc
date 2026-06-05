@@ -50,6 +50,9 @@ print(f"CODE: {res}")
 # CHECK-NEXT:     transform.structured.vectorize %arg0 : !transform.any_op
 # CHECK-NEXT:     transform.yield 
 # CHECK-NEXT:   }
+# CHECK-NEXT:   transform.named_sequence @_post_bufferize(%arg0: !transform.any_op {transform.readonly}) {
+# CHECK-NEXT:     transform.yield 
+# CHECK-NEXT:   }
 # CHECK-NEXT:   transform.named_sequence @__transform_main(%arg0: !transform.any_op {transform.readonly}) {
 # CHECK-NEXT:     %0 = transform.structured.match attributes {__xtc_id_C_0_} in %arg0 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:     %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
