@@ -457,6 +457,75 @@ def _(mo):
 
     return supported_arch_msg,
 
+@app.cell
+def _(mo):
+    tma_output_content = mo.md(
+        """
+        TMA hierarchically breaks down CPU bottlenecks. When the native C API evaluates `TopdownL1` or `TopdownL2`, it returns a raw array of percentages. Here is the exact index mapping:
+
+        ### Level 1 (4 metrics)
+        **Array Order:** `[Retiring, Bad Speculation, Frontend Bound, Backend Bound]`
+
+        | Index | Metric | Description |
+        |---|---|---|
+        | `[0]` | 🟢 **Retiring** | Fraction of slots utilized by useful work (issued uops that get retired). |
+        | `[1]` | 🔴 **Bad Speculation** | Fraction of slots wasted due to incorrect speculations. |
+        | `[2]` | 🔵 **Frontend Bound** | Fraction of slots where the Frontend undersupplies the Backend. |
+        | `[3]` | 🟣 **Backend Bound** | Fraction of slots where no uops are delivered due to a lack of Backend resources. |
+
+        ### Level 2 (8 metrics)
+        **Array Order:** `[Light Ops, Heavy Ops, Machine Clears, Branch Mispredicts, Fetch Bandwidth, Fetch Latency, Core Bound, Memory Bound]`
+
+        | Index | Category | Sub-Metric |
+        |---|---|---|
+        | `[0]` | 🟢 `Retiring` | `light_operations` |
+        | `[1]` | 🟢 `Retiring` | `heavy_operations` |
+        | `[2]` | 🔴 `Bad Speculation` | `machine_clears` |
+        | `[3]` | 🔴 `Bad Speculation` | `branch_mispredicts` |
+        | `[4]` | 🔵 `Frontend Bound` | `fetch_bandwidth` |
+        | `[5]` | 🔵 `Frontend Bound` | `fetch_latency` |
+        | `[6]` | 🟣 `Backend Bound` | `core_bound` |
+        | `[7]` | 🟣 `Backend Bound` | `memory_bound` |
+
+        ### Level 3 (26 metrics)
+        Deep dive into L2 categories. Key metrics returned in the array include:
+        * **Memory Subsystem:** `l1_bound`, `l2_bound`, `l3_bound`, `dram_bound`, `store_bound`, `pmm_bound`
+        * **Frontend Fetch:** `dsb` (decoded uop cache), `mite` (legacy decode), `icache_misses`, `itlb_misses`, `lcp`
+        * **Execution & ALU:** `fp_arith`, `ports_utilization`, `divider`, `serializing_operation`
+        * **Retiring Details:** `memory_operations`, `fused_instructions`, `microcode_sequencer`
+        * **Branch Prediction:** `branch_resteers`, `other_mispredicts`, `other_nukes`
+
+        ### Level 4 (32 metrics)
+        Granular details on memory behavior and port utilization.
+        * **Memory Bandwidth & Latency:** `mem_bandwidth`, `mem_latency`, `l1_hit_latency`, `l3_hit_latency`
+        * **Memory Bottlenecks:** `split_loads`, `split_stores`, `4k_aliasing`, `dtlb_load`, `dtlb_store`, `false_sharing`
+        * **Port Utilization:** `ports_utilized_0`, `ports_utilized_1`, `ports_utilized_2`, `ports_utilized_3m`
+        * **Operations:** `fp_scalar`, `fp_vector`, `nop_instructions`, `x87_use`, `cisc`, `assists`
+
+        ### Level 5 (15 metrics)
+        Specific unit utilization and Translation Lookaside Buffer (TLB) deep dives.
+        * **Operations:** `alu_op_utilization`, `load_op_utilization`, `store_op_utilization`
+        * **Vector Widths:** `fp_vector_128b`, `fp_vector_256b`, `fp_vector_512b`
+        * **STLB:** `load_stlb_hit/miss`, `store_stlb_hit/miss`
+        * **Memory/Cache:** `local_mem`, `remote_mem`, `remote_cache`
+
+        ### Level 6 (8 metrics)
+        * **`port_0` to `port_7`:** Fraction of cycles the CPU dispatched uops on specific hardware execution ports (e.g., ALU, Loads, Stores, Branches).
+        """
+    )
+
+    reminder_output_msg = mo.accordion({
+        "💡 Output reminder & Topdown Metrics Dictionary": tma_output_content
+    })
+
+    return reminder_output_msg,
+
+
+@app.cell
+def _(reminder_output_msg):
+    reminder_output_msg
+    return
+
 
 @app.cell
 def _(supported_arch_msg):
