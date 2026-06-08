@@ -27,7 +27,6 @@ from datetime import datetime, timezone
 import numpy as np
 import numpy.typing
 import subprocess
-from concurrent.futures import ThreadPoolExecutor, Future
 import multiprocessing
 from pathlib import Path
 from collections.abc import Sequence, Mapping
@@ -53,6 +52,7 @@ from xtc.search.optimizers import Optimizers
 
 from .progress import SearchProgress, SearchProgressTQDM, SearchProgressMO
 from .callback import ResultCallBack, CSVCallback, DBCallback, MemoryCallback
+from .pipeline import CompileExecutePipeline
 
 logger = logging.getLogger(__name__)
 
@@ -444,76 +444,73 @@ class Exploration:
         graph: Graph,
         callbacks: CallBacks = {},
     ):
-        args = self.config
-        jobs = args.jobs
+        jobs = self.config.jobs
+        ntasks = len(all_in_x)
+        batch_ntasks = ntasks * len(self.config.backends)
 
-        def do_compile(idx: int, in_x: Sample):
-            return idx, self.compile_one_all_backends(
+        def compile_func(idx_sample: Any) -> Any:
+            idx, in_x = idx_sample
+            if idx % jobs == 0:
+                search_callback.compile_batch_start()
+            search_callback.compile_job_start()
+            res = self.compile_one_all_backends(
                 ident=f"{idx:04}",
                 graph=graph,
                 strategy=strategy,
                 in_x=in_x,
                 callbacks=callbacks,
             )
+            search_callback.compile_job_end()
+            if idx == ntasks - 1 or idx + jobs - 1 % jobs == 0:
+                search_callback.compile_batch_end()
+            return idx, res
 
-        batch_ntasks = len(all_in_x) * len(args.backends)
+        def execute_func(idx_comp_result: Any) -> Any:
+            if not self.config.execute:
+                return None
+            idx, comp_result = idx_comp_result
+            if idx % jobs == 0:
+                search_callback.execute_batch_start()
+            search_callback.execute_job_start()
+            exec_results = []
+            for compiled in comp_result:
+                search_callback.execute_job_start()
+                ident, backend, module, dump_file, in_x = compiled
+                exec_results.append(
+                    self.load_and_evaluate_sample(
+                        ident,
+                        backend,
+                        module,
+                        in_x,
+                        callbacks=callbacks,
+                    )
+                )
+                search_callback.execute_job_end()
+            if idx == ntasks - 1 or idx + jobs - 1 % jobs == 0:
+                search_callback.execute_batch_end()
+            return exec_results
+
+        pipeline = CompileExecutePipeline(
+            compile_func,
+            execute_func,
+            jobs,
+        )
         search_callback = cast(
             SearchProgress,
             callbacks["search"] if "search" in callbacks else SearchProgress(),
         )
         search_callback.batch_start(batch_ntasks)
-        results = []
-        for job_idx, job_in_x in enumerate(
-            np.array_split(all_in_x, np.ceil(len(all_in_x) / jobs), axis=0)
-        ):
-            search_callback.compile_batch_start()
-            job_compiled = []
-            if jobs == 1:
-                search_callback.compile_job_start()
-                job_compiled.append(do_compile(idx=job_idx, in_x=job_in_x[0].tolist()))
-                search_callback.compile_job_end()
-            else:
-
-                def future_callback(future: Future):
-                    job_compiled.append(future.result())
-                    search_callback.compile_job_end()
-
-                with ThreadPoolExecutor(max_workers=jobs) as executor:
-                    futures = []
-                    for idx, in_x in enumerate(job_in_x):
-                        search_callback.compile_job_start()
-                        future = executor.submit(
-                            do_compile,
-                            idx=job_idx * jobs + idx,
-                            in_x=in_x.tolist(),
-                        )
-                        future.add_done_callback(future_callback)
-                        futures.append(future)
-                if len(job_compiled) < len(job_in_x):
-                    raise RuntimeError("compilation error in some compile job(s)")
-            search_callback.compile_batch_end()
-            if args.execute:
-                compiled_results = [
-                    x[1] for x in sorted(job_compiled, key=lambda x: x[0])
-                ]
-                search_callback.execute_batch_start()
-                for compiled_list in compiled_results:
-                    for compiled in compiled_list:
-                        search_callback.execute_job_start()
-                        ident, backend, module, dump_file, in_x = compiled
-                        results.append(
-                            self.load_and_evaluate_sample(
-                                ident,
-                                backend,
-                                module,
-                                in_x,
-                                callbacks=callbacks,
-                            )
-                        )
-                        search_callback.execute_job_end()
-                search_callback.execute_batch_end()
-            search_callback.compile_batch_end()
-        return results
+        results = pipeline.run(enumerate(x.tolist() for x in all_in_x))
+        search_callback.batch_end()
+        if self.config.execute:
+            exec_results = [
+                x
+                for x in itertools.chain(*[res.exec_result for res in results])
+                if x is not None
+            ]
+        else:
+            exec_results = []
+        return exec_results
 
     def evaluate_iterative(
         self,
@@ -621,9 +618,9 @@ class Exploration:
 
     def peak_time(self, graph: Graph) -> float:
         args = self.config
-        assert args.peak_flops is not None
         if not args.execute:
             return 0
+        assert args.peak_flops is not None
         ops_count = graph.ops_count()
         return ops_count / args.peak_flops / args.threads
 
