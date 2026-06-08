@@ -509,9 +509,9 @@ static void compute_amd_zen4_tma_l2(const double *raw, double *final) {
 
 /*
  * Tested TopdownL1 :
- *  - INTEL_SKYLAKE_CASCADE (skylake)           L1,L2
+ *  - INTEL_SKYLAKE_CASCADE (skylake, kaby-lake)L1,L2
  *  - INTEL_ICELAKE_SAPPHIRE (raptor lake)      L1,L2
- *  - AMD_ZEN_4                                 L1,L2
+ *  - AMD_ZEN_4    (Zen 4)                      L1,L2
  *
  *  Untested :
  *  - AMD_ZEN_1_2
