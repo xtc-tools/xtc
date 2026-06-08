@@ -24,7 +24,7 @@ jobs:
       - name: Ensure PR has linear history
         if: github.event_name == 'pull_request'
         run: |
-          MERGE_COMMITS="$(git rev-list --merges "${GITHUB_SHA}^1..${GITHUB_SHA}^2")"
+          MERGE_COMMITS="$(git rev-list --merges "${GITHUB_SHA}"^1.."${GITHUB_SHA}"^2)"
           if [ -n "${MERGE_COMMITS}" ]; then
             echo "::error::PR contains merges, always use rebase for updating branches: Merge commits: ${MERGE_COMMITS}" >&2
             exit 1
@@ -66,6 +66,15 @@ jobs:
         run: |
           COV=scripts/coverage/coverage_run.sh
           $COV make check
+      - name: Run Explore One Shot
+        run: |
+          COV=scripts/coverage/coverage_run.sh
+          env STRATEGIES=tile8dvr BACKENDS="tvm mlir" $COV ./scripts/explore/run-explore-one-shot.sh artifacts/explore
+      - name: Run Explore Variants
+        run: |
+          COV=scripts/coverage/coverage_run.sh
+          env STRATEGIES=tile8dvr BACKENDS="tvm mlir" $COV ./scripts/explore/run-explore-variants.sh artifacts/explore
+          env NOSHOW=1 scripts/explore/display-explore-variants.sh artifacts/explore
       - name: Generate Coverage Reports
         run: |
           coverage combine >/dev/null
@@ -74,13 +83,6 @@ jobs:
           coverage xml -o artifacts/coverage/coverage.xml
           coverage report --format=markdown >artifacts/coverage/coverage.md
           coverage html -d artifacts/coverage/html
-      - name: Run Explore One Shot
-        run: |
-          env STRATEGIES=tile8dvr BACKENDS="tvm mlir" ./scripts/explore/run-explore-one-shot.sh artifacts/explore
-      - name: Run Explore Variants
-        run: |
-          env STRATEGIES=tile8dvr BACKENDS="tvm mlir" ./scripts/explore/run-explore-variants.sh artifacts/explore
-          env NOSHOW=1 scripts/explore/display-explore-variants.sh artifacts/explore
       - name: Publish artifacts
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v5
