@@ -237,19 +237,19 @@ static void compute_skl_tma_l1(const double *raw_values, double *final_results) 
 
 static const int skl_l2_passes[] = {4, 4, 4}; // 3 passes of 4 counters
 static const char *skl_tma_l2_events[] = {
-    // Passe 1 : L1 Base + Backend
+    // Pass 1 : L1 Base + Backend
     "@skl_slots",
     "cycle_activity:stalls_mem_any",  // Memory Bound
     "resource_stalls:any",            // Core Bound base
     "@skl_fe_bound",
 
-    // Passe 2 : Frontend
+    // Pass 2 : Frontend
     "@skl_slots",
     "icache_16b:ifdata_stall",        // Fetch Latency
     "icache_64b:iftag_stall",         // Fetch Latency
     "@skl_retiring",
 
-    // Passe 3 : Retiring + Bad Speculation
+    // Pass 3 : Retiring + Bad Speculation
     "@skl_slots",
     "idq:ms_uops",                    // Heavy Ops
     "br_misp_retired:all_branches",   // Branch Mispredicts
@@ -258,9 +258,9 @@ static const char *skl_tma_l2_events[] = {
 
 
 static void compute_skl_tma_l2(const double *raw, double *final) {
-    // Passe 1 : 0 (slots), 1 (mem), 2 (core), 3 (fe)
-    // Passe 2 : 4 (slots), 5 (lat_d), 6 (lat_t), 7 (ret)
-    // Passe 3 : 8 (slots), 9 (heavy), 10 (misp), 11 (clears)
+    // Pass 1 : 0 (slots), 1 (mem), 2 (core), 3 (fe)
+    // Pass 2 : 4 (slots), 5 (lat_d), 6 (lat_t), 7 (ret)
+    // Pass 3 : 8 (slots), 9 (heavy), 10 (misp), 11 (clears)
 
     // Use the slot of each group to not mess up ratio
     double slots_p1 = raw[0] * 4.0;
@@ -311,6 +311,47 @@ static void compute_skl_tma_l2(const double *raw, double *final) {
         for(int i=0; i<8; i++) final[i] = 0.0;
     }
 }
+
+static const int skl_l3_mem_passes[] = {4, 1};
+
+static const char *skl_tma_l3_mem_events[] = {
+    // Pass 1
+    "@skl_slots",             //
+    "@skl_stalls_mem_any",    // 0x14001414 (cmask=0x14, umask=0x14, event=0x14)
+    "@skl_stalls_l1d_miss",   // 0x0c000c14 (cmask=0x0c, umask=0x0c, event=0x14)
+    "@skl_stalls_l2_miss",    // 0x05000514 (cmask=0x05, umask=0x05, event=0x14)
+
+    // Pass 2
+    "@skl_slots",             //
+    "@skl_stalls_l3_miss",    // 0x06000614 (cmask=0x06, umask=0x06, event=0x14)
+    "@skl_bound_on_stores"    // 0x08a2 (RESOURCE_STALLS.SB)
+};
+
+// Compute only memory bound from L3
+static void compute_skl_tma_l3_mem(const double *raw, double *final) {
+    double slots_p1 = raw[0] * 4.0;
+    double slots_p2 = raw[4] * 4.0;
+
+    if (slots_p1 > 0 && slots_p2 > 0) {
+        double mem_any  = raw[1] / slots_p1;
+        double l1d_miss = raw[2] / slots_p1;
+        double l2_miss  = raw[3] / slots_p1;
+
+        double l3_miss  = raw[5] / slots_p2;
+        double stores   = raw[6] / slots_p2;
+
+        final[0] = (mem_any - l1d_miss) * 100.0; // L1 Bound
+        final[1] = (l1d_miss - l2_miss) * 100.0; // L2 Bound
+        final[2] = (l2_miss - l3_miss) * 100.0;  // L3 Bound
+        final[3] = l3_miss * 100.0;              // External RAM (DRAM) Bound
+        final[4] = stores * 100.0;               // Store Bound
+
+        for (int i=0; i<5; i++) if (final[i] < 0.0) final[i] = 0.0;
+    } else {
+        for (int i=0; i<5; i++) final[i] = 0.0;
+    }
+}
+
 
 //  === Modern Inter arch ===
 
@@ -632,6 +673,23 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
         }
         return 0;
     }
+    else if (strcmp(metric_name, "TopdownL3_Mem") == 0) {
+        if (detect_if_intel()) {
+            intel_arch_t uarch = detect_intel_microarchitecture();
+            if (uarch == INTEL_SKYLAKE_CASCADE) {
+                fprintf(stderr,"[DEBUG] INTEL_SKYLAKE_CASCADE L3_Mem (Multi-Pass)\n");
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 7;
+                out_resolver->hw_events = skl_tma_l3_mem_events;
+                out_resolver->num_results = 5;
+                out_resolver->num_passes = 2;
+                out_resolver->events_per_pass = skl_l3_mem_passes;
+                out_resolver->compute_formula = compute_skl_tma_l3_mem;
+                return 1;
+            }
+        }
+        return 0;
+        }
 
     // Unsuported hardware / metric or the event is a pmu
     return 0;

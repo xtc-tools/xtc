@@ -253,6 +253,16 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
         event->args.config_pair.event = 0x00c5;
       else if (strcmp(name, "@skl_machine_clears") == 0)
         event->args.config_pair.event = 0x01c3;
+      else if (strcmp(name, "@skl_stalls_mem_any") == 0)
+        event->args.config_pair.event = 0x14001414;
+      else if (strcmp(name, "@skl_stalls_l1d_miss") == 0)
+        event->args.config_pair.event = 0x0c000c14;
+      else if (strcmp(name, "@skl_stalls_l2_miss") == 0)
+        event->args.config_pair.event = 0x05000514;
+      else if (strcmp(name, "@skl_stalls_l3_miss") == 0)
+        event->args.config_pair.event = 0x06000614;
+      else if (strcmp(name, "@skl_bound_on_stores") == 0)
+        event->args.config_pair.event = 0x08a2;
       else
         return 1;
 
