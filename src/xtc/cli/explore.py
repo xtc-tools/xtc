@@ -22,12 +22,16 @@ def launch_child(argv: Sequence[str], args: argparse.Namespace):
     if "tvm" in args.backends:
         # Force number of threads for TVM
         env.update({"TVM_NUM_THREADS": str(args.threads)})
-    cmd = [
+    env_args = [
         "env",
         *(f"{k}={v}" for k, v in env.items()),
-        "setarch",
-        "-R",
-        "--",
+    ]
+    setarch_args = []
+    if sys.platform.startswith("linux"):
+        setarch_args = ["setarch", "-R", "--"]
+    cmd = [
+        *env_args,
+        *setarch_args,
         argv[0],
         "--child",
         *argv[1:],
