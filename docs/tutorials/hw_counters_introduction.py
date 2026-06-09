@@ -442,10 +442,13 @@ def _(mo):
         """
         | Microarchitecture | Supported TMA Levels | Execution Mode |
         |---|---|---|
-        | **Intel Skylake / Cascade Lake** | `TopdownL1`, `TopdownL2` | Native API *(Multi-pass)* |
+        | **Intel Skylake / Cascade Lake** | `TopdownL1`, `TopdownL2`, `TopdownL3_Mem` | Native API *(Multi-pass)* |
         | **Intel Modern (Ice Lake+)**     | `TopdownL1`, `TopdownL2` | Native API *(Single-pass)* |
         | **AMD Zen 4**                    | `TopdownL1`, `TopdownL2` | Native API *(Multi-pass)* |
         | **Generic Linux (`perf` tool)**  | `TopdownL1` -> `TopdownL6` | System Fallback *(Multiplexed)* |
+
+
+        *Note : TopdownL3_Mem return [L1 Bound, L2 Bound, L3 Bound, DRAM Bound, Store Bound]*
 
         *Metrics beyond L2 or unmapped architectures will automatically use the `perf` fallback.*
         """
