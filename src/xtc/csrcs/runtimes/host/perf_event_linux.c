@@ -238,7 +238,7 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
       else if (strcmp(name, "@skl_retiring") == 0)
         event->args.config_pair.event = 0x02c2;
       else if (strcmp(name, "@skl_recovery") == 0)
-        event->args.config_pair.event = 0x0100019d;
+        event->args.config_pair.event = 0x0120010d;
       else if (strcmp(name, "@skl_mem_stalls") == 0)
         event->args.config_pair.event = 0x1414;
       else if (strcmp(name, "@skl_core_stalls") == 0)
@@ -246,13 +246,13 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
       else if (strcmp(name, "@skl_fetch_lat_data") == 0)
         event->args.config_pair.event = 0x0480;
       else if (strcmp(name, "@skl_fetch_lat_tag") == 0)
-        event->args.config_pair.event = 0x0183;
+        event->args.config_pair.event = 0x0483;
       else if (strcmp(name, "@skl_heavy_ops") == 0)
         event->args.config_pair.event = 0x3079;
       else if (strcmp(name, "@skl_br_misp") == 0)
         event->args.config_pair.event = 0x00c5;
       else if (strcmp(name, "@skl_machine_clears") == 0)
-        event->args.config_pair.event = 0x01c3;
+        event->args.config_pair.event = 0x010401c3;
       else if (strcmp(name, "@skl_stalls_mem_any") == 0)
         event->args.config_pair.event = 0x140014a3;
       else if (strcmp(name, "@skl_stalls_l1d_miss") == 0)
