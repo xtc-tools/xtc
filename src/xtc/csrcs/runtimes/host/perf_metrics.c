@@ -312,7 +312,7 @@ static void compute_skl_tma_l2(const double *raw, double *final) {
     }
 }
 
-static const int skl_l3_mem_passes[] = {4, 1};
+static const int skl_l3_mem_passes[] = {4, 3};
 
 static const char *skl_tma_l3_mem_events[] = {
     // Pass 1
@@ -329,16 +329,17 @@ static const char *skl_tma_l3_mem_events[] = {
 
 // Compute only memory bound from L3
 static void compute_skl_tma_l3_mem(const double *raw, double *final) {
-    double slots_p1 = raw[0] * 4.0;
-    double slots_p2 = raw[4] * 4.0;
+    double cycles_p1 = raw[0];
+    double cycles_p2 = raw[4];
 
-    if (slots_p1 > 0 && slots_p2 > 0) {
-        double mem_any  = raw[1] / slots_p1;
-        double l1d_miss = raw[2] / slots_p1;
-        double l2_miss  = raw[3] / slots_p1;
+    if (cycles_p1 > 0 && cycles_p2 > 0) {
+        // On divise directement par les cycles !
+        double mem_any  = raw[1] / cycles_p1;
+        double l1d_miss = raw[2] / cycles_p1;
+        double l2_miss  = raw[3] / cycles_p1;
 
-        double l3_miss  = raw[5] / slots_p2;
-        double stores   = raw[6] / slots_p2;
+        double l3_miss  = raw[5] / cycles_p2;
+        double stores   = raw[6] / cycles_p2;
 
         final[0] = (mem_any - l1d_miss) * 100.0; // L1 Bound
         final[1] = (l1d_miss - l2_miss) * 100.0; // L2 Bound
