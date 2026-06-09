@@ -15,7 +15,7 @@ with app.setup:
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     # Hardware Performance Counters & Top-down Analysis
 
@@ -29,7 +29,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     > **Disclaimer and prerequisites:**
     > Results will vary depending on your hardware architecture (MacOS is currently not supported).
@@ -45,7 +45,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     ## 1. Defining the Workload & Schedule
     We define a medium-sized matrix multiplication (1024x2048x4096).
@@ -58,7 +58,7 @@ def _():
 
 
 @app.cell
-def _():
+def _(mo):
     # UI sliders
     tile_i_ui = mo.ui.slider(start=1, stop=64, step=1, value=3, label="Tile I (Rows)")
     tile_j_ui = mo.ui.slider(start=8, stop=512, step=8, value=24, label="Tile J (Cols)")
@@ -67,7 +67,7 @@ def _():
 
 
 @app.cell
-def _():
+def _(mo):
     _editor_code = '''import xtc.graphs.xtc.op as O
     from xtc.backends.mlir import Backend
     from xtc.schedules.descript import descript_scheduler
@@ -148,7 +148,7 @@ def _(descript_editor, tile_i_ui, tile_j_ui, unroll_ui):
 
 
 @app.cell
-def _(I_val, J_val, K_val, tile_i_ui, tile_j_ui, unroll_ui):
+def _(I_val, J_val, K_val, mo, os, sys, tile_i_ui, tile_j_ui, unroll_ui):
     # Fetch hardware cache sizes dynamically (sysfs)
     caches_kb = {}
     if sys.platform == "linux" and os.path.exists("/sys/devices/system/cpu/cpu0/cache"):
@@ -239,7 +239,7 @@ def _(sidebar):
 
 
 @app.cell
-def _():
+def _(mo):
     # On-demand execution buttons
     btn_pmu = mo.ui.run_button(kind="info", label="Evaluate Raw PMUs")
     btn_l1 = mo.ui.run_button(kind="info", label="Evaluate Topdown L1")
@@ -252,7 +252,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(btn_pmu):
+def _(btn_pmu, mo):
     mo.md(f"""
     ## 2. Raw Hardware Counters (PMU)
     CPUs expose raw counters to track specific events. We can ask the CPU exactly how many cycles were spent or how many L1/L2 cache misses occurred.
@@ -261,20 +261,16 @@ def _(btn_pmu):
 
     {btn_pmu}
     """)
-    return
 
 
 @app.cell
-def _(btn_pmu, exec_error, module):
-    # Wait for button click
+def _(btn_pmu, exec_error, mo, module):
     mo.stop(not btn_pmu.value, mo.md("*Click the button above to execute PMU Evaluation.*"))
 
     if module is None:
-        pmu_ui = mo.md(f"**Compilation Error in Sandbox:**\n```python\n{exec_error}\n```")
+        pmu_ui = mo.md(f"**Compilation Error:**\n```python\n{exec_error}\n```")
     else:
-        pmu_counters = ["cycles", "instructions"]
-        if platform == "linux":
-            pmu_counters += ["mem_load_retired.l1_miss", "mem_load_retired.l2_miss"]
+        pmu_counters = ["cycles", "instructions", "cache_access", "cache_misses", "branches", "branches_misses"]
 
         evaluator_pmu = module.get_evaluator(validate=True, pmu_counters=pmu_counters)
         results_pmu, code_pmu, error_pmu = evaluator_pmu.evaluate()
@@ -285,13 +281,12 @@ def _(btn_pmu, exec_error, module):
             mo.ui.table(_pmu_data, label="Raw PMU Results")
         ])
 
-    # Render UI
     pmu_ui
     return
 
 
 @app.cell(hide_code=True)
-def _(btn_l1):
+def _(btn_l1, mo):
     mo.md(f"""
     ## 3. Top-down Microarchitecture Analysis (Level 1)
     Raw counters are hard to interpret. To solve this, **TMA** (Top-down Analysis) groups all CPU pipeline slots into 4 distinct categories, summing up to 100%:
@@ -301,12 +296,13 @@ def _(btn_l1):
     *   🔴 **Bad Speculation:** The CPU guessed a branch wrong and had to flush its pipeline.
     *   🔵 **Frontend Bound:** The CPU is starved; it cannot fetch/decode instructions fast enough.
     *   🟣 **Backend Bound:** The CPU is waiting (usually for Memory or Execution Units) to finish the current instructions.
+
+    {btn_l1}
     """)
-    return
 
 
 @app.cell
-def _(btn_l1, exec_error, module):
+def _(btn_l1, exec_error, mo, module, platform):
     mo.stop(not btn_l1.value, mo.md("*Click the button above to execute Topdown L1 Evaluation.*"))
 
     if module is None:
@@ -320,24 +316,49 @@ def _(btn_l1, exec_error, module):
 
         if tma_l1_counters and len(results_l1) > 0:
             if results_l1[0] < 0:
-                 _l1_ui_table = mo.accordion({"Fallback to `perf stat` output": mo.md(f"```text\n{error_l1}\n```")})
+                 _l1_ui_display = mo.accordion({"Fallback to `perf stat` output": mo.md(f"```text\n{error_l1}\n```")})
             else:
                 _l1_data = [{"Category": l, "Percentage (%)": round(v, 2)} for l, v in zip(_l1_labels, results_l1)]
                 _l1_ui_table = mo.ui.table(_l1_data, label="Topdown L1 Results")
+
+                try:
+                    import altair as alt
+
+                    _chart = alt.Chart(alt.Data(values=_l1_data)).mark_arc(innerRadius=50).encode(
+                        theta=alt.Theta(field="Percentage (%)", type="quantitative"),
+                        color=alt.Color(
+                            field="Category",
+                            type="nominal",
+                            scale=alt.Scale(
+                                domain=_l1_labels,
+                                range=["#4ade80", "#ff4a4a", "#60a5fa", "#c084fc"] # Vert, Rouge, Bleu, Violet
+                            ),
+                            legend=alt.Legend(title="Bottlenecks")
+                        ),
+                        tooltip=["Category:N", "Percentage (%):Q"]
+                    ).properties(width=300, height=300, title="TMA L1 Breakdown")
+
+                    _l1_ui_display = mo.hstack([_l1_ui_table, mo.ui.altair_chart(_chart)], justify="start", gap=4)
+
+                except ImportError:
+                    _l1_ui_display = mo.vstack([
+                        mo.md("*Tip: Install `altair` (`pip install altair`) to see the interactive pie chart!*"),
+                        _l1_ui_table
+                    ])
         else:
-            _l1_ui_table = mo.md("*TMA L1 is not supported on this machine.*")
+            _l1_ui_display = mo.md("*TMA L1 is not supported on this machine.*")
 
         l1_ui = mo.vstack([
             mo.md(f"**Execution Code:** `{code_l1}`"),
-            _l1_ui_table
+            _l1_ui_display
         ])
 
     l1_ui
-    return
+    return evaluator_l1, l1_ui, results_l1, tma_l1_counters
 
 
-@app.cell(hide_code=True)
-def _(btn_l2):
+@app.cell
+def _(btn_l2, mo):
     mo.md(f"""
     ## 4. Drilling Down (Topdown Level 2)
     If our code is heavily **Backend Bound**, we need to know why. TMA Level 2 splits the L1 categories further:
@@ -351,7 +372,7 @@ def _(btn_l2):
 
 
 @app.cell
-def _(btn_l2, exec_error, module):
+def _(btn_l2, exec_error, mo, module, platform):
     mo.stop(not btn_l2.value, mo.md("*Click the button above to execute Topdown L2 Evaluation.*"))
 
     if module is None:
@@ -374,24 +395,54 @@ def _(btn_l2, exec_error, module):
 
         if tma_l2_counters and len(results_l2) > 0:
             if results_l2[0] < 0:
-                 _l2_ui_table = mo.vstack([
-                     mo.callout(mo.md("*Internal C resolver unsupported for L2. Showing perf stat output below.*"), kind="warn"),
+                 _l2_ui_display = mo.vstack([
+                     mo.callout(mo.md("*Internal C resolver unsupported for L2. Showing `perf stat` output below.*"), kind="warn"),
                      mo.accordion({"Terminal Output from perf": mo.md(f"```text\n{error_l2}\n```")})
                  ])
             else:
                 _l2_data = [{"Sub-Category": l, "Percentage (%)": round(v, 2)} for l, v in zip(_l2_labels, results_l2)]
                 _l2_ui_table = mo.ui.table(_l2_data, label="Topdown L2 Results")
-        else:
-            _l2_ui_table = mo.md("*TMA L2 is not supported on this machine.*")
 
-        l2_ui = mo.vstack([mo.md(f"**Execution Code:** `{code_l2}`"), _l2_ui_table])
+                try:
+                    import altair as alt2
+
+                    _chart = alt2.Chart(alt2.Data(values=_l2_data)).mark_arc(innerRadius=50).encode(
+                        theta=alt2.Theta(field="Percentage (%)", type="quantitative"),
+                        color=alt2.Color(
+                            field="Sub-Category",
+                            type="nominal",
+                            scale=alt2.Scale(
+                                domain=_l2_labels,
+                                range=[
+                                    "#4ade80", "#22c55e", # light green, deep green (Retiring)
+                                    "#f87171", "#ef4444", # light red, deep red (Bad Spec)
+                                    "#60a5fa", "#3b82f6", # light blue, deep blue (Frontend)
+                                    "#c084fc", "#a855f7"  # light purple, deep purple (Backend)
+                                ]
+                            ),
+                            legend=alt2.Legend(title="Sub-Bottlenecks")
+                        ),
+                        tooltip=["Sub-Category:N", "Percentage (%):Q"]
+                    ).properties(width=350, height=300, title="TMA L2 Breakdown")
+
+                    _l2_ui_display = mo.hstack([_l2_ui_table, mo.ui.altair_chart(_chart)], justify="start", gap=4)
+
+                except ImportError:
+                    _l2_ui_display = mo.vstack([
+                        mo.md("*Tip: Install `altair` (`pip install altair`) to see the interactive pie chart!*"),
+                        _l2_ui_table
+                    ])
+        else:
+            _l2_ui_display = mo.md("*TMA L2 is not supported on this machine.*")
+
+        l2_ui = mo.vstack([mo.md(f"**Execution Code:** `{code_l2}`"), _l2_ui_display])
 
     l2_ui
-    return
+    return evaluator_l2, l2_ui, results_l2, tma_l2_counters
 
 
 @app.cell(hide_code=True)
-def _():
+def _(mo):
     mo.md(r"""
     ## How to fix Core Bound vs Memory Bound?
 
@@ -409,7 +460,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(btn_sandbox, sandbox_editor):
+def _(btn_sandbox, mo, sandbox_editor):
     mo.vstack([
         mo.md(r"""
         ---
@@ -457,8 +508,8 @@ def _(mo):
     supported_arch_msg = mo.accordion({
         "💡 View supported TMA architectures": tma_support_content
     })
+    return (supported_arch_msg,)
 
-    return supported_arch_msg,
 
 @app.cell
 def _(mo):
@@ -520,8 +571,7 @@ def _(mo):
     reminder_output_msg = mo.accordion({
         "💡 Output reminder & Topdown Metrics Dictionary": tma_output_content
     })
-
-    return reminder_output_msg,
+    return (reminder_output_msg,)
 
 
 @app.cell
@@ -533,9 +583,11 @@ def _(reminder_output_msg):
 @app.cell
 def _(supported_arch_msg):
     supported_arch_msg
+    return
+
 
 @app.cell
-def _(btn_sandbox, module, sandbox_editor):
+def _(btn_sandbox, mo, module, sandbox_editor):
     mo.stop(not btn_sandbox.value, mo.md("*Click 'Run Custom Metrics' to see the results.*"))
 
     if module is None:
