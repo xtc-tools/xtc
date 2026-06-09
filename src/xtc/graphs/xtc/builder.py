@@ -4,6 +4,7 @@
 #
 from typing import Any
 import yaml
+from pathlib import Path
 
 from .graph import XTCGraph
 from .context import XTCGraphContext
@@ -75,7 +76,7 @@ class graph_builder:
         cls.from_dict(yaml.safe_load(yaml_str))
 
     @classmethod
-    def load(cls, file_name: str) -> None:
+    def load(cls, file_name: str | Path) -> None:
         with open(file_name, "r") as f:
             cls.from_dict(yaml.safe_load(f))
 

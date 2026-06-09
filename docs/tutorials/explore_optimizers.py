@@ -15,6 +15,7 @@ def _():
         search_type="random",
         batch=8,
         opt_name="random-forest-default",
+        progress_cls="mo",
     )
     if not mo.running_in_notebook():
         parser = argparse.ArgumentParser("Test notebook from CLI")
@@ -23,6 +24,7 @@ def _():
         parser.add_argument("--opt-name", type=str, default=args.opt_name)
         parser.add_argument("--batch", type=int, default=args.batch)
         args = parser.parse_args()
+        args.progress_cls = "tqdm"
 
     return explore, mo, args
 
@@ -159,6 +161,7 @@ def _(mo, search_ui):
 
 @app.cell
 def _(
+    args,
     backend_ui,
     batch_ui,
     explore,
@@ -188,13 +191,13 @@ def _(
     def config_used(ui):
         pass
 
-    def set_explore_args(config_path):
+    def get_explore_config(**kwargs):
         strategy_param = strategy_param_ui.value if strategy_ui.value == "prt" else ""
         if strategy_param:
             strategy = f"{strategy_ui.value}:{strategy_param}"
         else:
             strategy = strategy_ui.value
-        args = explore.default_exploration_config(
+        return explore.ExplorationConfig(
             operator = operator_ui.value,
             backends = backend_ui.value,
             strategy = strategy,
@@ -202,10 +205,10 @@ def _(
             seed = seed_ui.value,
             batch = batch_ui.value,
             optimizer = optimizer_ui.value,
-            optimizer_config = config_path,
-            trials = trials_ui.value
+            trials = trials_ui.value,
+            progress_cls = args.progress_cls,
+            **kwargs,
         )
-        return args
 
     def loop_explore():
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -215,11 +218,13 @@ def _(
                 tmpdir,
                 optimizer_config_ui,
             )
-            args = set_explore_args(config_path)
-            args.output = output_path
+            config = get_explore_config(
+                output=output_path,
+                optimizer_config=config_path,
+            )
 
             #mo.output.append("optimizing...")
-            exploration = explore.Exploration(args)
+            exploration = explore.Exploration(config)
             exploration()
 
             best = 0
@@ -257,11 +262,11 @@ def _(mo):
 def _(button, mo, run_loop_explore):
     if mo.running_in_notebook():
         mo.stop(not button.value)
-        with mo.status.spinner():
+        with mo.redirect_stdout(), mo.redirect_stderr():
             explore_out = run_loop_explore()
     else:
         explore_out = run_loop_explore()
-    mo.md(explore_out)
+    #mo.md(explore_out)
     return
 
 if __name__ == "__main__":

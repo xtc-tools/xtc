@@ -4,16 +4,18 @@ set -euo pipefail
 outdir="${1-.}"
 BACKENDS="${BACKENDS:-tvm}"
 TRIALS="${TRIALS:-100}"
-SEEDS="${SEEDS:- 1 2 3 4 5}"
+SEEDS="${SEEDS:-1 2 3 4 5}"
 STRATEGY="${STRATEGY:-tile_ppwrprp}"
 OPTIMIZERS="${OPTIMIZERS:-random random-forest-aggressive}"
 PROBLEM="${PROBLEM:-ResNet18_01}"
 OPERATOR="${OPERATOR:-conv2d}"
 JOBS="${JOBS:-1}"
 BATCH="${BATCH:-1}"
+TRIALS="${TRIALS:-100}"
 
 mkdir -p "$outdir"
 rm -f "$outdir/*.csv"
+rm -f "$outdir/*.json"
 
 for b in $BACKENDS; do
     echo "using backend $b"
@@ -30,7 +32,8 @@ for b in $BACKENDS; do
               --op-name "$PROBLEM" \
               --jobs "$JOBS" \
               --batch "$BATCH" \
-              --seed $s \
+              --trials "$TRIALS" \
+              --seed "$s" \
               --strategy "$STRATEGY" \
               --output "$outdir/results.b$b.prob$PROBLEM.strat$STRATEGY.seed$s.csv"
             )

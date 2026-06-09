@@ -1,0 +1,29 @@
+name: matmul
+inputs:
+- uid: '%0'
+  expr:
+    type:
+      shape:
+      - 512
+      - 128
+      dtype: float32
+- uid: '%1'
+  expr:
+    type:
+      shape:
+      - 128
+      - 1024
+      dtype: float32
+outputs:
+- uid: '%2'
+nodes:
+- name: C
+  uid: '%2'
+  expr:
+    op:
+      name: matmul
+      attrs: {}
+    args:
+    - '%0'
+    - '%1'
+ops_version: b1d3d482365150a5

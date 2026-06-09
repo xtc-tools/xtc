@@ -1,0 +1,36 @@
+name: conv2d
+inputs:
+- uid: '%0'
+  expr:
+    type:
+      shape:
+      - 1
+      - 230
+      - 230
+      - 3
+      dtype: float32
+- uid: '%1'
+  expr:
+    type:
+      shape:
+      - 7
+      - 7
+      - 3
+      - 64
+      dtype: float32
+outputs:
+- uid: '%2'
+nodes:
+- name: O
+  uid: '%2'
+  expr:
+    op:
+      name: conv2d
+      attrs:
+        stride:
+        - 2
+        - 2
+    args:
+    - '%0'
+    - '%1'
+ops_version: b1d3d482365150a5

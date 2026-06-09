@@ -1,5 +1,23 @@
+import pytest
 import tempfile
 import xtc.graphs.xtc.op as O
+from pathlib import Path
+
+GRAPHS_DIR = Path(__file__).parents[2] / "graphs"
+
+@pytest.mark.parametrize(
+    "opname",
+    [
+        "matmul",
+        "conv2d",
+    ]
+)
+def test_matmul_graph_load(opname: str):
+    with O.graph() as gb:
+        gb.load(GRAPHS_DIR / f"{opname}.graph.yaml")
+    graph = gb.graph
+    assert graph.name == opname
+
 
 def test_matmul_relu_to_from_dict():
     I, J, K, dtype = 4, 32, 512, "float32"
@@ -15,7 +33,7 @@ def test_matmul_relu_to_from_dict():
         gb2.from_dict(graph_dict)
     assert graph_dict != {}
     assert graph_dict == gb2.graph.to_dict()
-        
+
 
 def test_conv2d_pad_sdump_sload():
     N, H, W, F, R, S, C, SH, SW, dtype = 1, 8, 8, 16, 5, 5, 3, 2, 2, "float32"
@@ -57,10 +75,10 @@ def test_mlp_fc_custom_output():
             l4 = fc(l3, w4, 10)
         O.reshape(l4, shape=(-1,))
         O.outputs(l1)
-   
+
     graph_dict = gb.graph.to_dict()
     with O.graph() as gb2:
         gb2.from_dict(graph_dict)
     assert graph_dict != {}
     assert graph_dict == gb2.graph.to_dict()
-    
+

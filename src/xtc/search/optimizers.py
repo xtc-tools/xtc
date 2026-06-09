@@ -131,7 +131,7 @@ class RandomForestOptimizer(BaseOptimizer):
     def observe(self, x: list[VecSample], y: list[float]):
         self.X += x
         self.y += y
-        for i in range(0, self.batch):
+        for i in range(len(y)):
             if y[i] > self.best_y:
                 self.best_x = x[i]
                 self.best_y = y[i]

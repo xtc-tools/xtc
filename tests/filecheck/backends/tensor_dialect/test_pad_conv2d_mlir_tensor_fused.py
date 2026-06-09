@@ -26,7 +26,7 @@ sched = sch.schedule()
 
 comp = impl.get_compiler(
     shared_lib=True,
-    dump_file="pad_conv2d_nhwc_mini_mlir_tensor",
+    dump_file="pad_conv2d_nhwc_mini_mlir_tensor_fused",
     print_source_ir=True,
     print_transformed_ir=True,
     print_bufferization_ir=True,

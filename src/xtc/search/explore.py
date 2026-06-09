@@ -14,11 +14,9 @@ Though most strategies are supported for all backends for matmult.
 
 """
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import sys
 import os
-import argparse
 from argparse import Namespace as NS
 import logging
 import itertools
@@ -28,14 +26,11 @@ import random
 from datetime import datetime, timezone
 import numpy as np
 import numpy.typing
-from tqdm import tqdm
 import subprocess
-from concurrent.futures import ThreadPoolExecutor, Future
 import multiprocessing
 from pathlib import Path
 from collections.abc import Sequence, Mapping
 from typing import Any, TypeAlias, cast
-from typing_extensions import override
 from importlib import import_module
 
 from xtc.itf.back import Backend
@@ -55,12 +50,16 @@ from xtc.runtimes.host import HostRuntime
 from xtc.artifacts import get_operation, list_operations
 from xtc.search.optimizers import Optimizers
 
+from .progress import SearchProgress, SearchProgressTQDM, SearchProgressMO
+from .callback import ResultCallBack, CSVCallback, DBCallback, MemoryCallback
+from .pipeline import CompileExecutePipeline
+
 logger = logging.getLogger(__name__)
 
 NPSamples: TypeAlias = numpy.typing.NDArray[np.int64]
 CallBacks: TypeAlias = Mapping[str, Any]
 
-__all__ = ["ExplorationConfig", "default_exploration_config", "Exploration"]
+__all__ = ["ExplorationConfig", "Exploration"]
 
 
 @dataclass
@@ -68,9 +67,8 @@ class ExplorationConfig:
     operator: str | None = "matmul"
     graph_file: str | None = None
     op_name: str | None = None
-    ops_list: bool = False
     func_name: str | None = None
-    strategy: str | None = None
+    strategy: str = "tile_oo"
     search: str = "random"
     backends: list[str] = field(default_factory=lambda: ["mlir"])
     optimizer: str = "random-forest-default"
@@ -92,24 +90,20 @@ class ExplorationConfig:
     repeat: int = 1
     number: int = 1
     min_repeat_ms: int = 100
-    validate: bool | None = None
-    save_temps: bool | None = None
+    validate: bool = False
+    save_temps: bool = False
     save_temps_dir: str = "./save_temps_dir"
     explore_dir: str = "."
-    optimizer_config: str | None = None
-    child: bool = True
+    optimizer_config: str = ""
     bare_ptr: bool = False
     jobs: int = field(default_factory=lambda: max(1, multiprocessing.cpu_count() // 2))
     execute: bool = True
     peak_flops: float | None = None
     mlir_prefix: str | None = None
     batch: int = 1
-    debug: bool | None = None
-    debug_compile: bool | None = None
-    debug_xtc: bool | None = None
-    debug_optimizer: bool | None = None
-    quiet: bool | None = None
-    dump: bool | None = None
+    debug_compile: bool = False
+    quiet: bool = False
+    dump: bool = False
     eval_parameters: Any = None
     memory_callback: Any = None
     csv_callback: Any = None
@@ -117,333 +111,41 @@ class ExplorationConfig:
     results: list[Sequence] = field(default_factory=list)
     descript: str | None = None
     use_tensors: bool = False
+    progress_cls: str = "tqdm"
 
+    def __post_init__(self):
+        if self.graph_file is not None:
+            self.operator = None
+            self.func_name = None
 
-def default_exploration_config(
-    config: ExplorationConfig | NS | None = None,
-    **overrides: Any,
-) -> ExplorationConfig:
-    """Return a complete, normalized exploration configuration.
+        # Workaround to ensure that TVM backend is after MLIR backends,
+        # otherwise the import of tvm breaks the MLIR python bindings
+        self.backends = sorted(self.backends)
 
-    The returned object can be passed directly to :class:`Exploration` and
-    customized further by user scripts and notebooks before running.
-    """
-    normalized = ExplorationConfig()
-    if config is not None:
-        for key, value in vars(config).items():
-            if hasattr(normalized, key):
-                setattr(normalized, key, value)
-    for key, value in overrides.items():
-        if not hasattr(normalized, key):
-            raise TypeError(f"unknown exploration configuration option: {key}")
-        setattr(normalized, key, value)
-    setup_args(normalized)
-    return normalized
+        if self.operator:
+            if not self.func_name:
+                self.func_name = self.operator
+            for backend in self.backends:
+                assert backend in cast(list, OPERATORS[self.operator]["backends"]), (
+                    f"backend {backend} not available for operator {self.operator}"
+                )
 
-
-class SearchProgress:
-    def search_start(self, ntasks: int):
-        pass
-
-    def compile_batch_start(self):
-        pass
-
-    def compile_job_start(self):
-        pass
-
-    def compile_job_end(self):
-        pass
-
-    def compile_batch_end(self):
-        pass
-
-    def execute_batch_start(self):
-        pass
-
-    def execute_job_start(self):
-        pass
-
-    def execute_job_end(self):
-        pass
-
-    def execute_batch_end(self):
-        pass
-
-    def search_end(self):
-        pass
-
-
-class SearchProgressTQDM(SearchProgress):
-    def __init__(
-        self,
-        ncomp_per_job: int = 1,
-        nexec_per_job: int = 1,
-        quiet: bool = False,
-        prefix: str = "",
-        position: int = 0,
+    @staticmethod
+    def from_args(
+        args: NS | None = None,
+        **overrides: Any,
     ):
-        self.ncomp_per_job = ncomp_per_job
-        self.nexec_per_job = nexec_per_job
-        self.quiet = quiet
-        self.prefix = prefix
-        self.position = position
-        self.allbar: Any = None
-        self.compbar: Any = None
-        self.evalbar: Any = None
-        self.ntasks = 0
-
-    @override
-    def search_start(self, ntasks: int):
-        self.ntasks = ntasks
-        tqdm_args = dict(
-            total=self.ntasks,
-            miniters=0,
-            mininterval=0,
-            smoothing=0,
-            disable=self.quiet,
-        )
-        self.allbar = tqdm(
-            desc=f"{self.prefix} evaluate".strip(),
-            colour="red",
-            position=self.position + 0,
-            **tqdm_args,  # type: ignore
-        )
-        self.compbar = tqdm(
-            desc=f"{self.prefix} compile".strip(),
-            colour="blue",
-            position=self.position + 1,
-            **tqdm_args,  # type: ignore
-        )
-        if self.nexec_per_job > 0:
-            self.evalbar = tqdm(
-                desc=f"{self.prefix} execute".strip(),
-                colour="green",
-                position=self.position + 2,
-                **tqdm_args,  # type: ignore
-            )
-
-    @override
-    def compile_batch_start(self):
-        self.compbar.unpause()
-
-    @override
-    def compile_job_start(self):
-        pass
-
-    @override
-    def compile_job_end(self):
-        self.compbar.update(self.ncomp_per_job)
-        if self.nexec_per_job == 0:
-            self.allbar.update(self.ncomp_per_job)
-
-    @override
-    def compile_batch_end(self):
-        self.compbar.update(0)
-        self.allbar.update(0)
-
-    @override
-    def execute_batch_start(self):
-        if self.nexec_per_job > 0:
-            self.evalbar.unpause()
-
-    @override
-    def execute_job_start(self):
-        pass
-
-    @override
-    def execute_job_end(self):
-        if self.nexec_per_job > 0:
-            self.evalbar.update(self.nexec_per_job)
-            self.allbar.update(self.nexec_per_job)
-
-    @override
-    def execute_batch_end(self):
-        pass
-
-    @override
-    def search_end(self):
-        self.compbar.unpause()
-        if self.nexec_per_job > 0:
-            self.evalbar.unpause()
-        self.allbar.close()
-        self.compbar.close()
-        if self.nexec_per_job > 0:
-            self.evalbar.close()
-
-
-class IterativeProgressTQDM(SearchProgressTQDM):
-    def __init__(self, *args: Any):
-        super().__init__(*args)
-
-    @override
-    def search_start(self, ntasks: int):
-        pass
-
-    @override
-    def search_end(self):
-        pass
-
-    def iterations_start(self, ntasks: int):
-        super().search_start(ntasks)
-
-    def iterations_end(self):
-        super().search_end()
-
-
-class ResultCallBack(ABC):
-    @abstractmethod
-    def __call__(self, result: Sequence) -> None: ...
-
-
-from xtc.cli.query_results import ResultsDB
-
-
-class DBCallback(ResultCallBack):
-    def __init__(
-        self,
-        dbfile: str,
-        target: str,
-        threads: int,
-        strategy: str,
-    ) -> None:
-        self._dbfile = dbfile
-        self._target = target
-        self._threads = threads
-        self._version = ResultsDB.get_version()
-        self._platform = ResultsDB.get_native_platform()
-        self._operator: list[Any] | None = None
-        self._strategy = ResultsDB.get_strategy(strategy)
-
-    def set_graph(self, graph: Graph):
-        # assert len(graph.nodes) == 1, f"Only support recording of single node graph"
-        # self._operator = ["xtc.operator", *signature]
-        self._operator = ResultsDB.get_operator(graph)
-
-    def _write_result(self, result: Sequence) -> None:
-        x, code, time, backend = result
-        if code != 0:
-            time = 0
-        compiler = ResultsDB.get_compiler(self._target, self._threads, backend)
-        log = dict(
-            version=self._version,
-            platform=self._platform,
-            compiler=compiler,
-            operator=self._operator,
-            strategy=self._strategy,
-            schedule=list(x),
-            results=[int(code), [float(time)]],
-        )
-        log_json = json.dumps(log)
-        with open(self._dbfile, "a") as outf:
-            print(log_json, flush=True, file=outf)
-
-    @override
-    def __call__(self, result: Sequence) -> None:
-        self._write_result(result)
-
-
-class MemoryCallback(ResultCallBack):
-    def __init__(self) -> None:
-        self.results: list[Sequence] = []
-
-    @override
-    def __call__(self, result: Sequence) -> None:
-        self.results.append(result)
-
-
-class CSVCallback(ResultCallBack):
-    def __init__(
-        self,
-        fname: str,
-        peak_time: float,
-        sample_names: list[str],
-        *,
-        resume: bool = False,
-        append: bool = False,
-    ) -> None:
-        self._fname = fname
-        self._peak_time = peak_time
-        self._sample_names = sample_names
-        self._header = sample_names + ["X", "time", "peak", "backend"]
-        self._results: list[Sequence] = []
-        self._rows: list[Sequence] = []
-        self._seen_keys: set[tuple[str, tuple[int, ...]]] = set()
-        self._resume = resume
-        self._append = append
-
-        out_path = Path(fname)
-        has_existing_file = out_path.exists() and out_path.stat().st_size > 0
-        if resume:
-            self._load_existing_rows()
-            mode = "a"
-        elif append:
-            mode = "a"
-        else:
-            mode = "w"
-
-        self._outf = open(fname, mode, newline="")
-        self._writer = csv.writer(self._outf, delimiter=",")
-
-        should_write_header = (not has_existing_file) or (mode == "w")
-        if should_write_header:
-            self._write_header()
-
-    def _load_existing_rows(self) -> None:
-        in_path = Path(self._fname)
-        if not in_path.exists() or in_path.stat().st_size == 0:
-            return
-        with open(in_path, newline="") as infile:
-            reader = csv.DictReader(infile, delimiter=",")
-            for row in reader:
-                backend = row.get("backend")
-                if backend is None:
-                    continue
-                try:
-                    sample = tuple(int(row[name]) for name in self._sample_names)
-                except (TypeError, ValueError, KeyError):
-                    continue
-                self._seen_keys.add((backend, sample))
-
-    def _sample_key(self, x: Sample, backend: str) -> tuple[str, tuple[int, ...]]:
-        return backend, tuple(int(v) for v in x)
-
-    def _write_header(self) -> None:
-        self._writer.writerow(self._header)
-        self._outf.flush()
-
-    def _write_row(self, row: Sequence) -> None:
-        self._rows.append(row)
-        self._writer.writerow(row)
-        self._outf.flush()
-        try:
-            os.fsync(self._outf.fileno())
-        except OSError:
-            logger.debug("Unable to fsync output file %s", self._fname)
-
-    def _write_result(self, result: Sequence) -> None:
-        self._results.append(result)
-        x, error, time, backend = result
-        if error != 0:
-            logger.debug(f"Skip recording error for: {backend}: {x}")
-            return
-        key = self._sample_key(x, backend)
-        if self._resume and key in self._seen_keys:
-            logger.debug("Skip already recorded sample for resume mode: %s", key)
-            return
-        peak = self._peak_time / time
-        s = str(x).replace(",", ";")
-        row = [s, time, peak, backend]
-        row = x + row
-        logger.debug(f"Record row: {row}")
-        self._write_row(row)
-        self._seen_keys.add(key)
-
-    @override
-    def __call__(self, result: Sequence) -> None:
-        self._write_result(result)
-
-    def __del__(self) -> None:
-        self._outf.close()
+        config = ExplorationConfig()
+        if args is not None:
+            for key, value in vars(args).items():
+                if hasattr(config, key):
+                    setattr(config, key, value)
+        for key, value in overrides.items():
+            if not hasattr(config, key):
+                raise TypeError(f"unknown exploration configuration option: {key}")
+            setattr(config, key, value)
+        config.__post_init__()
+        return config
 
 
 OPERATORS = {
@@ -502,9 +204,8 @@ class Exploration:
     then inspect the structured results through the :attr:`results` field.
     """
 
-    def __init__(self, config: ExplorationConfig | NS | None = None, **overrides: Any):
-        config = default_exploration_config(config=config, **overrides)
-        self.config = config
+    def __init__(self, config: ExplorationConfig | None = None):
+        self.config = config if config is not None else ExplorationConfig()
         self.results: list[Sequence] = []
 
     @staticmethod
@@ -566,8 +267,8 @@ class Exploration:
         impl = module.Backend(graph, **kwargs)
         return impl, backend
 
-    @staticmethod
-    def get_dims(args: NS | ExplorationConfig) -> dict[str, int]:
+    def get_dims(self) -> dict[str, int]:
+        args = self.config
         if not args.operator:
             return {}
         dims_names = cast(list[str], OPERATORS[args.operator]["dims"])
@@ -582,21 +283,21 @@ class Exploration:
         dims_map = {k: v for k, v in zip(dims_names, dims)}
         return dims_map
 
-    @staticmethod
-    def get_dtype(args: NS | ExplorationConfig) -> str:
+    def get_dtype(self) -> str:
+        args = self.config
         if not args.operator:
             return ""
         return args.dtype
 
-    @staticmethod
-    def get_eval_parameters(args: NS | ExplorationConfig):
+    def init_eval_parameters(self):
+        args = self.config
         assert args.operator is not None
         if args.huge_pages:
             NDArray.set_alloc_alignment(2 * 1024 * 1024)
         else:
             NDArray.set_alloc_alignment(256)
-        dims_map = Exploration.get_dims(args)
-        dtype = Exploration.get_dtype(args)
+        dims_map = self.get_dims()
+        dtype = self.get_dtype()
         inputs = cast(list[list[str]], OPERATORS[args.operator]["inputs"])
         outputs = cast(list[list[str]], OPERATORS[args.operator]["outputs"])
         inputs_spec = [
@@ -617,10 +318,9 @@ class Exploration:
         graph: Graph,
         strategy: Strategy,
         in_x: Sample,
-        args: NS | ExplorationConfig | None = None,
         callbacks: CallBacks = {},
     ):
-        args = cast(NS, self.config if args is None else args)
+        args = self.config
         compiled = []
         for backend in args.backends:
             task_ident = f"{graph.name}_{backend}_{ident}"
@@ -631,7 +331,6 @@ class Exploration:
                     graph,
                     strategy,
                     in_x,
-                    args,
                     callbacks=callbacks,
                 )
             )
@@ -644,11 +343,10 @@ class Exploration:
         graph: Graph,
         strategy: Strategy,
         in_x: Sample,
-        args: NS | ExplorationConfig | None = None,
         callbacks: CallBacks = {},
         dump_file: str | None = None,
     ):
-        args = cast(NS, self.config if args is None else args)
+        args = self.config
         assert isinstance(in_x, list), f"X not a list: {in_x} ({type(in_x)})"
         logger.debug("Compile: %s: %s: %s...", ident, backend, in_x)
         impl, backend_name = self.graph_implementer(
@@ -701,10 +399,9 @@ class Exploration:
         backend: str,
         module: Module,
         in_x: Sample,
-        args: NS | ExplorationConfig | None = None,
         callbacks: CallBacks = {},
     ):
-        args = cast(NS, self.config if args is None else args)
+        args = self.config
         logger.debug("Evaluate: %s: %s...", ident, in_x)
         evaluator_args = dict(
             repeat=args.repeat,
@@ -745,119 +442,111 @@ class Exploration:
         strategy: Strategy,
         all_in_x: NPSamples,
         graph: Graph,
-        args: NS | ExplorationConfig | None = None,
         callbacks: CallBacks = {},
     ):
-        args = cast(NS, self.config if args is None else args)
-        jobs = args.jobs
+        jobs = self.config.jobs
+        ntasks = len(all_in_x)
+        batch_ntasks = ntasks * len(self.config.backends)
 
-        def do_compile(idx: int, in_x: Sample):
-            return idx, self.compile_one_all_backends(
+        def compile_func(idx_sample: Any) -> Any:
+            idx, in_x = idx_sample
+            if idx % jobs == 0:
+                search_callback.compile_batch_start()
+            search_callback.compile_job_start()
+            res = self.compile_one_all_backends(
                 ident=f"{idx:04}",
                 graph=graph,
                 strategy=strategy,
                 in_x=in_x,
-                args=args,
                 callbacks=callbacks,
             )
+            search_callback.compile_job_end()
+            if idx == ntasks - 1 or idx + jobs - 1 % jobs == 0:
+                search_callback.compile_batch_end()
+            return idx, res
 
-        ntasks = len(all_in_x) * len(args.backends)
+        def execute_func(idx_comp_result: Any) -> Any:
+            if not self.config.execute:
+                return None
+            idx, comp_result = idx_comp_result
+            if idx % jobs == 0:
+                search_callback.execute_batch_start()
+            search_callback.execute_job_start()
+            exec_results = []
+            for compiled in comp_result:
+                search_callback.execute_job_start()
+                ident, backend, module, dump_file, in_x = compiled
+                exec_results.append(
+                    self.load_and_evaluate_sample(
+                        ident,
+                        backend,
+                        module,
+                        in_x,
+                        callbacks=callbacks,
+                    )
+                )
+                search_callback.execute_job_end()
+            if idx == ntasks - 1 or idx + jobs - 1 % jobs == 0:
+                search_callback.execute_batch_end()
+            return exec_results
+
+        pipeline = CompileExecutePipeline(
+            compile_func,
+            execute_func,
+            jobs,
+        )
         search_callback = cast(
             SearchProgress,
             callbacks["search"] if "search" in callbacks else SearchProgress(),
         )
-        search_callback.search_start(ntasks)
-        results = []
-        try:
-            for job_idx, job_in_x in enumerate(
-                np.array_split(all_in_x, np.ceil(len(all_in_x) / jobs), axis=0)
-            ):
-                search_callback.compile_batch_start()
-                job_compiled = []
-                if jobs == 1:
-                    search_callback.compile_job_start()
-                    job_compiled.append(
-                        do_compile(idx=job_idx, in_x=job_in_x[0].tolist())
-                    )
-                    search_callback.compile_job_end()
-                else:
-
-                    def future_callback(future: Future):
-                        job_compiled.append(future.result())
-                        search_callback.compile_job_end()
-
-                    with ThreadPoolExecutor(max_workers=jobs) as executor:
-                        futures = []
-                        for idx, in_x in enumerate(job_in_x):
-                            search_callback.compile_job_start()
-                            future = executor.submit(
-                                do_compile,
-                                idx=job_idx * jobs + idx,
-                                in_x=in_x.tolist(),
-                            )
-                            future.add_done_callback(future_callback)
-                            futures.append(future)
-                    if len(job_compiled) < len(job_in_x):
-                        raise RuntimeError("compilation error in some compile job(s)")
-                search_callback.compile_batch_end()
-                if args.execute:
-                    compiled_results = [
-                        x[1] for x in sorted(job_compiled, key=lambda x: x[0])
-                    ]
-                    search_callback.execute_batch_start()
-                    for compiled_list in compiled_results:
-                        for compiled in compiled_list:
-                            search_callback.execute_job_start()
-                            ident, backend, module, dump_file, in_x = compiled
-                            results.append(
-                                self.load_and_evaluate_sample(
-                                    ident,
-                                    backend,
-                                    module,
-                                    in_x,
-                                    args,
-                                    callbacks=callbacks,
-                                )
-                            )
-                            search_callback.execute_job_end()
-                    search_callback.execute_batch_end()
-        finally:
-            search_callback.search_end()
-        return results
+        search_callback.batch_start(batch_ntasks)
+        results = pipeline.run(enumerate(x.tolist() for x in all_in_x))
+        search_callback.batch_end()
+        if self.config.execute:
+            exec_results = [
+                x
+                for x in itertools.chain(*[res.exec_result for res in results])
+                if x is not None
+            ]
+        else:
+            exec_results = []
+        return exec_results
 
     def evaluate_iterative(
         self,
         strategy: Strategy,
         graph: Graph,
-        args: NS | ExplorationConfig | None = None,
         callbacks: CallBacks = {},
         peak_time: float = 0,
     ):
-        args = cast(NS, self.config if args is None else args)
+        args = self.config
         optimizer = Optimizers.from_name(args.optimizer)
         opt = optimizer(strategy.sample, args.batch, args.seed, args.optimizer_config)
         all_results = []
-        callbacks["search"].iterations_start(args.trials * len(args.backends))
-        for step in range(0, args.trials, args.batch):
-            in_x = opt.suggest()
-            results = self.evaluate_all_parallel(
-                strategy, np.array(in_x), graph, args, callbacks
-            )
-            all_results.extend(results)
-            peaks = [peak_time / res[-2] for res in results]
-            opt.observe(in_x, peaks)
+        progress = callbacks["search"]
+        progress.search_start(args.trials * len(args.backends))
+        try:
+            for step in range(0, args.trials, args.batch):
+                size = min(args.batch, args.trials - step)
+                in_x = opt.suggest()[:size]
+                results = self.evaluate_all_parallel(
+                    strategy, np.array(in_x), graph, callbacks=callbacks
+                )
+                all_results.extend(results)
+                peaks = [peak_time / res[-2] for res in results]
+                opt.observe(in_x, peaks)
+        finally:
+            progress.search_end()
         opt.finished()
-        callbacks["search"].iterations_end()
         return all_results
 
     def evaluate_generate(
         self,
         strategy: Strategy,
         graph: Graph,
-        args: NS | ExplorationConfig | None = None,
         callbacks: CallBacks = {},
     ):
-        args = cast(NS, self.config if args is None else args)
+        args = self.config
         assert args.search in ["exhaustive", "random"]
         if args.search == "random":
             assert args.trials > 0
@@ -869,37 +558,53 @@ class Exploration:
                 all_in_x = np.array(list(itertools.islice(all_ex_x, args.trials)))
             else:
                 all_in_x = np.array(list(all_ex_x))
-        return self.evaluate_all_parallel(strategy, all_in_x, graph, args, callbacks)
+        progress = callbacks["search"]
+        progress.search_start(len(all_in_x) * len(args.backends))
+        try:
+            res = self.evaluate_all_parallel(
+                strategy, all_in_x, graph, callbacks=callbacks
+            )
+        finally:
+            progress.search_end()
+        return res
 
     def evaluate_data(
         self,
         strategy: Strategy,
         X: NPSamples,
         graph: Graph,
-        args: NS | ExplorationConfig | None = None,
         callbacks: CallBacks = {},
     ):
-        args = cast(NS, self.config if args is None else args)
+        args = self.config
         size = len(X)
         logger.debug(f"Search space size: {size}")
-        return self.evaluate_all_parallel(strategy, X, graph, args, callbacks)
+        progress = callbacks["search"]
+        progress.search_start(size * len(args.backends))
+        try:
+            res = self.evaluate_all_parallel(strategy, X, graph, callbacks=callbacks)
+        finally:
+            progress.search_end()
+        return res
 
     def evaluate_sample(
         self,
         strategy: Strategy,
         in_x: Sample,
         graph: Graph,
-        args: NS | ExplorationConfig | None = None,
         callbacks: CallBacks = {},
     ):
-        args = cast(NS, self.config if args is None else args)
-        return self.evaluate_all_parallel(
-            strategy, np.array([in_x]), graph, args, callbacks
-        )
+        args = self.config
+        progress = callbacks["search"]
+        progress.search_start(1 * len(args.backends))
+        try:
+            res = self.evaluate_all_parallel(
+                strategy, np.array([in_x]), graph, callbacks=callbacks
+            )
+        finally:
+            progress.search_end()
+        return res
 
-    def read_input(
-        self, fname: str, args: NS | ExplorationConfig | None = None
-    ) -> NPSamples:
+    def read_input(self, fname: str) -> NPSamples:
         X = []
         with open(fname, newline="") as infile:
             reader = csv.reader(infile, delimiter=";")
@@ -911,12 +616,11 @@ class Exploration:
                 X.append(eval(row[X_idx], {}, {}))
         return np.array(X)
 
-    def peak_time(
-        self, graph: Graph, args: NS | ExplorationConfig | None = None
-    ) -> float:
-        args = cast(NS, self.config if args is None else args)
+    def peak_time(self, graph: Graph) -> float:
+        args = self.config
         if not args.execute:
             return 0
+        assert args.peak_flops is not None
         ops_count = graph.ops_count()
         return ops_count / args.peak_flops / args.threads
 
@@ -976,11 +680,10 @@ class Exploration:
         self,
         strategy: Strategy,
         graph: Graph,
-        args: NS | ExplorationConfig | None = None,
     ) -> list[ResultCallBack]:
-        args = cast(NS, self.config if args is None else args)
+        args = self.config
         callbacks: list[ResultCallBack] = []
-        ptime = self.peak_time(graph, args)
+        ptime = self.peak_time(graph)
         sample_names = strategy.sample_names
         args.memory_callback = MemoryCallback()
         callbacks.append(args.memory_callback)
@@ -1008,49 +711,69 @@ class Exploration:
         self,
         strategy: Strategy,
         graph: Graph,
-        args: NS | ExplorationConfig | None = None,
     ):
-        args = cast(NS, self.config if args is None else args)
+        args = self.config
         ncomp_per_job = len(args.backends)
         nexec_per_job = 1 if args.execute else 0
-        search_callback = SearchProgressTQDM(
+        search_callback = self.progress(
             ncomp_per_job,
             nexec_per_job,
             args.quiet,
             graph.name,
+            progress_cls=args.progress_cls,
         )
-        result_callbacks = self.get_result_callbacks(strategy, graph, args)
+        result_callbacks = self.get_result_callbacks(strategy, graph)
         callbacks = {"result": result_callbacks, "search": search_callback}
         if args.search == "iterative":
-            callbacks["search"] = IterativeProgressTQDM(
-                ncomp_per_job,
-                nexec_per_job,
-                args.quiet,
-                graph.name,
-            )
-            ptime = self.peak_time(graph, args)
+            ptime = self.peak_time(graph)
             return self.evaluate_iterative(
-                strategy, graph, args, callbacks=callbacks, peak_time=ptime
+                strategy, graph, callbacks=callbacks, peak_time=ptime
             )
         if args.search in ["exhaustive", "random"]:
-            return self.evaluate_generate(strategy, graph, args, callbacks=callbacks)
+            return self.evaluate_generate(strategy, graph, callbacks=callbacks)
         if args.search == "data":
             assert args.data is not None
-            X = self.read_input(args.data, args)
-            return self.evaluate_data(strategy, X, graph, args, callbacks=callbacks)
+            X = self.read_input(args.data)
+            return self.evaluate_data(strategy, X, graph, callbacks=callbacks)
         return []
 
-    def optimize(self, args: NS | ExplorationConfig | None = None):
-        args = cast(NS, self.config if args is None else args)
+    def initialize_context(self):
+        args = self.config
+        if "tvm" in args.backends:
+            os.environ["TVM_NUM_THREADS"] = str(args.threads)
+
+        if args.operator and args.eval == "eval" and args.execute:
+            self.init_eval_parameters()
+        if args.execute and args.peak_flops is None:
+            # TODO: get dtype from graph
+            args.peak_flops = HostRuntime.get().evaluate_flops(args.dtype)
+            assert args.peak_flops != 0, (
+                f"unable to evaluate machine flops for type {args.dtype}"
+            )
+            logger.debug(f"Estimated peak flops: %g", args.peak_flops)
+
+    @property
+    def progress(self):
+        cls = self.config.progress_cls
+        if cls == "tqdm":
+            return SearchProgressTQDM
+        elif cls == "mo":
+            return SearchProgressMO
+        assert False, f"unknown progress class: {cls}"
+
+    def optimize(self):
+        args = self.config
+        self.initialize_context()
         if args.operator:
             op_args = (
-                *Exploration.get_dims(args).values(),
-                Exploration.get_dtype(args),
+                *self.get_dims().values(),
+                self.get_dtype(),
             )
             graph = getattr(self, cast(str, OPERATORS[args.operator]["operation"]))(
                 *op_args, name=args.func_name
             )
         else:
+            assert args.graph_file is not None
             graph = self.xtc_load_graph(args.graph_file)
         strategy = self.get_strategy(graph, args)
         self.write_run_manifest(strategy, args)
@@ -1064,25 +787,25 @@ class Exploration:
                 schedule = strategy.default_schedule(args.opt_level)
             ncomp_per_job = len(args.backends)
             nexec_per_job = 1 if args.execute else 0
-            search_callback = SearchProgressTQDM(
+            search_callback = self.progress(
                 ncomp_per_job,
                 nexec_per_job,
                 args.quiet,
                 graph.name,
             )
-            result_callbacks = self.get_result_callbacks(strategy, graph, args)
+            result_callbacks = self.get_result_callbacks(strategy, graph)
             callbacks = {"result": result_callbacks, "search": search_callback}
             results = self.evaluate_sample(
-                strategy, schedule, graph, args, callbacks=callbacks
+                strategy, schedule, graph, callbacks=callbacks
             )
         else:
-            results = self.search_some(strategy, graph, args)
+            results = self.search_some(strategy, graph)
         args.results = list(results or [])
         csv_callback = getattr(args, "csv_callback", None)
         if not args.quiet and csv_callback is not None and len(csv_callback._rows) > 0:
             ordered = sorted(csv_callback._rows, key=lambda x: x[-3])
             in_x, time, peak, backend = ordered[0][-4:]
-            tqdm.write(
+            print(
                 f"Schedule: {backend}: {in_x}: time: {time * 1000:.2f} msecs, peak perf: {peak * 100:.2f}%"
             )
         return args.results
@@ -1123,343 +846,28 @@ class Exploration:
             op = get_operation(operator, name)
             print(f"{name}: {op['dims']}, {op['params']}")
 
+    @staticmethod
+    def list_operators():
+        for name in OPERATORS:
+            print(f"{name}")
+
+    @staticmethod
+    def list_strategies():
+        for name in Strategies.names(include_aliases=True):
+            print(f"{name}")
+
+    @staticmethod
+    def list_optimizers():
+        for name in Optimizers.names():
+            print(f"{name}")
+
     def run(self) -> list[Sequence]:
         args = self.config
-        if getattr(args, "seed", 0) >= 0:
+        if args.seed >= 0:
             np.random.seed(args.seed)
             random.seed(args.seed)
-        self.results = self.optimize(args)
+        self.results = self.optimize()
         return self.results
 
     def __call__(self) -> list[Sequence]:
         return self.run()
-
-
-def setup_args(args: ExplorationConfig | NS):
-    if args.graph_file is not None:
-        args.operator = None
-
-    if "tvm" in args.backends:
-        os.environ["TVM_NUM_THREADS"] = str(args.threads)
-
-    # Workaround to ensure that TVM backend is after MLIR backends,
-    # otherwise the import of tvm breaks the MLIR python bindings
-    args.backends = sorted(args.backends)
-
-    if not args.func_name:
-        args.func_name = args.operator
-    if args.operator:
-        for backend in args.backends:
-            assert backend in cast(list, OPERATORS[args.operator]["backends"]), (
-                f"backend {backend} not available for operator {args.operator}"
-            )
-
-        if not args.strategy:
-            args.strategy = OPERATORS[args.operator]["default_strategy"]
-        if args.eval == "eval" and args.execute:
-            args.eval_parameters = Exploration.get_eval_parameters(args)
-    else:
-        if not args.strategy:
-            args.strategy = "tile_oo"
-        args.eval_parameters = None
-
-    if args.execute and args.peak_flops is None:
-        # TODO: get dtype from graph
-        args.peak_flops = HostRuntime.get().evaluate_flops(args.dtype)
-        assert args.peak_flops != 0, (
-            f"unable to evaluate machine flops for type {args.dtype}"
-        )
-        logger.debug(f"Estimated peak flops: %g", args.peak_flops)
-
-
-def launch_child(argv: Sequence[str], args: NS):
-    env = {}
-    if "tvm" in args.backends:
-        # Force number of threads for TVM
-        env.update({"TVM_NUM_THREADS": str(args.threads)})
-    cmd = [
-        "env",
-        *(f"{k}={v}" for k, v in env.items()),
-        "setarch",
-        "-R",
-        "--",
-        argv[0],
-        "--child",
-        *argv[1:],
-    ]
-    logger.debug("Executing child command: %s", " ".join(cmd))
-    proc = subprocess.run(
-        args=cmd,
-    )
-    if proc.returncode != 0:
-        logger.debug(
-            f"ERROR: running subprocess: exit code: %s, command: %s",
-            proc.returncode,
-            " ".join(cmd),
-        )
-    raise SystemExit(proc.returncode)
-
-
-def main():
-    defaults = ExplorationConfig()
-    default_op = cast(str, defaults.operator)
-    default_dtype = OPERATORS[default_op]["default_type"]
-    default_jobs = defaults.jobs
-    choice_strategies = list(Strategies.names(include_aliases=True))
-    parser = argparse.ArgumentParser(
-        description="Autotune Operator",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument(
-        "--operator",
-        type=str,
-        choices=list(OPERATORS.keys()),
-        default=defaults.operator,
-        help="operator to optimize",
-    )
-    parser.add_argument(
-        "--graph-file",
-        type=str,
-        help="Graph file",
-    )
-    parser.add_argument(
-        "--op-name", type=str, help="operation name to optimize from the registry"
-    )
-    parser.add_argument(
-        "--ops-list",
-        action="store_true",
-        help="print available operations names for the given operator",
-    )
-    parser.add_argument(
-        "--func-name", type=str, help="function name to generate, default to operator"
-    )
-    parser.add_argument(
-        "--strategy",
-        type=str,
-        help=f"tile strategy to use, default to operator's default. One of {choice_strategies}",
-    )
-    parser.add_argument(
-        "--descript",
-        type=str,
-        help="path to a descript specification to use. Ignores --strategy if used.",
-    )
-    parser.add_argument(
-        "--search",
-        type=str,
-        choices=["random", "exhaustive", "data", "iterative"],
-        default=defaults.search,
-        help="search strategy",
-    )
-    parser.add_argument(
-        "--backends",
-        type=str,
-        nargs="+",
-        choices=["mlir", "tvm", "jir"],
-        default=defaults.backends,
-        help="backends to use",
-    )
-    parser.add_argument(
-        "--optimizer",
-        type=str,
-        default=defaults.optimizer,
-        help=f"optimizer to use. One of {Optimizers.names()}",
-    )
-    parser.add_argument(
-        "--data", type=str, help="data CSV file for input to data search"
-    )
-    parser.add_argument(
-        "--dims", nargs="+", type=int, help="dimensions, default to operators's default"
-    )
-    parser.add_argument(
-        "--huge-pages",
-        action=argparse.BooleanOptionalAction,
-        default=defaults.huge_pages,
-        help="alloc at huge page boundaries",
-    )
-    parser.add_argument(
-        "--test",
-        nargs="+",
-        type=int,
-        default=defaults.test,
-        help="test this input only",
-    )
-    parser.add_argument(
-        "--opt-level",
-        type=int,
-        default=defaults.opt_level,
-        help="opt level, 0-3 one-shot, 4 search",
-    )
-    parser.add_argument(
-        "--dtype",
-        type=str,
-        default=default_dtype,
-        choices=["float32", "float64"],
-        help="data type, default to operator's default",
-    )
-    parser.add_argument(
-        "--trials", type=int, default=defaults.trials, help="num trials"
-    )
-    parser.add_argument(
-        "--threads", type=int, default=defaults.threads, help="number of threads"
-    )
-    parser.add_argument(
-        "--max-unroll",
-        type=int,
-        help="max unroll in tiling strategies, or strategy default",
-    )
-    parser.add_argument("--seed", type=int, default=defaults.seed, help="seed")
-    parser.add_argument(
-        "--output", type=str, default=defaults.output, help="output csv file for search"
-    )
-    parser.add_argument(
-        "--db-file",
-        type=str,
-        help="output json db, for instance: xtc-graphs-db.json",
-    )
-    parser.add_argument(
-        "--resume",
-        action=argparse.BooleanOptionalAction,
-        default=defaults.resume,
-        help="resume from an existing output file and skip already recorded samples",
-    )
-    parser.add_argument(
-        "--append",
-        action=argparse.BooleanOptionalAction,
-        default=defaults.append,
-        help="append new results to output file without deduplication",
-    )
-    parser.add_argument(
-        "--eval",
-        type=str,
-        choices=["eval"],
-        default=defaults.eval,
-        help="evaluation method",
-    )
-    parser.add_argument(
-        "--repeat", type=int, default=defaults.repeat, help="evaluation repeat"
-    )
-    parser.add_argument(
-        "--number", type=int, default=defaults.number, help="evaluation number"
-    )
-    parser.add_argument(
-        "--min-repeat-ms",
-        type=int,
-        default=defaults.min_repeat_ms,
-        help="evaluation min repeat ms",
-    )
-    parser.add_argument(
-        "--validate", action=argparse.BooleanOptionalAction, help="validate results"
-    )
-    parser.add_argument(
-        "--save-temps",
-        action=argparse.BooleanOptionalAction,
-        help="save temps to save temps dir",
-    )
-    parser.add_argument(
-        "--save-temps-dir",
-        type=str,
-        default=defaults.save_temps_dir,
-        help="save temps dir",
-    )
-    parser.add_argument(
-        "--explore-dir",
-        type=str,
-        default=defaults.explore_dir,
-        help="exploration results .so dir",
-    )
-    parser.add_argument(
-        "--optimizer-config", type=str, help="config yaml file for optimizer"
-    )
-    parser.add_argument(
-        "--child",
-        action=argparse.BooleanOptionalAction,
-        default=defaults.child,
-        help="internal flag for marking child execution (obsolete)",
-    )
-    parser.add_argument(
-        "--bare-ptr",
-        action=argparse.BooleanOptionalAction,
-        default=defaults.bare_ptr,
-        help="use bare pointer interface (for TVM backend)",
-    )
-    parser.add_argument(
-        "--jobs", type=int, default=default_jobs, help="parallel compile jobs"
-    )
-    parser.add_argument(
-        "--execute",
-        action=argparse.BooleanOptionalAction,
-        default=defaults.execute,
-        help="do not execute, only compile",
-    )
-    parser.add_argument(
-        "--peak-flops",
-        type=float,
-        help="machine peak flops (flop/sec) for the dtype, or estimated",
-    )
-    parser.add_argument(
-        "--mlir-prefix", type=str, help="MLIR install prefix, defaults to mlir package"
-    )
-    parser.add_argument(
-        "--use-tensors",
-        action=argparse.BooleanOptionalAction,
-        default=defaults.use_tensors,
-        help="use tensors instead of memref for the mlir backend",
-    )
-    parser.add_argument(
-        "--batch", type=int, default=defaults.batch, help="batch size for optimizer"
-    )
-    parser.add_argument(
-        "--debug", action=argparse.BooleanOptionalAction, help="debug mode"
-    )
-    parser.add_argument(
-        "--debug-compile",
-        action=argparse.BooleanOptionalAction,
-        help="debug compile commands",
-    )
-    parser.add_argument(
-        "--debug-xtc", action=argparse.BooleanOptionalAction, help="debug xtc modules"
-    )
-    parser.add_argument(
-        "--debug-optimizer",
-        action=argparse.BooleanOptionalAction,
-        help="debug optimizer",
-    )
-    parser.add_argument(
-        "--quiet",
-        action=argparse.BooleanOptionalAction,
-        help="quiet optional output and progress bar",
-    )
-    parser.add_argument(
-        "--dump", action=argparse.BooleanOptionalAction, help="dump IR while generating"
-    )
-    args = parser.parse_args()
-
-    if args.resume and args.append:
-        parser.error("--resume and --append cannot be used together")
-
-    logging.basicConfig()
-    logger.setLevel(logging.INFO)
-    if args.debug:
-        logger.setLevel(logging.DEBUG)
-    if args.debug_xtc:
-        logging.getLogger("xtc").setLevel(logging.DEBUG)
-    if args.debug_optimizer:
-        logging.getLogger("xtc.search.optimizers").setLevel(logging.INFO)
-
-    if not args.child:
-        launch_child(sys.argv, args)
-
-    if args.ops_list:
-        Exploration.list_operations_dims(args.operator)
-        raise SystemExit()
-
-    if args.seed >= 0:
-        np.random.seed(args.seed)
-        random.seed(args.seed)
-
-    exploration = Exploration(args)
-    exploration.optimize()
-
-
-if __name__ == "__main__":
-    main()
