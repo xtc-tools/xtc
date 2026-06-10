@@ -3,6 +3,8 @@
 
 import xtc.graphs.xtc.op as O
 from xtc.backends.mlir import Backend
+from xtc.schedules.descript import descript_scheduler
+
 import sys
 
 #I, J, K, dtype = 4, 32, 512, "float32"             # small
@@ -19,19 +21,32 @@ graph = gb.graph
 
 impl = Backend(graph)
 
-sch = impl.get_scheduler()
-sch.tile("i", {"i1": 2})
-sch.tile("j", {"j1": 16})
-sch.interchange(["k", "i", "j", "i1", "j1"])
-sch.vectorize(["j1"])
-sch.unroll({"i1": 2})
-sched = sch.schedule()
+# Schedule specification
+schedule_spec = {
+    "i": {},
+    "k": {},
+    "j": {},
+    f"i#{16}": {"unroll": 8},
+    f"j#{16}": {"vectorize": True}
+}
 
-comp = impl.get_compiler(
-    shared_lib=True,
-    dump_file="matmul_mlir",
+# Compile
+scheduler = impl.get_scheduler()
+descript_scheduler(
+    scheduler=scheduler,
+    node_name="C",
+    abstract_dims=["i", "j", "k"],
+    spec=schedule_spec
 )
-module = comp.compile(sched)
+sched = scheduler.schedule()
+
+compiler = impl.get_compiler(
+    dump_file="matmul_mlir",
+    shared_lib=True,
+    print_source_ir=False,
+    print_transformed_ir=False
+)
+module = compiler.compile(sched)
 
 hw_counters = []
 
