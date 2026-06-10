@@ -60,8 +60,8 @@ def _(mo):
 @app.cell
 def _(mo):
     # UI sliders
-    tile_i_ui = mo.ui.slider(start=1, stop=64, step=1, value=3, label="Tile I (Rows)")
-    tile_j_ui = mo.ui.slider(start=8, stop=512, step=8, value=24, label="Tile J (Cols)")
+    tile_i_ui = mo.ui.slider(start=8, stop=1024, step=8, value=16, label="Tile I (Rows)")
+    tile_j_ui = mo.ui.slider(start=8, stop=1024, step=8, value=16, label="Tile J (Cols)")
     unroll_ui = mo.ui.slider(start=1, stop=32, step=1, value=2, label="Unroll factor")
     return tile_i_ui, tile_j_ui, unroll_ui
 
@@ -85,11 +85,11 @@ def _(mo):
 
     # Schedule specification
     schedule_spec = {
-        "j": {},
         "i": {},
         "k": {},
-        f"j#{slider_j}": {"unroll": slider_unroll},
-        f"i#{slider_i}": {"vectorize": True}
+        "j": {},
+        f"i#{slider_i}": {"unroll": slider_unroll},
+        f"j#{slider_j}": {"vectorize": True}
     }
 
     # Compile
@@ -97,7 +97,7 @@ def _(mo):
     descript_scheduler(
         scheduler=scheduler,
         node_name="C",
-        abstract_dims=["j", "i", "k"],
+        abstract_dims=["i", "j", "k"],
         spec=schedule_spec
     )
     sched = scheduler.schedule()
