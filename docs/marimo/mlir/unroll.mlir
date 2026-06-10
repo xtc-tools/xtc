@@ -3,7 +3,8 @@ func.func @matmul(%A: memref<4x8xf64>, %B: memref<8x16xf64>, %C: memref<4x16xf64
 		loop.dims = ["i", "j", "k"],
 		loop.schedule = {
 			"i",
-				"j#8" = {"unroll"},
+                                "j",
+                                        "j#8" = {"unroll"},
 					"k"
 		}
 	}

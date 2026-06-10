@@ -8,7 +8,7 @@ with app.setup:
     from os import path
     from doc_utils import DocUtils
 
-    doc:DocUtils = DocUtils()
+    doc:DocUtils          = DocUtils(in_notebook=mo.running_in_notebook())
     mlir_loop_cpu:str     = "--cpu skylake"
     mlir_loop_arch:str    = "--arch x86-64"
     mlir_loop_args:str    = f"mlir-loop --no-alias {mlir_loop_arch} {mlir_loop_cpu}"
@@ -16,9 +16,9 @@ with app.setup:
     mlir_path:str         = path.dirname(path.realpath(__file__)) + "/mlir/"
     all_example:mo.ui.text_area = mo.ui.text_area(value=doc.extract_file_content(mlir_path + "all.mlir"))
 
-    output_hidder  = lambda x: mo.accordion({"Output" : x})
+    # Make the cell code easier to read, output to stdout on direct execution
     format_llvm_md = lambda lang, x: mo.md(doc.format_code_markdown(lang, x))
-    code_output    = lambda lang, x: output_hidder(format_llvm_md(lang, x))
+    code_output    = lambda lang, x: mo.accordion({"Output" : format_llvm_md(lang, x)}) if mo.running_in_notebook() else print(x)
 
 
 @app.cell(hide_code=True)

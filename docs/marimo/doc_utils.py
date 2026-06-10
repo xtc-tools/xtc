@@ -9,11 +9,13 @@ def debug(msg:str, silent:bool):
 
 
 class DocUtils:
-    def __init__(self, 
-        compiler:str="gcc",
+    def __init__(self,
+        compiler: str = "gcc",
+        in_notebook: bool = True,
     ) -> None:
         self.compiler = [compiler]
         self.file_to_delete: set[str] = set()
+        self.in_notebook = in_notebook
 
     def create_output_file(self) -> str:
         file_descriptor, file_name = mkstemp()
@@ -74,7 +76,7 @@ class DocUtils:
         matched = re.search(f"([\\w.]+[\\s]+{function_name}\\([^)]*\\){{)", c_program, re.ASCII)
         if matched is None:
             raise Exception("Unable to find function: " + function_name)
-        
+
         start_position = matched.end()
         function_content = matched.groups()[0]
 
@@ -94,17 +96,17 @@ class DocUtils:
 
         return function_content
 
-    def extract_c_function_from_file(self, 
-                                     path_to_file:str, 
-                                     function_name:str, 
-                                     markdown:bool=False, 
+    def extract_c_function_from_file(self,
+                                     path_to_file:str,
+                                     function_name:str,
+                                     markdown:bool=False,
                                      silent:bool=True
                                     ) -> str:
         """Method that extract and return a C function <function_name> from <file>"""
         if not path.exists(path_to_file):
             debug("Unable to find file", silent)
             return ""
-        
+
         function_content = ""
 
         with open(path_to_file, "r") as f:
@@ -134,12 +136,13 @@ class DocUtils:
         f.write(mlir_code)
         f.close()
 
-        result = self._mlir_loop(args + " " + name)
-
+        result, out, err = self._mlir_loop(args + " " + name)
         remove(name) # Delete the temporary file
-        return result
+        if result != 0 and not self.in_notebook:
+            raise RuntimeError(f"Command failed: code: {result}\nstdout: {out}\nstderr:{err})")
+        return err + out
 
-    def _mlir_loop(self, args:str, silent:bool=True) -> str:
+    def _mlir_loop(self, args:str, silent:bool=True) -> tuple[int, str, str]:
         """Method that execute mlir-loop with the given arguments (Better to use mlir_loop_from_string instead)"""
         if args.find("mlir-loop") != 0:
             command = ["mlir-loop"]
@@ -149,7 +152,7 @@ class DocUtils:
         command += args.split()
         result = subprocess.run(command, capture_output=True)
 
-        return result.stderr.decode() + result.stdout.decode()
+        return result.returncode, result.stdout.decode(), result.stderr.decode()
 
     def delete_file(self, file_name:str) -> None:
         if file_name not in self.file_to_delete:
@@ -157,5 +160,3 @@ class DocUtils:
 
         remove(file_name)
         self.file_to_delete.remove(file_name)
-
-

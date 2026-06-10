@@ -7,7 +7,7 @@ with app.setup:
     import marimo as mo
     from os import path
     from doc_utils import DocUtils
-    doc:DocUtils        = DocUtils()
+    doc:DocUtils        = DocUtils(in_notebook=mo.running_in_notebook())
     mlir_loop_cpu:str   = "--cpu skylake"
     mlir_loop_arch:str  = "--arch x86-64"
     mlir_loop_args:str  = f"mlir-loop --no-alias {mlir_loop_arch} {mlir_loop_cpu}"
@@ -26,10 +26,9 @@ with app.setup:
     }
 
 
-    # Make the cell code easier to read
-    output_hidder  = lambda output_name, x: mo.accordion({output_name : x})                   # Allow us to open and close the output of a cell
-    format_llvm_md = lambda lang, x: mo.md(doc.format_code_markdown(lang, x)) # Encapsulate the markdown formating
-    code_output    = lambda output_name, lang, x: output_hidder(output_name, format_llvm_md(lang, x))
+    # Make the cell code easier to read, output to stdout on direct execution
+    format_llvm_md = lambda lang, x: mo.md(doc.format_code_markdown(lang, x))
+    code_output    = lambda output_name, lang, x: mo.accordion({output_name : format_llvm_md(lang, x)}) if mo.running_in_notebook() else print(x)
 
 
 @app.cell(hide_code=True)
