@@ -228,7 +228,7 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
     if (strncmp(name, "@skl_", 5) == 0) {
       event->mode = PERF_ARG_GENERIC;
       event->args.config_pair.type = PERF_TYPE_RAW;
-
+      // TopdownL1
       if (strcmp(name, "@skl_slots") == 0)
         event->args.config_pair.event = 0x003c;
       else if (strcmp(name, "@skl_fe_bound") == 0)
@@ -237,6 +237,7 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
         event->args.config_pair.event = 0x010e;
       else if (strcmp(name, "@skl_retiring") == 0)
         event->args.config_pair.event = 0x02c2;
+      // TopdownL2
       else if (strcmp(name, "@skl_recovery") == 0)
         event->args.config_pair.event = 0x0120010d;
       else if (strcmp(name, "@skl_mem_stalls") == 0)
@@ -253,6 +254,7 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
         event->args.config_pair.event = 0x00c5;
       else if (strcmp(name, "@skl_machine_clears") == 0)
         event->args.config_pair.event = 0x010401c3;
+      // TopdownL3_Mem
       else if (strcmp(name, "@skl_stalls_mem_any") == 0)
         event->args.config_pair.event = 0x140014a3;
       else if (strcmp(name, "@skl_stalls_l1d_miss") == 0)
@@ -333,6 +335,19 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
         event->args.config_pair.event = 0x8600;
       else if (strcmp(name, "@icl_mem_bound") == 0)
         event->args.config_pair.event = 0x8700;
+      // TopdownL3_Mem
+      else if (strcmp(name, "@icl_cyc") == 0)
+        event->args.config_pair.event = 0x003c;
+      else if (strcmp(name, "@icl_stalls_mem_any") == 0)
+        event->args.config_pair.event = 0x140014a3;
+      else if (strcmp(name, "@icl_stalls_l1d_miss") == 0)
+        event->args.config_pair.event = 0x0c000ca3;
+      else if (strcmp(name, "@icl_stalls_l2_miss") == 0)
+        event->args.config_pair.event = 0x050005a3;
+      else if (strcmp(name, "@icl_stalls_l3_miss") == 0)
+        event->args.config_pair.event = 0x060006a3;
+      else if (strcmp(name, "@icl_bound_on_stores") == 0)
+        event->args.config_pair.event = 0x40a6;
       else
         return 1;
 

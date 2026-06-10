@@ -201,7 +201,6 @@ static const int pass_9[] = {9};
 
 // === Skylake arch ===
 
-
 static const char *skl_tma_l1_events[] = {
     "@skl_slots",      // 0x003c (Cycles)
     "@skl_fe_bound",   // 0x019c
@@ -317,7 +316,7 @@ static const int skl_l3_mem_passes[] = {4, 3};
 static const char *skl_tma_l3_mem_events[] = {
     // Pass 1
     "@skl_slots",             //
-    "@skl_stalls_mem_any",    // 0x14001414 (cmask=0x14, umask=0x14, event=0x14)
+    "@skl_stalls_mem_any",    // 0x140014a3
     "@skl_stalls_l1d_miss",   // 0x0c000c14 (cmask=0x0c, umask=0x0c, event=0x14)
     "@skl_stalls_l2_miss",    // 0x05000514 (cmask=0x05, umask=0x05, event=0x14)
 
@@ -333,7 +332,6 @@ static void compute_skl_tma_l3_mem(const double *raw, double *final) {
     double cycles_p2 = raw[4];
 
     if (cycles_p1 > 0 && cycles_p2 > 0) {
-        // On divise directement par les cycles !
         double mem_any  = raw[1] / cycles_p1;
         double l1d_miss = raw[2] / cycles_p1;
         double l2_miss  = raw[3] / cycles_p1;
@@ -430,6 +428,21 @@ static void compute_intel_modern_tma_l2(const double *raw, double *final) {
         for (int i = 0; i < 8; i++) final[i] = 0.0;
     }
 }
+
+static const int icl_l3_mem_passes[] = {4, 3};
+
+static const char *intel_modern_tma_l3_mem_events[] = {
+    // Pass 1
+    "@icl_cyc",
+    "@icl_stalls_mem_any",
+    "@icl_stalls_l1d_miss",
+    "@icl_stalls_l2_miss",
+
+    // Pass 2
+    "@icl_cyc",
+    "@icl_stalls_l3_miss",
+    "@icl_bound_on_stores"
+};
 
 // === Zen arch ===
 
@@ -686,6 +699,16 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 out_resolver->num_passes = 2;
                 out_resolver->events_per_pass = skl_l3_mem_passes;
                 out_resolver->compute_formula = compute_skl_tma_l3_mem;
+                return 1;
+            }
+            else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 7;
+                out_resolver->hw_events = intel_modern_tma_l3_mem_events;
+                out_resolver->num_results = 5;
+                out_resolver->num_passes = 2;
+                out_resolver->events_per_pass = icl_l3_mem_passes;
+                out_resolver->compute_formula = compute_skl_tma_l3_mem; // same as skl
                 return 1;
             }
         }
