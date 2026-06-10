@@ -3,7 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing_extensions import override
-from typing import Any
+from typing import Any, Callable
 
 import xtc.itf as itf
 from xtc.itf.graph import Graph
@@ -62,6 +62,9 @@ class HostModule(itf.comp.Module):
         self._csrcs = csrcs
         self._bare_ptr = kwargs.get("bare_ptr", True)
         self._graph = graph
+        self._np_inputs_spec: Callable[[], list[dict[str, Any]]] | None
+        self._np_outputs_spec: Callable[[], list[dict[str, Any]]] | None
+        self._reference_impl: Callable[[], None] | None
         if self._graph is not None:
             self._np_inputs_spec = graph_np_inputs_spec(self._graph)
             self._np_outputs_spec = graph_np_outputs_spec(self._graph)
@@ -97,27 +100,19 @@ class HostModule(itf.comp.Module):
 
     @override
     def get_evaluator(self, **kwargs: Any) -> itf.exec.Evaluator:
-        cls = {
-            "shlib": HostEvaluator,
-            "csrc": HostCEvaluator,
-            "arlib": HostAREvaluator,
-        }[self.file_type]
-        return cls(
-            self,
-            **kwargs,
-        )
+        if self.file_type == "shlib":
+            return HostEvaluator(self, **kwargs)
+        if self.file_type == "csrc":
+            return HostCEvaluator(self, **kwargs)
+        return HostAREvaluator(self, **kwargs)
 
     @override
     def get_executor(self, **kwargs: Any) -> itf.exec.Executor:
-        cls = {
-            "shlib": HostExecutor,
-            "csrc": HostCExecutor,
-            "arlib": HostARExecutor,
-        }[self.file_type]
-        return cls(
-            self,
-            **kwargs,
-        )
+        if self.file_type == "shlib":
+            return HostExecutor(self, **kwargs)
+        if self.file_type == "csrc":
+            return HostCExecutor(self, **kwargs)
+        return HostARExecutor(self, **kwargs)
 
     @property
     def shlibs(self) -> list[str]:

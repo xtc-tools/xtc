@@ -5,7 +5,8 @@
 
 import math
 import random
-from typing import List, Dict, Tuple, Optional, Mapping
+from typing import List, Tuple, Optional, Any
+from typing_extensions import override
 
 from xtc.schedules.ttile.scheme import Atom
 from xtc.schedules.ttile.computation import Computation
@@ -30,13 +31,14 @@ class Microkernel_strat_single:
     d_mickern: dict[str, int]
     perf: float
 
-    def __init__(self, d_mickern_info):
+    def __init__(self, d_mickern_info: dict[str, Any]):
         self.d_mickern = dict()
         for dim_name in d_mickern_info:
             if dim_name != "peak_perf":
                 self.d_mickern[dim_name] = d_mickern_info[dim_name]
         self.perf = d_mickern_info["peak_perf"]
 
+    @override
     def __str__(self):
         return f"Single({self.d_mickern}|perf = {self.perf})"
 
@@ -53,7 +55,12 @@ class Microkernel_strat_lambda:
     perf: float
 
     def __init__(
-        self, num_repet_1, d_mickern_info_1, num_repet_2, d_mickern_info_2, lambda_dim
+        self,
+        num_repet_1: int,
+        d_mickern_info_1: dict[str, int],
+        num_repet_2: int,
+        d_mickern_info_2: dict[str, int],
+        lambda_dim: str,
     ):
         self.num_repet_1 = num_repet_1
         self.num_repet_2 = num_repet_2
@@ -76,6 +83,7 @@ class Microkernel_strat_lambda:
             (perf1 * num_repet_1 + perf2 * num_repet_2) / (num_repet_1 + num_repet_2), 3
         )
 
+    @override
     def __str__(self):
         return f"Lambda({self.num_repet_1}*{self.d_mickern_1} + {self.num_repet_2}*{self.d_mickern_2}|perf={self.perf})"
 
@@ -303,7 +311,7 @@ def find_affine_combination_dividing(x1: int, x2: int, size_x: int) -> List[List
 # Isolate compatible single microkernel, or lambda of microkernel (if blambda is activated)
 # lambda_dim is the dim along which we will try to vary the size of the microkernel to make it fit
 def select_microkernel_ttile(
-    ld_mickern_info,
+    ld_mickern_info: list[dict[str, Any]],
     vector_dim: str,
     num_elem_vector: int,
     dprob_sizes: dict[str, int],
@@ -605,7 +613,7 @@ def _book_parallel_dimensions(
         # Select randomly a dimension from "l_remain_parallel_dim"
         #  then one of its prime factor
         dim_selected = random.choice(l_remain_parallel_dim)
-        size_dim_selected = d_size_rem[dim_selected] // d_ratio_taken[dim]
+        size_dim_selected = d_size_rem[dim_selected] // d_ratio_taken[dim_selected]
         l_prime_factors = _list_all_prime_divisors(
             size_dim_selected
         )  # Note we could avoid recomputation

@@ -7,10 +7,7 @@
 import argparse
 import os
 
-from xtc.backends.mlir.MlirTarget import (
-    MlirTarget,
-    get_default_target,
-)
+from xtc.backends.mlir.MlirTarget import get_default_target
 from xtc.backends.mlir.MlirConfig import MlirConfig
 from xtc.backends.mlir.MlirProgram import RawMlirProgram
 from xtc.backends.mlir.MlirCompiler import MlirProgramCompiler

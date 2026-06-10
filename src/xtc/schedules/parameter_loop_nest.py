@@ -5,9 +5,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Generic
+from typing import Generic, TypeVar, Any
 
-from xtc.schedules.loop_nest import LoopNest, LoopNestNode, NodeT, SplitOrigin
+from xtc.schedules.loop_nest import LoopNest, LoopNestNode, SplitOrigin
+
+NodeT = TypeVar("NodeT", bound="Node[Any]")
 
 from .exceptions import ScheduleValidationError
 

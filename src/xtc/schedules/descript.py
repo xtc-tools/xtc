@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import Any
+from typing import Any, cast
 from dataclasses import dataclass, field
 from copy import deepcopy
 
@@ -130,10 +130,11 @@ class ScheduleInterpreter:
 
         # Reaplace the placeholder of the last split with its size
         if len(last_split) > 0:
-            a, b = last_split[0]
-            if isinstance(a, int) and not isinstance(b, int):
-                a, b = b, a
-            a, b = str(a), str(b)
+            a0, b0 = last_split[0]
+            if isinstance(a0, int) and not isinstance(b0, int):
+                a, b = str(b0), str(a0)
+            else:
+                a, b = str(a0), str(b0)
             node.constraints = [c.replace(a, b) for c in node.constraints]
 
         # Check that all splits are complete
@@ -451,10 +452,11 @@ class Descript:
             yaml_parser = YAMLParser()
             spec = yaml_parser.parse(spec)
 
-        constraints = spec.pop("constraints", [])
+        spec_dict = cast(dict[str, dict[str, Any]], spec)
+        constraints = cast(list[str], spec_dict.pop("constraints", []))
         # Parse the specification into an AST
         parser = ScheduleParser()
-        ast = parser.parse(spec)
+        ast = parser.parse(spec_dict)
 
         # Interpret the AST into a LoopNest
         interpreter = ScheduleInterpreter(

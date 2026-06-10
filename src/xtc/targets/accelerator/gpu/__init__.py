@@ -4,3 +4,5 @@
 #
 from .GPUModule import GPUModule
 from .GPUEvaluator import GPUEvaluator, GPUExecutor
+
+__all__ = ["GPUModule", "GPUEvaluator", "GPUExecutor"]

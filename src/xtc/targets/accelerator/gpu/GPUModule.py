@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import Any
+from typing import Any, Callable
 from typing_extensions import override
 
 import xtc.itf as itf
@@ -41,6 +41,9 @@ class GPUModule(itf.comp.Module):
         )
         self._bare_ptr = kwargs.get("bare_ptr", True)
         self._graph = graph
+        self._np_inputs_spec: Callable[[], list[dict[str, Any]]] | None
+        self._np_outputs_spec: Callable[[], list[dict[str, Any]]] | None
+        self._reference_impl: Callable[[], None] | None
         if self._graph is not None:
             self._np_inputs_spec = graph_np_inputs_spec(self._graph)
             self._np_outputs_spec = graph_np_outputs_spec(self._graph)

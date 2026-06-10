@@ -15,11 +15,11 @@ class LazyImport:
     Ref to: https://stackoverflow.com/questions/4177735/best-practice-for-lazy-loading-python-modules
     """
 
-    def __init__(self, modname):
+    def __init__(self, modname: str):
         self._modname = modname
-        self._mod = None
+        self._mod: object | None = None
 
-    def __getattr__(self, attr):
+    def __getattr__(self, attr: str):
         """Import module on first attribute access"""
         if self._mod is None:
             self._mod = importlib.import_module(self._modname)

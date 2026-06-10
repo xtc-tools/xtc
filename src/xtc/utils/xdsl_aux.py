@@ -8,6 +8,7 @@ from xdsl.ir import (
     Block,
     Region,
     Operation,
+    SSAValue,
 )
 from xdsl.dialects.arith import ConstantOp
 from xdsl.dialects.builtin import (
@@ -22,6 +23,7 @@ from xdsl.context import Context
 from xdsl.parser import Parser
 from xdsl.dialects import func, linalg, arith, memref, tensor
 from xdsl.dialects.builtin import ModuleOp
+from typing import Any, cast
 
 
 def parse_xdsl_module(source: str) -> ModuleOp:
@@ -39,7 +41,8 @@ def parse_xdsl_module(source: str) -> ModuleOp:
 def xdsl_operator_to_function(source_op: Operation, name: str) -> func.FuncOp:
     # Fetch data
     operands = source_op.operands
-    shaped_types, scalar_types = [], []
+    shaped_types: list[Any] = []
+    scalar_types: list[Any] = []
     for o in operands:
         if isa(o.type, MemRefType) or isa(o.type, TensorType):
             shaped_types.append(o.type)
@@ -48,7 +51,7 @@ def xdsl_operator_to_function(source_op: Operation, name: str) -> func.FuncOp:
 
     #
     payload = Block(arg_types=shaped_types)
-    concrete_operands = []
+    concrete_operands: list[Any] = []
     shaped_count, scalar_count = 0, 0
     for o in operands:
         if isa(o.type, MemRefType) or isa(o.type, TensorType):
@@ -56,7 +59,7 @@ def xdsl_operator_to_function(source_op: Operation, name: str) -> func.FuncOp:
             shaped_count += 1
         else:
             if isa(o.type, IntegerType):
-                attr = IntegerAttr(0, scalar_types[scalar_count])
+                attr: Any = IntegerAttr(0, cast(Any, scalar_types[scalar_count]))
             else:
                 attr = FloatAttr(0.0, scalar_types[scalar_count])
             constant = ConstantOp(attr)
@@ -64,7 +67,10 @@ def xdsl_operator_to_function(source_op: Operation, name: str) -> func.FuncOp:
             concrete_operands.append(constant.results[0])
             scalar_count += 1
 
-    value_mapper = {o: p for o, p in zip(operands, concrete_operands)}
+    value_mapper: dict[SSAValue, SSAValue] = {
+        cast(SSAValue, o): cast(SSAValue, p)
+        for o, p in zip(operands, concrete_operands)
+    }
 
     new_op = source_op.clone(value_mapper=value_mapper)
     payload.add_ops([new_op, func.ReturnOp()])

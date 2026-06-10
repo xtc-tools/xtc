@@ -102,6 +102,7 @@ class ResultsDB(ABC):
 
     @classmethod
     def get_operator(cls, graph: Graph | str) -> list[Any]:
+        obj: Any
         if not isinstance(graph, str):
             assert isinstance(graph, XTCGraph)
             obj = graph.to_dict()
@@ -116,7 +117,7 @@ class ResultsDB(ABC):
     @classmethod
     def get_strategy(cls, strategy: Strategy | str) -> list[Any]:
         assert isinstance(strategy, str), f"TODO strategy type not yet supported"
-        obj = strategy
+        obj: Any = strategy
         digest = hashlib.sha1(json.dumps(obj).encode()).hexdigest()
         operator = ["xtc.strategy", digest, obj]
         return operator

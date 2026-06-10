@@ -6,10 +6,10 @@ import tempfile
 from pathlib import Path
 import subprocess
 import logging
+from copy import copy
+from typing import List, Any
 
-from typing import List, Dict, Tuple, Any
-
-from xtc.schedules.ttile.archi import Archi, laptop_guillaume_machine, pinocchio_machine
+from xtc.schedules.ttile.archi import Archi
 
 from xtc.schedules.ttile.computation import (
     Computation,
@@ -19,13 +19,10 @@ from xtc.schedules.ttile.computation import (
 from xtc.schedules.ttile.computation import get_ldims_computation
 
 from xtc.schedules.ttile.scheme import (
-    build_scheme_from_str,
     Atom,
     AtomType,
-    convert_scheme_to_str,
     new_tile_atom,
 )
-from xtc.schedules.ttile.scheme import get_sizes_scheme
 from xtc.schedules.ttile.scheme import (
     stringify_lambda_choice,
     recover_all_branchid_from_stringified,
@@ -73,8 +70,11 @@ def _rename_xyhw_to_hwrs(dim_name: str) -> str:
 def subst_dimname_xyhw_to_hwrs_conv2D_scheme(scheme: List[Atom]) -> List[Atom]:
     nscheme = []
     for atom in scheme:
-        atom.dim = _rename_xyhw_to_hwrs(atom.dim)
-        nscheme.append(atom)
+        if atom.has_dim():
+            new_atom = atom.with_dim(dim=_rename_xyhw_to_hwrs(atom.dim))
+        else:
+            new_atom = copy(atom)
+        nscheme.append(new_atom)
     return nscheme
 
 
@@ -161,7 +161,7 @@ def get_descr_sched(
     ldims = get_ldims_computation(comp)
 
     ldims_set = set(ldims)
-    scheme_set = set([atom.dim for atom in scheme if atom.dim is not None])
+    scheme_set = set([atom.dim for atom in scheme if atom.has_dim()])
     assert scheme_set.issubset(ldims_set), f"{scheme_set=} not a subset of {ldims_set=}"
 
     # Complete scheme
@@ -184,7 +184,7 @@ def get_descr_sched(
         atom = scheme[len(scheme) - i - 1]
 
         # Case where there are no "atom.dim"
-        if atom.type == AtomType.HOIST:
+        if not atom.has_dim():
             lb_lastatom_dim.append(False)
             continue
 
@@ -209,10 +209,9 @@ def get_descr_sched(
         # print(f"  - {d_lsizes=}")
         # print(f"  - {d_current_str_desc=}")
 
-        dim_atom = atom.dim
-
         if atom.type == AtomType.VECT:
             # Vector size (in elements)
+            dim_atom = atom.dim
             size_vec = int(machine.vector_size / comp.elem_size)
             if b_is_graph_interface:
                 str_spec_atom = f'"{dim_atom}#{size_vec}": ' + '{"vectorize" : True}\n'
@@ -240,11 +239,10 @@ def get_descr_sched(
             # Lambda loc stays the same
 
             # Gather infos
+            dim_atom = atom.dim
+            b_unroll = atom.type == AtomType.UNROLL
+            b_paral = atom.type == AtomType.TILE_PARAL
             if atom.type != AtomType.TILE_PARTIAL:
-                ratio = atom.ratio
-                b_unroll = atom.type == AtomType.UNROLL
-                b_paral = atom.type == AtomType.TILE_PARAL
-
                 # We update d_lsizes[dim_atom]
                 lsize_prev = d_lsizes[dim_atom]
                 for i in range(len(lsize_prev)):
@@ -281,15 +279,16 @@ def get_descr_sched(
 
         elif atom.type in [AtomType.ULAMBDA, AtomType.TLAMBDA]:
             # Lambda_loc might change: we check this
+            dim_atom = atom.dim
             str_lambda_loc_rand = list(d_current_str_desc.keys())[0]
             ldim_prev_lambda_loc = get_list_dims_str_lambda_loc(str_lambda_loc_rand)
 
+            # Gather infos
+            b_unroll = atom.type == AtomType.ULAMBDA
+            b_paral = False
+
             if dim_atom in ldim_prev_lambda_loc:
                 # Case where the lambda on this dim is not the first one (lambda_loc are already ok)
-
-                # Gather infos
-                b_unroll = atom.type == AtomType.ULAMBDA
-                b_paral = False
 
                 # We update d_lsizes[dim_atom]
                 lsize_prev = d_lsizes[dim_atom]
@@ -364,6 +363,7 @@ def get_descr_sched(
 
         elif atom.type == AtomType.SEQ:
             # The lambda loc reduces
+            dim_atom = atom.dim
 
             # Computing the new size list for this dim
             lsizes_dim_prev = d_lsizes[dim_atom]  # Keeping it in memory
@@ -507,7 +507,11 @@ def build_xdsl_module_string_matmul(
 # CONV: linalg.conv_2d_nhwc_hwcf
 #     https://mlir.llvm.org/docs/Dialects/Linalg/#linalgconv_2d_nhwc_hwcf-linalgconv2dnhwchwcfop
 def build_xdsl_module_string_conv(
-    comp, machine, scheme, dsizes, b_initOut=False
+    comp: Computation,
+    machine: Archi,
+    scheme: list[Atom],
+    dsizes: dict[str, int],
+    b_initOut: bool = False,
 ) -> str:
     # There are several naming notation for the conv2D image/kernel dimensions:
     #   X / Y + H / W
@@ -517,7 +521,7 @@ def build_xdsl_module_string_conv(
     b_conv_dim_renaming = False
     for atom in scheme:
         # Ignore the atom with no dims
-        if atom in [AtomType.HOIST]:
+        if not atom.has_dim():
             continue
         if atom.dim in ["x", "y"]:
             b_conv_dim_renaming = True
@@ -742,7 +746,7 @@ def launch_and_measure_scheme_graph_interf(
     dsizes: dict[str, int],
     backend: str,
     pmu_counters: list[str] = [],
-    l_verbose: (int, int, int) = (False, False, False),
+    l_verbose: tuple[int, int, int] = (False, False, False),
 ) -> dict[str, float]:
     # 1) Computation - described as a graph
     dtype = f"float{comp.elem_size * 8}"
@@ -803,6 +807,7 @@ def launch_and_measure_scheme_graph_interf(
     logger.debug("launch_and_measure_scheme_graph\n%s", graph)
 
     # Backend
+    impl_backend: Any
     if backend == "mlir":
         from xtc.backends.mlir import Backend as MlirBackend
 

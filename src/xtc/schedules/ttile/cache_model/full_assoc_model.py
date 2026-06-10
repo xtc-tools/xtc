@@ -3,13 +3,13 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 
-from typing import List, Dict, Tuple, Optional
+from typing import List, Tuple, Optional
 from enum import Enum
+from typing_extensions import override
 
 from xtc.schedules.ttile.scheme import (
     Atom,
     AtomType,
-    build_scheme_from_str,
     get_sizes_scheme,
 )
 from xtc.schedules.ttile.scheme import (
@@ -24,7 +24,7 @@ from xtc.schedules.ttile.scheme import (
     remove_dim_from_stringified,
     identify_subset_in_list_stringify,
 )
-from xtc.schedules.ttile.computation import Computation, Computation_spec
+from xtc.schedules.ttile.computation import Computation
 from xtc.schedules.ttile.computation import (
     get_array_accesses,
     get_ldims_computation,
@@ -348,6 +348,7 @@ class ReuseLoopStrat(Enum):
     MAX1_LOOP_REUSE = 2
     UNLIMITED_LOOP_REUSE = 3
 
+    @override
     def __str__(self):
         match self:
             case ReuseLoopStrat.NO_LOOP_REUSE:

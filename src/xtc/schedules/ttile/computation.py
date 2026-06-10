@@ -4,7 +4,8 @@
 #
 
 import math
-from typing import List, Dict, Tuple
+from typing import List, Tuple
+from typing_extensions import override
 from enum import Enum
 
 from xtc.schedules.ttile.scheme import stringify_lambda_choice
@@ -17,6 +18,7 @@ class Computation_spec(Enum):
     CONV = 1
     MATMULT = 2
 
+    @override
     def __str__(self):
         if self == Computation_spec.CONV:
             return "conv2d"
@@ -37,6 +39,7 @@ class Computation:
         self.elem_size = elem_size
         return
 
+    @override
     def __str__(self):
         s = f"{str(self.spec)}(f{self.elem_size * 8})"
         return s

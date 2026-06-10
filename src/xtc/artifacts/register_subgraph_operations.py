@@ -5,7 +5,7 @@
 from .operations import register_operation
 from .subgraph_sizes import *
 
-__all__ = []
+__all__: list[str] = []
 
 
 def _register_conv2d_ops():

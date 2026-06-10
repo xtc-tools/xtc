@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import TypeAlias, TypeVar
+from typing import TypeVar
 from collections.abc import Callable, Iterator
 import logging
 
@@ -15,11 +15,11 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 Sample = TypeVar("Sample")
-DrawFunc: TypeAlias = Callable[[int], Iterator[Sample]]
-SamplesList: TypeAlias = list[Sample]
 
 
-def sample_uniques(draw: DrawFunc, num: int, prob: float = 1 / 1000) -> SamplesList:
+def sample_uniques(
+    draw: Callable[[int], Iterator[Sample]], num: int, prob: float = 1 / 1000
+) -> list[Sample]:
     """
     Algorithm to sample from an unknown design space size
     unique values given some draw function with no prerequisite.
@@ -57,14 +57,15 @@ def sample_uniques(draw: DrawFunc, num: int, prob: float = 1 / 1000) -> SamplesL
     """
 
     round_num = num
-    samples = []
-    seen = set()
-    once = set()
-    twice = set()
+    samples: list[Sample] = []
+    seen: set[Sample] = set()
+    once: set[Sample] = set()
+    twice: set[Sample] = set()
     draws = 0
     requests = 0
-    p_valid, p_unseen = 1, 1
-    p_next = p_valid * p_unseen
+    p_valid: float = 1.0
+    p_unseen: float = 1.0
+    p_next: float = p_valid * p_unseen
     while len(samples) < num and p_next > prob:
         logger.debug(
             "sample_uniques round: count: %d/%d, p_unseen: %g, p_valid: %g, %g > %g, "

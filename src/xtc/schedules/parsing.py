@@ -167,8 +167,8 @@ class ScheduleParser:
 
         unroll_factor: literal | None = None
         unroll_specified = False
-        vectorize = False
-        parallelize = False
+        vectorize: bool | str = False
+        parallelize: bool | str = False
         buffer: str | None = None
         buffer_specified = False
         pack: tuple[literal, str | None, bool | str] | None = None
@@ -290,10 +290,12 @@ class ScheduleParser:
             return prefix, None, None, z
 
         prefix, x_str, y_str = match.groups()
-        x = toliteral(x_str)
-        y = toliteral(y_str)
-        x = x if x else None
-        y = y if y else None
+        x: literal | None = toliteral(x_str)
+        y: literal | None = toliteral(y_str)
+        if not x:
+            x = None
+        if not y:
+            y = None
         return prefix, x, y, None
 
 
@@ -312,7 +314,7 @@ class YAMLParser:
     def _parse(self, spec: dict[str, Any]) -> dict[str, dict]:
         """Parses a dict YAML specification into a schedule specification."""
         constraints = spec.pop("constraints", [])
-        descript_spec = dict()
+        descript_spec: dict[str, dict] = {}
         for a, v in spec.items():
             if isinstance(v, str):
                 d = self._split(v)
@@ -336,7 +338,7 @@ class YAMLParser:
 
     def _split(self, s: str) -> dict[str, Any]:
         """Splits a string of 'keyword's and 'keyword=value's separated by spaces into a dict."""
-        d = dict()
+        d: dict[str, Any] = {}
         for s in s.split():
             if "=" not in s:
                 d[s] = None

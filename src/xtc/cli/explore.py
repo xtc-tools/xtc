@@ -26,7 +26,7 @@ def launch_child(argv: Sequence[str], args: argparse.Namespace):
         "env",
         *(f"{k}={v}" for k, v in env.items()),
     ]
-    setarch_args = []
+    setarch_args: list[str] = []
     if sys.platform.startswith("linux"):
         setarch_args = ["setarch", "-R", "--"]
     cmd = [

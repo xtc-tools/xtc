@@ -3,7 +3,8 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 
-from typing import List, Dict, Set, Optional, Tuple, Any
+from typing import List, Dict, Tuple, Any, Sequence
+from typing_extensions import override
 from dataclasses import dataclass
 
 import math
@@ -52,6 +53,7 @@ class Microkernel_summary:
         str_out += "]"
         return str_out
 
+    @override
     def __str__(self):
         str_out = f"({self.comp}; {self.machine.archi_type}, {self.machine.num_vect_reg} vreg) "
         str_out += self.to_ttile_str()
@@ -599,7 +601,9 @@ def convert_microkernel_info_to_microkernel(
 
 
 # Check if a "d_mickern_info" dimensions is compatible with a problem size
-def is_compatible_microkernel(d_mickern_info, dprob_sizes: Dict[str, int]) -> bool:
+def is_compatible_microkernel(
+    d_mickern_info: dict[str, Any], dprob_sizes: Dict[str, int]
+) -> bool:
     """
     Check if the sizes of a microkernel are compatible (i.e. divides) with the problem size
     """
@@ -621,7 +625,9 @@ def is_compatible_microkernel(d_mickern_info, dprob_sizes: Dict[str, int]) -> bo
 
 
 # Check if a microkernel info is quicker than a peak perf threshold
-def is_faster_microkernel_than(d_mickern_info, pperf_threshold: float) -> bool:
+def is_faster_microkernel_than(
+    d_mickern_info: dict[str, Any], pperf_threshold: float
+) -> bool:
     """
     Is a given microkernel faster than the peak performance threshold?
     """
@@ -630,12 +636,9 @@ def is_faster_microkernel_than(d_mickern_info, pperf_threshold: float) -> bool:
 
 
 # Sort the microkernels by their peak performance (in increasing performance: last ones are the best ones)
-def sort_microkernels_by_pperf(ld_mickern_info):
+def sort_microkernels_by_pperf(ld_mickern_info: Sequence[dict[str, Any]]):
     """
     Sort the microkernels according to their peak performance
     """
-    ld_mickern_info_sorted = ld_mickern_info.copy()
-    ld_mickern_info_sorted = sorted(
-        ld_mickern_info_sorted, key=lambda e: e["peak_perf"]
-    )
+    ld_mickern_info_sorted = sorted(ld_mickern_info, key=lambda e: e["peak_perf"])
     return ld_mickern_info_sorted

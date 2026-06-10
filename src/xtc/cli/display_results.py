@@ -10,19 +10,29 @@ Display histogram of results for a list of .csv files
 import argparse
 import logging
 import csv
-import random
 import numpy as np
 from types import SimpleNamespace as ns
+from pathlib import Path
+from typing import Sequence, Any
 import matplotlib.pyplot as plt
 
 
 logger = logging.getLogger(__name__)
 
 
-def read_results_csv(fname, Xcol="X", Ycol="Y", backend=None):
+def read_results_csv(
+    fname: str | Path | None,
+    Xcol: str | None = "X",
+    Ycol: str | None = "Y",
+    backend: str | None = None,
+):
+    assert fname is not None
+    assert Xcol is not None
+    assert Ycol is not None
     X, Y = [], []
     with open(fname, newline="") as infile:
         reader = csv.reader(infile, delimiter=",")
+        backend_idx, X_idx, Y_idx = 0, 0, 0
         for idx, row in enumerate(reader):
             if idx == 0:
                 X_idx = row.index(Xcol)
@@ -31,13 +41,12 @@ def read_results_csv(fname, Xcol="X", Ycol="Y", backend=None):
                     backend_idx = row.index("backend")
             else:
                 if backend is None or row[backend_idx] == backend:
-                    # eval(row[X_idx], {}, {})
                     X.append(row[X_idx])
                     Y.append(eval(row[Y_idx], {}, {}))
     return np.array(X), np.array(Y)
 
 
-def read_inputs(args):
+def read_inputs(args: ns):
     results = []
     for idx, inp in enumerate(args.inputs):
         spec_map = {
@@ -54,11 +63,11 @@ def read_inputs(args):
     return results
 
 
-def draw_pmf(ax, Y, bins=20, label=None):
+def draw_pmf(ax: Any, Y: Sequence[float], bins: int = 20, label: str | None = None):
     ax.hist(Y, bins=bins, label=label, histtype="step", alpha=0.8)
 
 
-def draw_cdf(ax, Y, bins=20, label=None):
+def draw_cdf(ax: Any, Y: Sequence[float], bins: int = 20, label: str | None = None):
     ax.hist(
         Y,
         bins=bins,
@@ -70,7 +79,13 @@ def draw_cdf(ax, Y, bins=20, label=None):
     )
 
 
-def draw_cor(ax, Yref, Y, ref_label=None, label=None):
+def draw_cor(
+    ax: Any,
+    Yref: Sequence[float],
+    Y: Sequence[float],
+    ref_label: str | None = None,
+    label: str | None = None,
+):
     ax.scatter(
         Yref,
         Y,
@@ -80,7 +95,7 @@ def draw_cor(ax, Yref, Y, ref_label=None, label=None):
         ax.set_xlabel(ref_label)
 
 
-def save_fig(fname):
+def save_fig(fname: str | Path):
     fig = plt.gcf()
     dpi = fig.dpi
     size = fig.get_size_inches() * dpi
@@ -90,7 +105,7 @@ def save_fig(fname):
     plt.savefig(fname, dpi=dpi)
 
 
-def display_results(results, args):
+def display_results(results: Sequence[ns], args: ns):
     num_figs = sum([bool(opt) for opt in [args.pmf, args.cdf, args.cor]])
     if num_figs == 0:
         return
@@ -136,7 +151,7 @@ def display_results(results, args):
         plt.show()
 
 
-def display(args):
+def display(args: ns):
     results = read_inputs(args)
     display_results(results, args)
 
@@ -177,7 +192,7 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    display(args)
+    display(ns(**vars(args)))
 
 
 if __name__ == "__main__":

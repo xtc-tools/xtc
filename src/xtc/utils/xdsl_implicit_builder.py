@@ -15,7 +15,6 @@ Install for instance early in your application, before import of ImplicitBuilder
 from __future__ import annotations
 
 import contextlib
-import functools
 import threading
 from collections.abc import Iterator
 from typing import Any, NoReturn

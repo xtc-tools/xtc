@@ -15,7 +15,7 @@ from xtc.utils.cfunc import CFunc, CArgValue, CArgCode
 from xtc.itf.runtime.common import CommonRuntimeInterface
 from xtc.runtimes.host.HostRuntime import HostRuntime
 
-__all__ = []
+__all__: list[str] = []
 
 
 def graph_np_inputs_spec(graph: Graph) -> Callable[[], list[dict[str, Any]]]:
@@ -103,7 +103,7 @@ def ensure_ndarray_parameters(
             )
             for spec in outputs_spec
         ]
-        parameters = (
+        return (
             [NDArray(*inp) for inp in inputs],
             [
                 NDArray(
@@ -113,16 +113,17 @@ def ensure_ndarray_parameters(
                 for out, spec in zip(outputs, outputs_spec)
             ],
         )
-    else:
-        inputs, outputs = parameters
-        nd_inputs = [
-            NDArray(inp) if isinstance(inp, np.ndarray) else inp for inp in inputs
-        ]
-        nd_outputs = [
-            NDArray(out) if isinstance(out, np.ndarray) else out for out in outputs
-        ]
-        parameters = (nd_inputs, nd_outputs)
-    return parameters
+
+    inputs, outputs = parameters
+    nd_inputs: list[NDArray] = [
+        NDArray(inp) if isinstance(inp, np.ndarray) else cast(NDArray, inp)
+        for inp in inputs
+    ]
+    nd_outputs: list[NDArray] = [
+        NDArray(out) if isinstance(out, np.ndarray) else cast(NDArray, out)
+        for out in outputs
+    ]
+    return (nd_inputs, nd_outputs)
 
 
 def validate_outputs(

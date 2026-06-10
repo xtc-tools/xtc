@@ -73,7 +73,7 @@ class HostAREvaluator(itf.exec.Evaluator):
         shlib_base = str(Path(self.tmp_dir.name) / f"{c_stem}_eval")
         self._compile_to_shlib(shlib_base)
         ext = ".dylib" if sys.platform == "darwin" else ".so"
-        self._shlib_module = host.HostModule(
+        self._shlib_module: host.HostModule = host.HostModule(
             shlib_base,
             self._module.payload_name,
             f"{shlib_base}{ext}",

@@ -7,7 +7,7 @@
 import argparse
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, cast
 from xdsl.dialects import func, builtin
 from xdsl.ir import Operation
 
@@ -39,7 +39,7 @@ def main():
     ]
 
     # Build the transform script
-    schedulers = []
+    schedulers: list[Scheduler] = []
     for idx, op in enumerate(ops_to_schedule):
         parsed_id = next((k for k in op.attributes if k.startswith("__")), None)
         node_name = parsed_id if parsed_id else f"__node{idx}__"
@@ -55,7 +55,7 @@ def main():
     graph_backend = MlirGraphBackend(
         always_vectorize=args.always_vectorize,
         xdsl_func=myfunc,
-        nodes=[sched.backend for sched in schedulers],
+        nodes=[cast(MlirNodeBackend, sched.backend) for sched in schedulers],
         concluding_passes=args.concluding_passes,
         no_alias=not args.alias,
     )
@@ -94,14 +94,14 @@ def main():
             compiler_args["shared_lib"] = True
 
         compiler = graph_backend.get_compiler(**compiler_args)
-        module = compiler.compile(final_schedule)
+        compiled_module: Any = compiler.compile(final_schedule)
 
         if args.evaluate:
             if args.huge_pages:
                 NDArray.set_alloc_alignment(2 * 1024 * 1024)
             else:
                 NDArray.set_alloc_alignment(256)
-            evaluator = module.get_evaluator(
+            evaluator = compiled_module.get_evaluator(
                 init_zero=args.init_zero,
                 min_repeat_ms=100,
             )

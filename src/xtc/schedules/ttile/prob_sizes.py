@@ -3,8 +3,6 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 
-from typing import Dict
-
 # List of classical problem sizes.
 
 ddsizes_Yolo: dict[str, dict[str, int]] = dict()

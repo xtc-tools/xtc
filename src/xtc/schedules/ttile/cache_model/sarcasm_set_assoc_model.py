@@ -3,7 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional
 import math
 
 from xtc.schedules.ttile.scheme import Atom, AtomType
@@ -394,6 +394,7 @@ def sum_with_shift(
     # [Preprocessing] Match the lambda_loc of last_dl_fp to a lambda_loc from dl_fp
 
     # Recover the list of dims used in dl_fp (above the Seq atom)
+    ldim_above_seq = []
     for str_lambda_loc in dl_fp.keys():
         ldim_above_seq = get_list_dims_str_lambda_loc(str_lambda_loc)
         break

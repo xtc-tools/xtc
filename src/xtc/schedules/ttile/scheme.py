@@ -3,9 +3,10 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 
-from typing import List, Dict, Tuple  # , Set, Optional
+from typing import List, Tuple
+from typing_extensions import override
 from enum import Enum
-
+from dataclasses import dataclass, replace
 
 # Manipulation of scheme, which describes the configuration choices made.
 
@@ -30,6 +31,7 @@ class AtomType(Enum):
     # TODO: add other? Packing/Padding ?
     #  SW Prefetch ?
 
+    @override
     def __str__(self):
         match self:
             case AtomType.VECT:
@@ -55,26 +57,50 @@ class AtomType(Enum):
 
 
 # Definition of an atom, as a single element of a scheme
+@dataclass
 class Atom:
     type: AtomType  # Type of an atom
-    dim: str  # Name of the dimension
 
     # Note: at most one of these is not "None"
-    ratio: int  # Ratio of the atom (for VECT, UNROLL, TILE, TILE_PARAL)
-    size: int  # Size of the atom (for TILE_PARTIAL)
-    lvars_hoist: List[str]  # HOIST: list of variables to be hoisted
-    lratios: List[int]  # ULAMBDA/TLAMBDA: list of ratio
+    _dim: str | None = None  # Name of the dimension
+    _ratio: int | None = None  # Ratio of the atom (for VECT, UNROLL, TILE, TILE_PARAL)
+    _size: int | None = None  # Size of the atom (for TILE_PARTIAL)
+    _lvars_hoist: List[str] | None = None  # HOIST: list of variables to be hoisted
+    _lratios: List[int] | None = None  # ULAMBDA/TLAMBDA: list of ratio
 
-    # Empty constructor (use the other constructor functions)
-    def __init__(self):
-        self.type = None
-        self.dim = None
-        self.ratio = None
-        self.size = None
-        self.lvars_hoist = None
-        self.lratios = None
-        return
+    @property
+    def dim(self) -> str:
+        assert self._dim is not None
+        return self._dim
 
+    @property
+    def ratio(self) -> int:
+        assert self._ratio is not None
+        return self._ratio
+
+    @property
+    def size(self) -> int:
+        assert self._size is not None
+        return self._size
+
+    @property
+    def lvars_hoist(self) -> list[str]:
+        assert self._lvars_hoist is not None
+        return self._lvars_hoist
+
+    @property
+    def lratios(self) -> list[int]:
+        assert self._lratios is not None
+        return self._lratios
+
+    def with_dim(self, dim: str) -> "Atom":
+        assert self.has_dim()
+        return replace(self, _dim=dim)
+
+    def has_dim(self) -> bool:
+        return self.type != AtomType.HOIST
+
+    @override
     def __str__(self):
         if self.type in [
             AtomType.VECT,
@@ -97,72 +123,47 @@ class Atom:
 
 # Constructors to use for atoms
 def new_vect_atom(dim: str, vector_len: int) -> Atom:
-    atom = Atom()
-    atom.type = AtomType.VECT
-    atom.dim = dim
-    atom.ratio = vector_len
+    atom = Atom(AtomType.VECT, dim, _ratio=vector_len)
     return atom
 
 
 def new_unroll_atom(dim: str, ratio: int) -> Atom:
-    atom = Atom()
-    atom.type = AtomType.UNROLL
-    atom.dim = dim
-    atom.ratio = ratio
+    atom = Atom(AtomType.UNROLL, dim, _ratio=ratio)
     return atom
 
 
 def new_tile_atom(dim: str, ratio: int) -> Atom:
-    atom = Atom()
-    atom.type = AtomType.TILE
-    atom.dim = dim
-    atom.ratio = ratio
+    atom = Atom(AtomType.TILE, dim, _ratio=ratio)
     return atom
 
 
 def new_partialtile_atom(dim: str, size: int) -> Atom:
-    atom = Atom()
-    atom.type = AtomType.TILE_PARTIAL
-    atom.dim = dim
-    atom.size = size
+    atom = Atom(AtomType.TILE_PARTIAL, dim, _size=size)
     return atom
 
 
 def new_hoist_atom(lvars_hoist: List[str]) -> Atom:
-    atom = Atom()
-    atom.type = AtomType.HOIST
-    atom.lvars_hoist = lvars_hoist
+    atom = Atom(AtomType.HOIST, _lvars_hoist=lvars_hoist)
     return atom
 
 
 def new_unrollLambda_atom(dim: str, lratios: List[int]) -> Atom:
-    atom = Atom()
-    atom.type = AtomType.ULAMBDA
-    atom.dim = dim
-    atom.lratios = lratios
+    atom = Atom(AtomType.ULAMBDA, dim, _lratios=lratios)
     return atom
 
 
 def new_tileLambda_atom(dim: str, lratios: List[int]) -> Atom:
-    atom = Atom()
-    atom.type = AtomType.TLAMBDA
-    atom.dim = dim
-    atom.lratios = lratios
+    atom = Atom(AtomType.TLAMBDA, dim, _lratios=lratios)
     return atom
 
 
 def new_seq_atom(dim: str) -> Atom:
-    atom = Atom()
-    atom.type = AtomType.SEQ
-    atom.dim = dim
+    atom = Atom(AtomType.SEQ, dim)
     return atom
 
 
 def new_paralleltile_atom(dim: str, ratio: int) -> Atom:
-    atom = Atom()
-    atom.type = AtomType.TILE_PARAL
-    atom.dim = dim
-    atom.ratio = ratio
+    atom = Atom(AtomType.TILE_PARAL, dim, _ratio=ratio)
     return atom
 
 
@@ -606,8 +607,7 @@ def get_sizes_scheme(scheme: List[Atom]) -> dict[str, List[int]]:
     d_lsizes = dict()
 
     for atom in scheme:
-        if atom.dim == None:
-            assert atom.type in [AtomType.HOIST]
+        if atom.type in [AtomType.HOIST]:
             continue
 
         # New dimension encountered

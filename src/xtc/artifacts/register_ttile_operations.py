@@ -11,7 +11,7 @@ from xtc.schedules.ttile.prob_sizes import (
 
 from .operations import register_operation
 
-__all__ = []
+__all__: list[str] = []
 
 
 def _register_conv2d_ops():
