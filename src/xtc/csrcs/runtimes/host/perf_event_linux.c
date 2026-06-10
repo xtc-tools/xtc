@@ -212,6 +212,75 @@ void stop_perf_events(int n_events, const int *fds, uint64_t *results) {
   #endif /* HAS_GPU */
 }
 
+#define X86_RAW(event, umask, cmask) \
+    ((((uint64_t)(event) >> 8) << 32) | \
+     ((uint64_t)(cmask) << 24) | \
+     ((uint64_t)(umask) << 8) | \
+     ((uint64_t)(event) & 0xFF))
+
+typedef struct {
+    const char *name;
+    uint64_t raw_config;
+} pmu_event_def_t;
+
+// INTEL SKYLAKE / CASCADE LAKE (Pre-Ice Lake, no hw PERF_METRICS)
+static const pmu_event_def_t skl_raw_events[] = {
+    { "@skl_slots",           X86_RAW(0x3C, 0x00, 0) },
+    { "@skl_fe_bound",        X86_RAW(0x9C, 0x01, 0) },
+    { "@skl_issued",          X86_RAW(0x0E, 0x01, 0) },
+    { "@skl_retiring",        X86_RAW(0xC2, 0x02, 0) },
+    // with flags (any=1, edge=1)
+    { "@skl_recovery",        0x0120010D             },
+    { "@skl_machine_clears",  0x010401C3             },
+    // L2 & L3 Memory Bound
+    { "@skl_mem_stalls",      X86_RAW(0xA3, 0x14, 0x14) },
+    { "@skl_core_stalls",     X86_RAW(0xA2, 0x01, 0) },
+    { "@skl_fetch_lat_data",  X86_RAW(0x80, 0x04, 0) },
+    { "@skl_fetch_lat_tag",   X86_RAW(0x83, 0x04, 0) },
+    { "@skl_heavy_ops",       X86_RAW(0x79, 0x30, 0) },
+    { "@skl_br_misp",         X86_RAW(0xC5, 0x00, 0) },
+    { "@skl_stalls_mem_any",  X86_RAW(0xA3, 0x14, 0x14) },
+    { "@skl_stalls_l1d_miss", X86_RAW(0xA3, 0x0C, 0x0C) },
+    { "@skl_stalls_l2_miss",  X86_RAW(0xA3, 0x05, 0x05) },
+    { "@skl_stalls_l3_miss",  X86_RAW(0xA3, 0x06, 0x06) },
+    { "@skl_bound_on_stores", X86_RAW(0xA6, 0x40, 0) }
+};
+
+// INTEL MODERN (Ice Lake, Sapphire Rapids, Alder/Raptor Lake)
+static const pmu_event_def_t icl_raw_events[] = {
+    { "@icl_slots",           X86_RAW(0x00, 0x04, 0) },
+    { "@icl_retiring",        X86_RAW(0x00, 0x80, 0) },
+    { "@icl_bad_spec",        X86_RAW(0x00, 0x81, 0) },
+    { "@icl_fe_bound",        X86_RAW(0x00, 0x82, 0) },
+    { "@icl_be_bound",        X86_RAW(0x00, 0x83, 0) },
+    { "@icl_heavy_ops",       X86_RAW(0x00, 0x84, 0) },
+    { "@icl_br_mispredict",   X86_RAW(0x00, 0x85, 0) },
+    { "@icl_fetch_lat",       X86_RAW(0x00, 0x86, 0) },
+    { "@icl_mem_bound",       X86_RAW(0x00, 0x87, 0) },
+    // Fallback L3 Memory events (same as Skylake)
+    { "@icl_cyc",             X86_RAW(0x3C, 0x00, 0) },
+    { "@icl_stalls_mem_any",  X86_RAW(0xA3, 0x14, 0x14) },
+    { "@icl_stalls_l1d_miss", X86_RAW(0xA3, 0x0C, 0x0C) },
+    { "@icl_stalls_l2_miss",  X86_RAW(0xA3, 0x05, 0x05) },
+    { "@icl_stalls_l3_miss",  X86_RAW(0xA3, 0x06, 0x06) },
+    { "@icl_bound_on_stores", X86_RAW(0xA6, 0x40, 0) }
+};
+
+// AMD ZEN 4 (Family 19h)
+static const pmu_event_def_t zen4_raw_events[] = {
+    { "@zen4_cyc",            X86_RAW(0x076, 0x00, 0) }, // LS_NOT_HALTED_CYC: Core active cycles
+    { "@zen4_fe",             X86_RAW(0x1A0, 0x01, 0) }, // DE_NO_DISPATCH_PER_SLOT.NO_OPS_FROM_FRONTEND: Dispatch slots empty due to FE
+    { "@zen4_disp",           X86_RAW(0x0AA, 0x07, 0) }, // DE_SRC_OP_DISP.ALL: OPs dispatched from any source (Decoder, OpCache, uCode)
+    { "@zen4_ret",            X86_RAW(0x0C1, 0x00, 0) }, // EX_RET_OPS: Total OPs retired
+    { "@zen4_be_mem",         X86_RAW(0x1A0, 0x02, 0) },
+    { "@zen4_be_cpu",         X86_RAW(0x1A0, 0x04, 0) },
+    { "@zen4_fe_lat",         X86_RAW(0x1A0, 0x01, 0x06) }, // DE_NO_DISPATCH_PER_SLOT.NO_OPS_FROM_FRONTEND (Cmask=6): Full pipeline stall from FE
+    { "@zen4_fe_tot",         X86_RAW(0x1A0, 0x01, 0) },
+    { "@zen4_bs_misp",        X86_RAW(0x0C3, 0x00, 0) },
+    { "@zen4_bs_resync",      X86_RAW(0x091, 0x00, 0) },
+    { "@zen4_ret_micro",      X86_RAW(0x1C2, 0x00, 0) }  // EX_RET_UCODE_OPS: Retired macro-ops originating from microcode sequencer (Heavy Ops)
+};
+
 /*
  * Source
  * Intel : https://github.com/torvalds/linux/blob/master/arch/x86/events/intel/core.c
@@ -222,140 +291,33 @@ void stop_perf_events(int n_events, const int *fds, uint64_t *results) {
  *
  * todo ARM : https://developer.arm.com/documentation/ddi0434/a/performance-monitoring-unit/performance-monitoring-register-descriptions/event-type-select-register?lang=en
  */
-static int inline set_config_by_arch(const char *name, perf_event_args_t *event){
+static inline int find_raw_event(const char *name, const pmu_event_def_t *table, int table_size, perf_event_args_t *event) {
+    for (int i = 0; i < table_size; i++) {
+        if (strcmp(name, table[i].name) == 0) {
+            event->mode = PERF_ARG_GENERIC;
+            event->args.config_pair.type = PERF_TYPE_RAW;
+            event->args.config_pair.event = table[i].raw_config;
+            return 0;
+        }
+    }
+    return 1;
+}
 
-    // Old Intel
+static inline int set_config_by_arch(const char *name, perf_event_args_t *event) {
+    // Old Intel (Skylake / Cascade Lake)
     if (strncmp(name, "@skl_", 5) == 0) {
-      event->mode = PERF_ARG_GENERIC;
-      event->args.config_pair.type = PERF_TYPE_RAW;
-      // TopdownL1
-      if (strcmp(name, "@skl_slots") == 0)
-        event->args.config_pair.event = 0x003c;
-      else if (strcmp(name, "@skl_fe_bound") == 0)
-        event->args.config_pair.event = 0x019c;
-      else if (strcmp(name, "@skl_issued") == 0)
-        event->args.config_pair.event = 0x010e;
-      else if (strcmp(name, "@skl_retiring") == 0)
-        event->args.config_pair.event = 0x02c2;
-      // TopdownL2
-      else if (strcmp(name, "@skl_recovery") == 0)
-        event->args.config_pair.event = 0x0120010d;
-      else if (strcmp(name, "@skl_mem_stalls") == 0)
-        event->args.config_pair.event = 0x1414;
-      else if (strcmp(name, "@skl_core_stalls") == 0)
-        event->args.config_pair.event = 0x01a2;
-      else if (strcmp(name, "@skl_fetch_lat_data") == 0)
-        event->args.config_pair.event = 0x0480;
-      else if (strcmp(name, "@skl_fetch_lat_tag") == 0)
-        event->args.config_pair.event = 0x0483;
-      else if (strcmp(name, "@skl_heavy_ops") == 0)
-        event->args.config_pair.event = 0x3079;
-      else if (strcmp(name, "@skl_br_misp") == 0)
-        event->args.config_pair.event = 0x00c5;
-      else if (strcmp(name, "@skl_machine_clears") == 0)
-        event->args.config_pair.event = 0x010401c3;
-      // TopdownL3_Mem
-      else if (strcmp(name, "@skl_stalls_mem_any") == 0)
-        event->args.config_pair.event = 0x140014a3;
-      else if (strcmp(name, "@skl_stalls_l1d_miss") == 0)
-        event->args.config_pair.event = 0x0c000ca3;
-      else if (strcmp(name, "@skl_stalls_l2_miss") == 0)
-        event->args.config_pair.event = 0x050005a3;
-      else if (strcmp(name, "@skl_stalls_l3_miss") == 0)
-        event->args.config_pair.event = 0x060006a3;
-      else if (strcmp(name, "@skl_bound_on_stores") == 0)
-        event->args.config_pair.event = 0x08a2;
-      else
-        return 1;
-
-      return 0;
+        return find_raw_event(name, skl_raw_events, sizeof(skl_raw_events) / sizeof(skl_raw_events[0]), event);
     }
-
-    // Bits 0-7 = Event[7:0], Bits 8-15 = Umask, Bits 32-35 = Event[11:8]
-    else if (strncmp(name, "@zen4_", 6) == 0) {
-      event->mode = PERF_ARG_GENERIC;
-      event->args.config_pair.type = PERF_TYPE_RAW;
-
-      // L1
-      if (strcmp(name, "@zen4_cyc") == 0)
-        event->args.config_pair.event = 0x0076;
-      else if (strcmp(name, "@zen4_fe") == 0)
-        event->args.config_pair.event = 0x1000001A0ULL;
-      else if (strcmp(name, "@zen4_disp") == 0)
-        event->args.config_pair.event = 0x07AA;
-      else if (strcmp(name, "@zen4_ret") == 0)
-        event->args.config_pair.event = 0x00C1;
-
-      // L2
-      else if (strcmp(name, "@zen4_be_mem") == 0)
-        event->args.config_pair.event = 0x1000002A9ULL; // 0x1000002A0ULL ?
-      else if (strcmp(name, "@zen4_be_cpu") == 0)
-        event->args.config_pair.event = 0x1000004A9ULL; // 0x1000004A0ULL ?
-
-      // L2 Frontend (cmask=0x6 add 0x06000000)
-      else if (strcmp(name, "@zen4_fe_lat") == 0)
-        event->args.config_pair.event = 0x1060001A9ULL; // 0x1060001A0ULL ?
-      else if (strcmp(name, "@zen4_fe_tot") == 0)
-        event->args.config_pair.event = 0x1000001A9ULL; // 0x1000001A0ULL ?
-
-      // L2 Bad Speculation + Retiring
-      else if (strcmp(name, "@zen4_bs_misp") == 0)
-        event->args.config_pair.event = 0x0008000C1ULL; // 0x00C3; // ex_ret_brn_misp
-      else if (strcmp(name, "@zen4_bs_resync") == 0)
-        event->args.config_pair.event = 0x0002000C1ULL; // 0x0091; // bp_de_redirect
-      else if (strcmp(name, "@zen4_ret_micro") == 0)
-        event->args.config_pair.event = 0x0001000C1ULL; // 0x1000000C2ULL; // ex_ret_ucode_ops
-      else
-        return 1;
-
-      return 0;
-    }
-
-    // Modern Intel
+    // Modern Intel (Ice Lake / Raptor Lake)
     else if (strncmp(name, "@icl_", 5) == 0) {
-      event->mode = PERF_ARG_GENERIC;
-      event->args.config_pair.type = PERF_TYPE_RAW;
-
-      if (strcmp(name, "@icl_slots") == 0)
-        event->args.config_pair.event = 0x0400;
-      // TopDownL1
-      else if (strcmp(name, "@icl_retiring") == 0)
-        event->args.config_pair.event = 0x8000;
-      else if (strcmp(name, "@icl_bad_spec") == 0)
-        event->args.config_pair.event = 0x8100;
-      else if (strcmp(name, "@icl_fe_bound") == 0)
-        event->args.config_pair.event = 0x8200;
-      else if (strcmp(name, "@icl_be_bound") == 0)
-        event->args.config_pair.event = 0x8300;
-      // TopDownL2
-      else if (strcmp(name, "@icl_heavy_ops") == 0)
-        event->args.config_pair.event = 0x8400;
-      else if (strcmp(name, "@icl_br_mispredict") == 0)
-        event->args.config_pair.event = 0x8500;
-      else if (strcmp(name, "@icl_fetch_lat") == 0)
-        event->args.config_pair.event = 0x8600;
-      else if (strcmp(name, "@icl_mem_bound") == 0)
-        event->args.config_pair.event = 0x8700;
-      // TopdownL3_Mem
-      else if (strcmp(name, "@icl_cyc") == 0)
-        event->args.config_pair.event = 0x003c;
-      else if (strcmp(name, "@icl_stalls_mem_any") == 0)
-        event->args.config_pair.event = 0x140014a3;
-      else if (strcmp(name, "@icl_stalls_l1d_miss") == 0)
-        event->args.config_pair.event = 0x0c000ca3;
-      else if (strcmp(name, "@icl_stalls_l2_miss") == 0)
-        event->args.config_pair.event = 0x050005a3;
-      else if (strcmp(name, "@icl_stalls_l3_miss") == 0)
-        event->args.config_pair.event = 0x060006a3;
-      else if (strcmp(name, "@icl_bound_on_stores") == 0)
-        event->args.config_pair.event = 0x40a6;
-      else
-        return 1;
-
-      return 0;
+        return find_raw_event(name, icl_raw_events, sizeof(icl_raw_events) / sizeof(icl_raw_events[0]), event);
+    }
+    // AMD Zen 4
+    else if (strncmp(name, "@zen4_", 6) == 0) {
+        return find_raw_event(name, zen4_raw_events, sizeof(zen4_raw_events) / sizeof(zen4_raw_events[0]), event);
     }
 
-    return -1;
+    return -1; // unknow prefix
 }
 
 int get_perf_event_config(const char *name, perf_event_args_t *event) {
