@@ -65,6 +65,7 @@ check-pytest:
 	scripts/pytest/run_pytest.sh -v
 
 check-tutorials:
+	scripts/tutorials/test_marimos.sh
 	scripts/tutorials/test_tutorial_explore_optimizers.sh
 	scripts/tutorials/test_tutorial_xtc_101.sh
 
