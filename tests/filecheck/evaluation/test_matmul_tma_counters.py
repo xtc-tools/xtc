@@ -38,7 +38,7 @@ hw_counters = []
 # Linux Perf counters
 if sys.platform == "linux":
     hw_counters += [
-        "TopdownL1","TopdownL2"
+        "TopdownL1","TopdownL2", "TopdownL3_Mem"
     ]
 elif sys.platform == "darwin":
     # On MacOS, requires sudo to get counters
@@ -92,6 +92,17 @@ print(f"{'L2 Branch misspredict':<{w}}: {get_c(results[7])}{results[7]:.2f}{RESE
 print(f"{'L2 Fetch latency':<{w}}: {get_c(results[8])}{results[8]:.2f}{RESET}")
 print(f"{'L2 Core bound':<{w}}: {get_c(results[9])}{results[9]:.2f}{RESET}")
 print(f"{'L2 Memory bound':<{w}}: {get_c(results[10])}{results[10]:.2f}{RESET}")
+
+print("")
+# L3 Memory Metrics
+print(f"{'L3 L1 bound':<{w}}: {get_c(results[11])}{results[11]:.2f}{RESET}")
+print(f"{'L3 L2 bound':<{w}}: {get_c(results[12])}{results[12]:.2f}{RESET}")
+print(f"{'L3 L3 bound':<{w}}: {get_c(results[13])}{results[13]:.2f}{RESET}")
+print(f"{'L3 DRAM bound':<{w}}: {get_c(results[14])}{results[14]:.2f}{RESET}")
+print(f"{'L3 store bound':<{w}}: {get_c(results[15])}{results[15]:.2f}{RESET}")
+
+
+
 
 # CHECK:       CODE: 0
 # CHECK-NEXT:  counters:
