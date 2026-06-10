@@ -9,9 +9,9 @@ with app.setup:
     import marimo as mo
     from sys import platform
 
-    notebook_dir = os.path.dirname(os.path.realpath(__file__))
-    project_root = os.path.abspath(os.path.join(notebook_dir, "..", ".."))
-    os.chdir(project_root)
+#    notebook_dir = os.path.dirname(os.path.realpath(__file__))
+#    project_root = os.path.abspath(os.path.join(notebook_dir, "..", ".."))
+#    os.chdir(project_root)
 
 
 @app.cell(hide_code=True)
@@ -62,7 +62,7 @@ def _(mo):
     # UI sliders
     tile_i_ui = mo.ui.slider(start=1, stop=64, step=1, value=3, label="Tile I (Rows)")
     tile_j_ui = mo.ui.slider(start=8, stop=512, step=8, value=24, label="Tile J (Cols)")
-    unroll_ui = mo.ui.slider(start=1, stop=8, step=1, value=2, label="Unroll factor")
+    unroll_ui = mo.ui.slider(start=1, stop=32, step=1, value=2, label="Unroll factor")
     return tile_i_ui, tile_j_ui, unroll_ui
 
 
