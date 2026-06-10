@@ -271,6 +271,7 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
       return 0;
     }
 
+    // Bits 0-7 = Event[7:0], Bits 8-15 = Umask, Bits 32-35 = Event[11:8]
     else if (strncmp(name, "@zen4_", 6) == 0) {
       event->mode = PERF_ARG_GENERIC;
       event->args.config_pair.type = PERF_TYPE_RAW;
@@ -287,23 +288,23 @@ static int inline set_config_by_arch(const char *name, perf_event_args_t *event)
 
       // L2
       else if (strcmp(name, "@zen4_be_mem") == 0)
-        event->args.config_pair.event = 0x1000002A9ULL;
+        event->args.config_pair.event = 0x1000002A9ULL; // 0x1000002A0ULL ?
       else if (strcmp(name, "@zen4_be_cpu") == 0)
-        event->args.config_pair.event = 0x1000004A9ULL;
+        event->args.config_pair.event = 0x1000004A9ULL; // 0x1000004A0ULL ?
 
       // L2 Frontend (cmask=0x6 add 0x06000000)
       else if (strcmp(name, "@zen4_fe_lat") == 0)
-        event->args.config_pair.event = 0x1060001A9ULL;
+        event->args.config_pair.event = 0x1060001A9ULL; // 0x1060001A0ULL ?
       else if (strcmp(name, "@zen4_fe_tot") == 0)
-        event->args.config_pair.event = 0x1000001A9ULL;
+        event->args.config_pair.event = 0x1000001A9ULL; // 0x1000001A0ULL ?
 
       // L2 Bad Speculation + Retiring
       else if (strcmp(name, "@zen4_bs_misp") == 0)
-        event->args.config_pair.event = 0x0008000C1ULL;
+        event->args.config_pair.event = 0x0008000C1ULL; // 0x00C3; // ex_ret_brn_misp
       else if (strcmp(name, "@zen4_bs_resync") == 0)
-        event->args.config_pair.event = 0x0002000C1ULL;
+        event->args.config_pair.event = 0x0002000C1ULL; // 0x0091; // bp_de_redirect
       else if (strcmp(name, "@zen4_ret_micro") == 0)
-        event->args.config_pair.event = 0x0001000C1ULL;
+        event->args.config_pair.event = 0x0001000C1ULL; // 0x1000000C2ULL; // ex_ret_ucode_ops
       else
         return 1;
 
