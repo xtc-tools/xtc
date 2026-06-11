@@ -38,7 +38,7 @@ def _(mo):
     > To make hardware counters available to userspace applications (ring 3), run this in your terminal:
     > ```bash
     > sudo sysctl kernel.perf_event_paranoid=-1
-    > echo 0 | sudo tee /proc/sys/kernel/nmi_watchdog
+    > echo 0 | sudo tee /proc/sys/kernel/nmi_watchdog # not needed on ARM
     > ```
     """)
     return
@@ -60,8 +60,8 @@ def _(mo):
 @app.cell
 def _(mo):
     # UI sliders
-    tile_i_ui = mo.ui.slider(start=8, stop=1024, step=8, value=16, label="Tile I (Rows)")
-    tile_j_ui = mo.ui.slider(start=8, stop=1024, step=8, value=16, label="Tile J (Cols)")
+    tile_i_ui = mo.ui.slider(start=16, stop=1024, step=16, value=16, label="Tile I (Rows)")
+    tile_j_ui = mo.ui.slider(start=16, stop=1024, step=16, value=16, label="Tile J (Cols)")
     unroll_ui = mo.ui.slider(start=1, stop=32, step=1, value=2, label="Unroll factor")
     return tile_i_ui, tile_j_ui, unroll_ui
 
@@ -102,7 +102,13 @@ def _(mo):
     )
     sched = scheduler.schedule()
 
-    compiler = backend.get_compiler(dump_file="matmul_mlir", shared_lib=True)
+    compiler = backend.get_compiler(
+        dump_file="matmul_mlir",
+        print_source_ir=False,
+        print_transformed_ir=False,
+        print_assembly=False,
+        shared_lib=True
+    )
     module = compiler.compile(sched)
     '''
     descript_editor = mo.ui.code_editor(
@@ -366,10 +372,36 @@ def _(btn_l2, mo):
     *   **Core Bound:** Lack of execution units (ALU/FPU) or data dependencies between instructions.
     *   **Memory Bound:** Execution Units are starved because of non-completed in-flight memory demand loads.
 
+    **Analyzing Retiring:**
+        If **🟢 Retiring: Light Ops** is unusually high, it often indicates inefficient vectorization.
+        This typically occurs when matrix dimensions are not perfectly divisible by your tile sizes,
+        forcing the compiler to generate scalar instructions for the remaining elements (loop tails).
+        You can verify if the backend successfully leverages wide vector registers (like `ymm` or `zmm`)
+        by inspecting the generated assembly.
+
+
     {btn_l2}
     """)
     return
 
+@app.cell
+def _(mo):
+    check_asm_content = mo.md(
+        """
+        - Set the flag **print_assembly** to **True** in the code editor cell.
+        - The output will be in the Marimo's server terminal the next compilation of the module.
+        """
+    )
+
+    check_asm_msg = mo.accordion({
+        "💡 How to see assembly output": check_asm_content
+    })
+    return (check_asm_msg,)
+
+@app.cell
+def _(check_asm_msg):
+    check_asm_msg
+    return
 
 @app.cell
 def _(btn_l2, exec_error, mo, module, platform):
