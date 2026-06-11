@@ -547,6 +547,110 @@ static void compute_amd_zen4_tma_l2(const double *raw, double *final) {
 }
 
 
+// === ARM arch ===
+
+static const int arm_l1_passes[] = {5};
+static const char *arm_tma_l1_events[] = {
+    "@arm_cyc", "@arm_fe", "@arm_be", "@arm_inst", "@arm_brmisp"
+};
+
+static void compute_arm_tma_l1(const double *raw, double *final) {
+    double cyc = raw[0];
+    if (cyc > 0) {
+        double fe_bound = raw[1] / cyc;
+        double be_bound = raw[2] / cyc;
+
+        // Cycle where at leat 1 instruction has been issued
+        double remaining = 1.0 - fe_bound - be_bound;
+        if (remaining < 0.0) remaining = 0.0;
+
+        // Estimation : 10 cycles lost per branch miss
+        // TODO : check doc
+        // Cortex-A76 = 14 cycles (https://www.7-cpu.com/cpu/Cortex-A76.html)
+        // Cortex-A53 = 7 cycles (https://www.7-cpu.com/cpu/Cortex-A53.html)
+        // HPE RL300 ?
+        double bad_spec = (raw[4] * 10.0) / cyc;
+        if (bad_spec > remaining) bad_spec = remaining;
+
+        double retiring = remaining - bad_spec;
+
+        final[0] = retiring * 100.0;
+        final[1] = bad_spec * 100.0;
+        final[2] = fe_bound * 100.0;
+        final[3] = be_bound * 100.0;
+    } else {
+        final[0] = final[1] = final[2] = final[3] = 0.0;
+    }
+}
+
+static const int arm_l2_passes[] = {5, 3};
+static const char *arm_tma_l2_events[] = {
+    // Pass 1 : Backend (Memory vs CPU)
+    "@arm_cyc",
+    "@arm_be",
+    "@arm_be_mem",
+    "@arm_be_cpu",
+    "@arm_fe",
+
+    // Pass 2 : Bad Speculation + Frontend latency
+    "@arm_cyc",
+    "@arm_l1i_miss",
+    "@arm_brmisp"
+};
+
+static void compute_arm_tma_l2(const double *raw, double *final) {
+    double cyc1 = raw[0];
+    double cyc2 = raw[5];
+
+    if (cyc1 > 0 && cyc2 > 0) {
+        // Backend Bound
+        double be_tot = raw[1];
+        double be_mem = raw[2];
+        double be_cpu = raw[3];
+
+        double r_be_mem = 0.0, r_be_cpu = 0.0;
+        double r_be_tot = be_tot / cyc1;
+
+        // Backend normalisation
+        if (be_mem + be_cpu > 0) {
+            r_be_mem = r_be_tot * (be_mem / (be_mem + be_cpu));
+            r_be_cpu = r_be_tot * (be_cpu / (be_mem + be_cpu));
+        } else {
+            r_be_mem = r_be_tot;
+        }
+
+        // Frontend Bound
+        double fe_tot = raw[4] / cyc1;
+        // Estimation : 15 cycles to get instruction from L2/RAM
+        // TODO : check doc
+        double fe_lat = (raw[6] * 15.0) / cyc2;
+        if (fe_lat > fe_tot) fe_lat = fe_tot;
+        double fe_bw = fe_tot - fe_lat;
+
+        // Bad Speculation + Retiring
+        double remaining = 1.0 - fe_tot - r_be_tot;
+        if (remaining < 0.0) remaining = 0.0;
+
+        double bad_spec = (raw[7] * 10.0) / cyc2;
+        if (bad_spec > remaining) bad_spec = remaining;
+
+        double retiring = remaining - bad_spec;
+
+        //  Light, Heavy, Clears, Mispredicts, FE BW, FE Lat, Core Bound, Memory Bound
+        final[0] = retiring * 100.0; // Every instruction is Light
+        final[1] = 0.0;              // No heavy ops
+        final[2] = 0.0;              // Clear
+        final[3] = bad_spec * 100.0; // Mispredicts
+        final[4] = fe_bw * 100.0;    // Frontend Bandwidth
+        final[5] = fe_lat * 100.0;   // Frontend Latency
+        final[6] = r_be_cpu * 100.0; // Core bound
+        final[7] = r_be_mem * 100.0; // Memory bound
+
+        for(int i=0; i<8; i++) if (final[i] < 0.0) final[i] = 0.0;
+    } else {
+        for(int i=0; i<8; i++) final[i] = 0.0;
+    }
+}
 
 // === Core logic ===
 
@@ -635,12 +739,15 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
             // else if (uarch == AMD_ZEN_3) ...
         }
         else if (detect_if_arm()) {
-            fprintf(stderr,"[DEBUG] ARM detected\n");
-            // todo
-            // fopen /sys/devices/system/cpu/cpu0/regs/identification/midr_el1
-            // 0x410fd0c0 == Cortex-X1
-            // 0x610f2200 == Apple M1
-            return 0;
+            fprintf(stderr,"[DEBUG] ARM AArch64 detected\n");
+            out_resolver->is_supported = 1;
+            out_resolver->num_hw_events = 5;
+            out_resolver->hw_events = arm_tma_l1_events;
+            out_resolver->num_results = 4;
+            out_resolver->num_passes = 1;
+            out_resolver->events_per_pass = arm_l1_passes;
+            out_resolver->compute_formula = compute_arm_tma_l1;
+            return 1;
         }
     }
     else if (strcmp(metric_name, "TopdownL2") == 0) {

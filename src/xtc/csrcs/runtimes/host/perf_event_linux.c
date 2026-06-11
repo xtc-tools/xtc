@@ -281,6 +281,22 @@ static const pmu_event_def_t zen4_raw_events[] = {
     { "@zen4_ret_micro",      X86_RAW(0x1C2, 0x00, 0) }  // EX_RET_UCODE_OPS: Retired macro-ops originating from microcode sequencer (Heavy Ops)
 };
 
+#define ARM_RAW(event) (event)
+
+static const pmu_event_def_t arm_raw_events[] = {
+    // TopdownL1
+    { "@arm_cyc",       ARM_RAW(0x11) }, // CPU_CYCLES
+    { "@arm_fe",        ARM_RAW(0x23) }, // STALL_FRONTEND
+    { "@arm_be",        ARM_RAW(0x24) }, // STALL_BACKEND
+    { "@arm_inst",      ARM_RAW(0x08) }, // INST_RETIRED
+    { "@arm_brmisp",    ARM_RAW(0x10) }, // BR_MIS_PRED
+
+    // TopdownL2
+    { "@arm_be_mem",    ARM_RAW(0x45) }, // STALL_BACKEND_MEM
+    { "@arm_be_cpu",    ARM_RAW(0x44) }, // STALL_BACKEND_CPU
+    { "@arm_l1i_miss",  ARM_RAW(0x01) }  // L1I_CACHE_REFILL
+};
+
 /*
  * Source
  * Intel : https://github.com/torvalds/linux/blob/master/arch/x86/events/intel/core.c
