@@ -292,6 +292,7 @@ class MlirProgramToLLVMDialectPass:
             ]
         pipeline += [
             # From complex control to the soup of basic blocks
+            "math-uplift-to-fma",
             "expand-strided-metadata",
             "convert-linalg-to-loops",
             "lower-affine",
@@ -313,6 +314,7 @@ class MlirProgramToLLVMDialectPass:
             "cse",
             "sccp",
             # Data flow to LLVM
+            "convert-math-to-llvm",
             "convert-vector-to-llvm{enable-x86vector=true}",
             "convert-index-to-llvm",
             "convert-arith-to-llvm",

@@ -49,8 +49,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      linalg.fill {__xtc_id_O_0_} ins(%cst : f32) outs(%arg2 : memref<1x112x112x64xf32>)
 # CHECK-NEXT:      linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%arg0, %arg1 : memref<1x230x230x3xf32>, memref<7x7x3x64xf32>) outs(%arg2 : memref<1x112x112x64xf32>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:      ^bb0(%in: f32, %in_0: f32, %out: f32):
-# CHECK-NEXT:        %0 = arith.mulf %in, %in_0 : f32
-# CHECK-NEXT:        %1 = arith.addf %out, %0 : f32
+# CHECK-NEXT:        %0 = arith.mulf %in, %in_0 fastmath<fast> : f32
+# CHECK-NEXT:        %1 = arith.addf %out, %0 fastmath<fast> : f32
 # CHECK-NEXT:        linalg.yield %1 : f32
 # CHECK-NEXT:      }
 # CHECK-NEXT:      return
@@ -160,32 +160,32 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                  %subview_15 = memref.subview %subview_7[0, 0, %c0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_14, %subview_13 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_15 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_16 = memref.subview %subview_12[0, 0, %c2, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_17 = memref.subview %subview_7[0, 0, %c1, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_16, %subview_13 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_17 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_18 = memref.subview %subview_12[0, 0, %c4, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_19 = memref.subview %subview_7[0, 0, %c2, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_18, %subview_13 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_19 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_20 = memref.subview %subview_12[0, 0, %c6, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_21 = memref.subview %subview_7[0, 0, %c3, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_20, %subview_13 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_21 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_22 = memref.subview %subview_10[0, 0, 0, %c1] [1, 1, 7, 1] [1, 1, 1, 1] : memref<1x1x7x3xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
@@ -194,32 +194,32 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                  %subview_25 = memref.subview %subview_7[0, 0, %c0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_24, %subview_23 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_25 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_26 = memref.subview %subview_22[0, 0, %c2, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_27 = memref.subview %subview_7[0, 0, %c1, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_26, %subview_23 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_27 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_28 = memref.subview %subview_22[0, 0, %c4, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_29 = memref.subview %subview_7[0, 0, %c2, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_28, %subview_23 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_29 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_30 = memref.subview %subview_22[0, 0, %c6, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_31 = memref.subview %subview_7[0, 0, %c3, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_30, %subview_23 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_31 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_32 = memref.subview %subview_10[0, 0, 0, %c2] [1, 1, 7, 1] [1, 1, 1, 1] : memref<1x1x7x3xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
@@ -228,32 +228,32 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                  %subview_35 = memref.subview %subview_7[0, 0, %c0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_34, %subview_33 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_35 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_36 = memref.subview %subview_32[0, 0, %c2, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_37 = memref.subview %subview_7[0, 0, %c1, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_36, %subview_33 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_37 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_38 = memref.subview %subview_32[0, 0, %c4, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_39 = memref.subview %subview_7[0, 0, %c2, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_38, %subview_33 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_39 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  %subview_40 = memref.subview %subview_32[0, 0, %c6, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x7x1xf32, strided<[158700, 690, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_41 = memref.subview %subview_7[0, 0, %c3, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[802816, 7168, 64, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_40, %subview_33 : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>, memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>) outs(%subview_41 : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_42: f32, %out: f32):
-# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 : f32
-# CHECK-NEXT:                    %3 = arith.addf %out, %2 : f32
+# CHECK-NEXT:                    %2 = arith.mulf %in, %in_42 fastmath<fast> : f32
+# CHECK-NEXT:                    %3 = arith.addf %out, %2 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %3 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                } {"./s"}

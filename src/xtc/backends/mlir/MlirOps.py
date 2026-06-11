@@ -366,10 +366,11 @@ class MlirOperatorConv2D(MlirOperator):
             iterator_types = [
                 StringAttr({"P": "parallel", "R": "reduction"}[k]) for k in self.KINDS
             ]
+            flags = arith.FastMathFlagsAttr("fast")
             block_in = Block(arg_types=[f32, f32, f32])
             with ImplicitBuilder(block_in):
-                mul = arith.MulfOp(block_in.args[0], block_in.args[1])
-                add = arith.AddfOp(block_in.args[2], mul)
+                mul = arith.MulfOp(block_in.args[0], block_in.args[1], flags=flags)
+                add = arith.AddfOp(block_in.args[2], mul, flags=flags)
                 linalg.YieldOp(add)
             reduce = linalg.GenericOp(
                 inputs=(args[0], args[1]),

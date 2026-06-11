@@ -94,8 +94,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %3 = linalg.fill {__xtc_id_conv_0_} ins(%cst_0 : f32) outs(%2 : tensor<1x4x4x16xf32>) -> tensor<1x4x4x16xf32>
 # CHECK-NEXT:      %4 = linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%1, %arg1 : tensor<1x12x12x3xf32>, tensor<5x5x3x16xf32>) outs(%3 : tensor<1x4x4x16xf32>) attrs =  {__xtc_id_conv_} {
 # CHECK-NEXT:      ^bb0(%in: f32, %in_1: f32, %out: f32):
-# CHECK-NEXT:        %5 = arith.mulf %in, %in_1 : f32
-# CHECK-NEXT:        %6 = arith.addf %out, %5 : f32
+# CHECK-NEXT:        %5 = arith.mulf %in, %in_1 fastmath<fast> : f32
+# CHECK-NEXT:        %6 = arith.addf %out, %5 fastmath<fast> : f32
 # CHECK-NEXT:        linalg.yield %6 : f32
 # CHECK-NEXT:      } -> tensor<1x4x4x16xf32>
 # CHECK-NEXT:      bufferization.materialize_in_destination %4 in restrict writable %arg2 : (tensor<1x4x4x16xf32>, memref<1x4x4x16xf32>) -> ()
@@ -383,8 +383,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                  %extracted_slice_44 = tensor.extract_slice %arg14[0, 0, 0, %arg13] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x16xf32> to tensor<1x1x1x1xf32>
 # CHECK-NEXT:                  %18 = linalg.generic {indexing_maps = [#map4, #map5, #map6], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%extracted_slice_42, %extracted_slice_43 : tensor<1x2x1x1xf32>, tensor<2x1x1x1xf32>) outs(%extracted_slice_44 : tensor<1x1x1x1xf32>) attrs =  {__xtc_id_conv_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_46: f32, %out: f32):
-# CHECK-NEXT:                    %19 = arith.mulf %in, %in_46 : f32
-# CHECK-NEXT:                    %20 = arith.addf %out, %19 : f32
+# CHECK-NEXT:                    %19 = arith.mulf %in, %in_46 fastmath<fast> : f32
+# CHECK-NEXT:                    %20 = arith.addf %out, %19 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %20 : f32
 # CHECK-NEXT:                  } -> tensor<1x1x1x1xf32>
 # CHECK-NEXT:                  %inserted_slice_45 = tensor.insert_slice %18 into %arg14[0, 0, 0, %arg13] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x1xf32> into tensor<1x1x1x16xf32>
@@ -423,8 +423,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                  %extracted_slice_44 = tensor.extract_slice %arg14[0, 0, 0, %arg13] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x16xf32> to tensor<1x1x1x1xf32>
 # CHECK-NEXT:                  %18 = linalg.generic {indexing_maps = [#map4, #map5, #map6], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%extracted_slice_42, %extracted_slice_43 : tensor<1x3x1x1xf32>, tensor<3x1x1x1xf32>) outs(%extracted_slice_44 : tensor<1x1x1x1xf32>) attrs =  {__xtc_id_conv_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_46: f32, %out: f32):
-# CHECK-NEXT:                    %19 = arith.mulf %in, %in_46 : f32
-# CHECK-NEXT:                    %20 = arith.addf %out, %19 : f32
+# CHECK-NEXT:                    %19 = arith.mulf %in, %in_46 fastmath<fast> : f32
+# CHECK-NEXT:                    %20 = arith.addf %out, %19 fastmath<fast> : f32
 # CHECK-NEXT:                    linalg.yield %20 : f32
 # CHECK-NEXT:                  } -> tensor<1x1x1x1xf32>
 # CHECK-NEXT:                  %inserted_slice_45 = tensor.insert_slice %18 into %arg14[0, 0, 0, %arg13] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x1xf32> into tensor<1x1x1x16xf32>
@@ -528,8 +528,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                %subview_15 = memref.subview %arg12[0, 0, 0, %arg11] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>
 # CHECK-NEXT:                linalg.generic {indexing_maps = [#map3, #map4, #map5], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_12, %subview_14 : memref<1x2x1x1xf32, strided<[432, 36, 3, 1], offset: ?>>, memref<2x1x1x1xf32, strided<[240, 48, 16, 1], offset: ?>>) outs(%subview_15 : memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>) attrs =  {__xtc_id_conv_} {
 # CHECK-NEXT:                ^bb0(%in: f32, %in_17: f32, %out: f32):
-# CHECK-NEXT:                  %8 = arith.mulf %in, %in_17 : f32
-# CHECK-NEXT:                  %9 = arith.addf %out, %8 : f32
+# CHECK-NEXT:                  %8 = arith.mulf %in, %in_17 fastmath<fast> : f32
+# CHECK-NEXT:                  %9 = arith.addf %out, %8 fastmath<fast> : f32
 # CHECK-NEXT:                  linalg.yield %9 : f32
 # CHECK-NEXT:                }
 # CHECK-NEXT:                %subview_16 = memref.subview %arg12[0, 0, 0, %arg11] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>
@@ -553,8 +553,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                %subview_15 = memref.subview %arg12[0, 0, 0, %arg11] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>
 # CHECK-NEXT:                linalg.generic {indexing_maps = [#map3, #map4, #map5], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_12, %subview_14 : memref<1x3x1x1xf32, strided<[432, 36, 3, 1], offset: ?>>, memref<3x1x1x1xf32, strided<[240, 48, 16, 1], offset: ?>>) outs(%subview_15 : memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>) attrs =  {__xtc_id_conv_} {
 # CHECK-NEXT:                ^bb0(%in: f32, %in_17: f32, %out: f32):
-# CHECK-NEXT:                  %8 = arith.mulf %in, %in_17 : f32
-# CHECK-NEXT:                  %9 = arith.addf %out, %8 : f32
+# CHECK-NEXT:                  %8 = arith.mulf %in, %in_17 fastmath<fast> : f32
+# CHECK-NEXT:                  %9 = arith.addf %out, %8 fastmath<fast> : f32
 # CHECK-NEXT:                  linalg.yield %9 : f32
 # CHECK-NEXT:                }
 # CHECK-NEXT:                %subview_16 = memref.subview %arg12[0, 0, 0, %arg11] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>

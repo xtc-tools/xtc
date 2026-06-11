@@ -92,8 +92,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %3 = linalg.fill {__xtc_id_conv_0_} ins(%cst_0 : f32) outs(%2 : tensor<1x4x4x16xf32>) -> tensor<1x4x4x16xf32>
 # CHECK-NEXT:      %4 = linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%1, %arg1 : tensor<1x12x12x3xf32>, tensor<5x5x3x16xf32>) outs(%3 : tensor<1x4x4x16xf32>) attrs =  {__xtc_id_conv_} {
 # CHECK-NEXT:      ^bb0(%in: f32, %in_1: f32, %out: f32):
-# CHECK-NEXT:        %5 = arith.mulf %in, %in_1 : f32
-# CHECK-NEXT:        %6 = arith.addf %out, %5 : f32
+# CHECK-NEXT:        %5 = arith.mulf %in, %in_1 fastmath<fast> : f32
+# CHECK-NEXT:        %6 = arith.addf %out, %5 fastmath<fast> : f32
 # CHECK-NEXT:        linalg.yield %6 : f32
 # CHECK-NEXT:      } -> tensor<1x4x4x16xf32>
 # CHECK-NEXT:      bufferization.materialize_in_destination %4 in restrict writable %arg2 : (tensor<1x4x4x16xf32>, memref<1x4x4x16xf32>) -> ()
@@ -229,8 +229,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                  %13 = vector.broadcast %extracted : f32 to vector<16xf32>
 # CHECK-NEXT:                  %14 = vector.transfer_read %extracted_slice_14[%c0], %0 {in_bounds = [true]} : tensor<16xf32>, vector<16xf32>
 # CHECK-NEXT:                  %15 = vector.transfer_read %extracted_slice_15[%c0], %0 {in_bounds = [true]} : tensor<16xf32>, vector<16xf32>
-# CHECK-NEXT:                  %16 = arith.mulf %13, %14 : vector<16xf32>
-# CHECK-NEXT:                  %17 = arith.addf %15, %16 : vector<16xf32>
+# CHECK-NEXT:                  %16 = arith.mulf %13, %14 fastmath<fast> : vector<16xf32>
+# CHECK-NEXT:                  %17 = arith.addf %15, %16 fastmath<fast> : vector<16xf32>
 # CHECK-NEXT:                  %18 = vector.transfer_write %17, %extracted_slice_15[%c0] {in_bounds = [true]} : vector<16xf32>, tensor<16xf32>
 # CHECK-NEXT:                  %inserted_slice_17 = tensor.insert_slice %18 into %arg14[0, 0, 0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : tensor<16xf32> into tensor<1x1x1x16xf32>
 # CHECK-NEXT:                  scf.yield %inserted_slice_17 : tensor<1x1x1x16xf32>
@@ -330,8 +330,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                %7 = vector.broadcast %6 : f32 to vector<16xf32>
 # CHECK-NEXT:                %8 = vector.transfer_read %subview_10[%c0], %0 {in_bounds = [true]} : memref<16xf32, strided<[1], offset: ?>>, vector<16xf32>
 # CHECK-NEXT:                %9 = vector.transfer_read %subview_11[%c0], %0 {in_bounds = [true]} : memref<16xf32, strided<[1], offset: ?>>, vector<16xf32>
-# CHECK-NEXT:                %10 = arith.mulf %7, %8 : vector<16xf32>
-# CHECK-NEXT:                %11 = arith.addf %9, %10 : vector<16xf32>
+# CHECK-NEXT:                %10 = arith.mulf %7, %8 fastmath<fast> : vector<16xf32>
+# CHECK-NEXT:                %11 = arith.addf %9, %10 fastmath<fast> : vector<16xf32>
 # CHECK-NEXT:                vector.transfer_write %11, %subview_11[%c0] {in_bounds = [true]} : vector<16xf32>, memref<16xf32, strided<[1], offset: ?>>
 # CHECK-NEXT:                %subview_13 = memref.subview %arg12[0, 0, 0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<16xf32, strided<[1], offset: ?>>
 # CHECK-NEXT:                memref.copy %subview_11, %subview_13 : memref<16xf32, strided<[1], offset: ?>> to memref<16xf32, strided<[1], offset: ?>>

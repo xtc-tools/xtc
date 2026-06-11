@@ -40,8 +40,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      linalg.fill {__xtc_id_O_0_} ins(%cst : f32) outs(%arg2 : memref<1x8x8x16xf32>)
 # CHECK-NEXT:      linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%arg0, %arg1 : memref<1x10x10x3xf32>, memref<3x3x3x16xf32>) outs(%arg2 : memref<1x8x8x16xf32>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:      ^bb0(%in: f32, %in_0: f32, %out: f32):
-# CHECK-NEXT:        %0 = arith.mulf %in, %in_0 : f32
-# CHECK-NEXT:        %1 = arith.addf %out, %0 : f32
+# CHECK-NEXT:        %0 = arith.mulf %in, %in_0 fastmath<fast> : f32
+# CHECK-NEXT:        %1 = arith.addf %out, %0 fastmath<fast> : f32
 # CHECK-NEXT:        linalg.yield %1 : f32
 # CHECK-NEXT:      }
 # CHECK-NEXT:      return
@@ -162,8 +162,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                    %subview_38 = memref.subview %subview_32[0, 0, 0, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
 # CHECK-NEXT:                    linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_36, %subview_37 : memref<1x1x1x1xf32, strided<[300, 30, 3, 1], offset: ?>>, memref<1x1x1x1xf32, strided<[144, 48, 16, 1], offset: ?>>) outs(%subview_38 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                    ^bb0(%in: f32, %in_39: f32, %out: f32):
-# CHECK-NEXT:                      %0 = arith.mulf %in, %in_39 : f32
-# CHECK-NEXT:                      %1 = arith.addf %out, %0 : f32
+# CHECK-NEXT:                      %0 = arith.mulf %in, %in_39 fastmath<fast> : f32
+# CHECK-NEXT:                      %1 = arith.addf %out, %0 fastmath<fast> : f32
 # CHECK-NEXT:                      linalg.yield %1 : f32
 # CHECK-NEXT:                    }
 # CHECK-NEXT:                  } {"./c"}

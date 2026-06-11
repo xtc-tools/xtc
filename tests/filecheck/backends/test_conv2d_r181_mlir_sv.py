@@ -42,6 +42,8 @@ res = executor.execute()
 print(f"CODE: {res}")
 
 
+
+
 # CHECK:       // -----// IR Dump Before transform //----- //
 # CHECK-NEXT:  #map = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d0, d1 * 2 + d4, d2 * 2 + d5, d6)>
 # CHECK-NEXT:  #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (d4, d5, d6, d3)>
@@ -52,8 +54,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      linalg.fill {__xtc_id_O_0_} ins(%cst : f32) outs(%arg2 : memref<1x112x112x64xf32>)
 # CHECK-NEXT:      linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%arg0, %arg1 : memref<1x230x230x3xf32>, memref<7x7x3x64xf32>) outs(%arg2 : memref<1x112x112x64xf32>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:      ^bb0(%in: f32, %in_0: f32, %out: f32):
-# CHECK-NEXT:        %0 = arith.mulf %in, %in_0 : f32
-# CHECK-NEXT:        %1 = arith.addf %out, %0 : f32
+# CHECK-NEXT:        %0 = arith.mulf %in, %in_0 fastmath<fast> : f32
+# CHECK-NEXT:        %1 = arith.addf %out, %0 fastmath<fast> : f32
 # CHECK-NEXT:        linalg.yield %1 : f32
 # CHECK-NEXT:      }
 # CHECK-NEXT:      return
@@ -178,8 +180,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_14[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_13[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_15[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_15[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -202,8 +204,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_16[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_13[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_17[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_17[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -226,8 +228,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_18[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_13[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_19[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_19[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -250,8 +252,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_20[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_13[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_21[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_21[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -276,8 +278,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_24[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_23[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_25[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_25[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -300,8 +302,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_26[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_23[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_27[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_27[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -324,8 +326,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_28[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_23[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_29[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_29[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -348,8 +350,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_30[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_23[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_31[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_31[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -374,8 +376,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_34[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_33[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_35[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_35[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -398,8 +400,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_36[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_33[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_37[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_37[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -422,8 +424,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_38[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_33[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_39[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_39[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
@@ -446,8 +448,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                %4 = affine.load %subview_40[%arg9, %2, %3, %arg15] : memref<1x1x1x1xf32, strided<[158700, 690, 3, 1], offset: ?>>
 # CHECK-NEXT:                                %5 = affine.load %subview_33[%arg13, %arg14, %arg15, %arg12] : memref<1x1x1x16xf32, strided<[1344, 192, 64, 1], offset: ?>>
 # CHECK-NEXT:                                %6 = affine.load %subview_41[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
-# CHECK-NEXT:                                %7 = arith.mulf %4, %5 : f32
-# CHECK-NEXT:                                %8 = arith.addf %6, %7 : f32
+# CHECK-NEXT:                                %7 = arith.mulf %4, %5 fastmath<fast> : f32
+# CHECK-NEXT:                                %8 = arith.addf %6, %7 fastmath<fast> : f32
 # CHECK-NEXT:                                affine.store %8, %subview_41[%arg9, %arg10, %arg11, %arg12] : memref<1x1x1x16xf32, strided<[802816, 7168, 64, 1], offset: ?>>
 # CHECK-NEXT:                              }
 # CHECK-NEXT:                            }
