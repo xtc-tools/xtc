@@ -174,7 +174,7 @@ DERIVED_METRICS_SIZES = {
 def evaluate_performance(
     func: Callable[[Any], Any],
     parameters: tuple[list[NDArray], list[NDArray]],
-    pmu_counters: list[str],
+    hw_counters: list[str],
     repeat: int,
     number: int,
     min_repeat_ms: int,
@@ -184,11 +184,11 @@ def evaluate_performance(
     cfunc = CFunc(func)
     args_tuples = cfunc.args_tuples([*parameters[0], *parameters[1]])
 
-    if len(pmu_counters) > 0:
+    if len(hw_counters) > 0:
         values_num = 0
-        for counter in pmu_counters:
+        for counter in hw_counters:
             values_num += DERIVED_METRICS_SIZES.get(counter, 1)
-            # FIXME check if the PMU counters are supported by the target
+            # FIXME check if the HW counters are supported by the target
     else:
         values_num = 1
     print(f"[DEBUG] values_num : {values_num}")
@@ -202,7 +202,7 @@ def evaluate_performance(
         )
         runtime.evaluate_packed_perf(
             results_array,
-            pmu_counters,
+            hw_counters,
             repeat,
             number,
             min_repeat_ms,
@@ -217,7 +217,7 @@ def evaluate_performance(
         )
         runtime.evaluate_perf(
             results_array,
-            pmu_counters,
+            hw_counters,
             repeat,
             number,
             min_repeat_ms,
@@ -231,7 +231,7 @@ def evaluate_performance(
     failed_counters = []
     current_idx = 0
 
-    for counter in pmu_counters:
+    for counter in hw_counters:
         size = DERIVED_METRICS_SIZES.get(counter, 1)
         chunk = eval_results[current_idx : current_idx + size]
 

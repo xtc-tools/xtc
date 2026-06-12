@@ -352,7 +352,7 @@ def test_launch_and_measure_scheme_graph_interf_pmu_counters():
   backend = "tvm"
 
   res = launch_and_measure_scheme_graph_interf(comp, machine, scheme, dsizes, backend,
-                                               pmu_counters=["cycles", "l1d.replacement"]) #, l_verbose=[False,False,True])
+                                               hw_counters=["cycles", "l1d.replacement"]) #, l_verbose=[False,False,True])
 
   assert("cycles" in res.keys())
   assert("l1d.replacement" in res.keys())

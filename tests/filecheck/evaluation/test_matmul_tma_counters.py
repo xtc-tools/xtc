@@ -64,7 +64,7 @@ elif sys.platform == "darwin":
 
 evaluator = module.get_evaluator(
     validate=True,
-    pmu_counters=hw_counters,
+    hw_counters=hw_counters,
 )
 results, code, error = evaluator.evaluate()
 print(f"{'CODE':<25}: {code}")

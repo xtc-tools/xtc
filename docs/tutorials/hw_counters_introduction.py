@@ -278,7 +278,7 @@ def _(btn_pmu, exec_error, mo, module):
     else:
         pmu_counters = ["cycles", "instructions", "cache_access", "cache_misses", "branches", "branches_misses"]
 
-        evaluator_pmu = module.get_evaluator(validate=True, pmu_counters=pmu_counters)
+        evaluator_pmu = module.get_evaluator(validate=True, hw_counters=pmu_counters)
         results_pmu, code_pmu, error_pmu = evaluator_pmu.evaluate()
 
         _pmu_data = [{"Counter": c, "Value": "Fallback needed" if v == -1.0 else str(int(v))} for c, v in zip(pmu_counters, results_pmu)]
@@ -315,7 +315,7 @@ def _(btn_l1, exec_error, mo, module, platform):
         l1_ui = mo.md(f"**Compilation Error in Sandbox:**\n```python\n{exec_error}\n```")
     else:
         tma_l1_counters = ["TopdownL1"] if platform == "linux" else []
-        evaluator_l1 = module.get_evaluator(validate=False, pmu_counters=tma_l1_counters)
+        evaluator_l1 = module.get_evaluator(validate=False, hw_counters=tma_l1_counters)
         results_l1, code_l1, error_l1 = evaluator_l1.evaluate()
 
         _l1_labels = ["🟢 Retiring", "🔴 Bad Speculation", "🔵 Frontend Bound", "🟣 Backend Bound"]
@@ -411,7 +411,7 @@ def _(btn_l2, exec_error, mo, module, platform):
         l2_ui = mo.md(f"**Compilation Error in Sandbox:**\n```python\n{exec_error}\n```")
     else:
         tma_l2_counters = ["TopdownL2"] if platform == "linux" else []
-        evaluator_l2 = module.get_evaluator(validate=False, pmu_counters=tma_l2_counters)
+        evaluator_l2 = module.get_evaluator(validate=False, hw_counters=tma_l2_counters)
         results_l2, code_l2, error_l2 = evaluator_l2.evaluate()
 
         _l2_labels = [
@@ -562,16 +562,16 @@ def _(mo):
         ### Level 2 (8 metrics)
         **Array Order:** `[Light Ops, Heavy Ops, Machine Clears, Branch Mispredicts, Fetch Bandwidth, Fetch Latency, Core Bound, Memory Bound]`
 
-        | Index | Category | Sub-Metric |
-        |---|---|---|
-        | `[0]` | 🟢 `Retiring` | `light_operations` |
-        | `[1]` | 🟢 `Retiring` | `heavy_operations` |
-        | `[2]` | 🔴 `Bad Speculation` | `machine_clears` |
-        | `[3]` | 🔴 `Bad Speculation` | `branch_mispredicts` |
-        | `[4]` | 🔵 `Frontend Bound` | `fetch_bandwidth` |
-        | `[5]` | 🔵 `Frontend Bound` | `fetch_latency` |
-        | `[6]` | 🟣 `Backend Bound` | `core_bound` |
-        | `[7]` | 🟣 `Backend Bound` | `memory_bound` |
+        | Index | Category | Sub-Metric | Description |
+        |---|---|---|---|
+        | `[0]` | 🟢 `Retiring` | `light_operations` | Retiring typical, single-uop instructions. |
+        | `[1]` | 🟢 `Retiring` | `heavy_operations` | Retiring complex, multi-uop or microcoded instructions. |
+        | `[2]` | 🔴 `Bad Speculation` | `machine_clears` | Wasted slots due to pipeline flushes (e.g., memory ordering issues, exceptions). |
+        | `[3]` | 🔴 `Bad Speculation` | `branch_mispredicts` | Wasted slots due to incorrect branch predictions. |
+        | `[4]` | 🔵 `Frontend Bound` | `fetch_bandwidth` | Frontend cannot decode or deliver enough instructions per cycle. |
+        | `[5]` | 🔵 `Frontend Bound` | `fetch_latency` | Frontend is completely starved and delivering nothing (e.g., Instruction Cache miss). |
+        | `[6]` | 🟣 `Backend Bound` | `core_bound` | Execution stalled waiting for execution units (ALU/FPU) or due to data dependencies. |
+        | `[7]` | 🟣 `Backend Bound` | `memory_bound` | Execution stalled waiting for data from the memory (L1/L2/L3/RAM). |
 
         ### Level 3 (26 metrics)
         Deep dive into L2 categories. Key metrics returned in the array include:
@@ -630,7 +630,7 @@ def _(btn_sandbox, mo, module, sandbox_editor):
             custom_counters = ast.literal_eval(sandbox_editor.value)
             if not isinstance(custom_counters, list): raise ValueError("Input must be a Python list.")
 
-            evaluator_sb = module.get_evaluator(validate=False, pmu_counters=custom_counters)
+            evaluator_sb = module.get_evaluator(validate=False, hw_counters=custom_counters)
             results_sb, code_sb, err_sb = evaluator_sb.evaluate()
 
             output_lines = [f"**Execution Code:** `{code_sb}`\n"]
