@@ -191,8 +191,13 @@ def evaluate_performance(
             # FIXME check if the HW counters are supported by the target
     else:
         values_num = 1
-    print(f"[DEBUG] values_num : {values_num}")
+    # print(f"[DEBUG] values_num : {values_num}")
     results_array = (ctypes.c_double * (repeat * values_num))()
+
+    args_array_packed = None
+    args_codes_packed = None
+    args_array = None
+
     if cfunc.is_packed:
         args_array_packed = (CArgValue * len(args_tuples))(
             *[arg[0] for arg in args_tuples]
@@ -225,7 +230,7 @@ def evaluate_performance(
             args_array,
             len(args_array),
         )
-    print(f"[DEBUG] results: {[round(x, 2) for x in results_array]}")
+    # print(f"[DEBUG] results: {[round(x, 2) for x in results_array]}")
     eval_results = [float(x) for x in results_array]
 
     failed_counters = []
@@ -248,7 +253,7 @@ def evaluate_performance(
 
         perf_path = shutil.which("perf")
         if not perf_path:
-            return (eval_results, 1, "perf tool not found in PATH")
+            return (eval_results, 0, "perf tool not found in PATH")
 
         my_pid = str(os.getpid())
 
@@ -284,7 +289,7 @@ def evaluate_performance(
             cmd.extend(["-M", ",".join(perf_metrics)])
 
         try:
-            print("[DEBUG] Starting perf...")
+            # print("[DEBUG] Starting perf...")
             perf_proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
@@ -294,7 +299,7 @@ def evaluate_performance(
             # Rerun evaluation without HW counters to generate activity for perf
             dummy_results = (ctypes.c_double * repeat)()
             if cfunc.is_packed:
-                print("[DEBUG] Rerun packed (perf)...")
+                # print("[DEBUG] Rerun packed (perf)...")
                 _ = runtime.evaluate_packed_perf(
                     dummy_results,
                     [],
@@ -307,7 +312,12 @@ def evaluate_performance(
                     len(args_tuples),
                 )
             else:
-                print("[DEBUG] Rerun not packed (perf)...")
+                assert args_array_packed is not None
+                assert args_codes_packed is not None
+                # print("[DEBUG] Rerun not packed (perf)...")
+                args_array = (ctypes.c_voidp * len(args_tuples))(
+                    *[arg[0] for arg in args_tuples]
+                )
                 runtime.evaluate_perf(
                     dummy_results,
                     [],
@@ -319,7 +329,7 @@ def evaluate_performance(
                     len(args_array),
                 )
 
-            print("[DEBUG] Stopping perf...")
+            # print("[DEBUG] Stopping perf...")
             perf_proc.send_signal(signal.SIGINT)
             _, stderr_output = perf_proc.communicate(timeout=5.0)
 
@@ -335,8 +345,8 @@ def evaluate_performance(
             return (eval_results, 0, formatted_fallback_output)
 
         except Exception as e:
-            print(f"[DEBUG] Fallback perf stat failed : {e}")
-            return (eval_results, 1, f"Fallback perf stat failed: {e}")
+            # print(f"[DEBUG] Fallback perf stat failed : {e}")
+            return (eval_results, 0, f"Fallback perf stat failed: {e}")
 
     # Return API result
     return (eval_results, 0, "")

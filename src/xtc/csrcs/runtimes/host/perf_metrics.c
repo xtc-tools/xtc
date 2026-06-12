@@ -7,7 +7,7 @@
 #include <linux/perf_event.h>
 #include <unistd.h>
 #include <stdint.h>
-#include <stdio.h>
+//#include <stdio.h>
 #include <x86intrin.h>
 
 #include "perf_metrics.h"
@@ -690,11 +690,11 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
     if (strcmp(metric_name, "TopdownL1") == 0) {
 
         if (detect_if_intel()) {
-            fprintf(stderr,"[DEBUG] INTEL detected\n");
+            //fprintf(stderr,"[DEBUG] INTEL detected\n");
             intel_arch_t uarch = detect_intel_microarchitecture();
 
             if (uarch == INTEL_SKYLAKE_CASCADE) {
-                fprintf(stderr,"[DEBUG] Old Intel detected\n");
+                //fprintf(stderr,"[DEBUG] Old Intel detected\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 5;
                 out_resolver->hw_events = skl_tma_l1_events;
@@ -704,7 +704,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 out_resolver->compute_formula = compute_skl_tma_l1;
                 return 1;
             } else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
-                fprintf(stderr,"[DEBUG] Modern Intel detected\n");
+                //fprintf(stderr,"[DEBUG] Modern Intel detected\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 5;
                 out_resolver->hw_events = intel_modern_tma_l1_events;
@@ -719,7 +719,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
             amd_arch_t uarch = detect_amd_microarchitecture();
 
             if (uarch == AMD_ZEN_4) {
-                fprintf(stderr,"[DEBUG] AMD_ZEN_4 detected\n");
+                //fprintf(stderr,"[DEBUG] AMD_ZEN_4 detected\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 4;
                 out_resolver->hw_events = amd_zen4_tma_l1_events;
@@ -730,7 +730,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 return 1;
             }
             else if (uarch == AMD_ZEN_1_2) {
-                fprintf(stderr,"[DEBUG] AMD_ZEN_1_2 detected (unsuported)\n");
+                //fprintf(stderr,"[DEBUG] AMD_ZEN_1_2 detected (unsuported)\n");
                 //out_resolver->is_supported = 1;
                 //out_resolver->num_hw_events = 4;
                 //out_resolver->hw_events = amd_zen4_tma_l1_events; // Todo change to zen1
@@ -743,7 +743,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
             // else if (uarch == AMD_ZEN_3) ...
         }
         else if (detect_if_arm()) {
-            fprintf(stderr,"[DEBUG] ARM AArch64 detected\n");
+            //fprintf(stderr,"[DEBUG] ARM AArch64 detected\n");
             out_resolver->is_supported = 1;
             out_resolver->num_hw_events = 5;
             out_resolver->hw_events = arm_tma_l1_events;
@@ -759,7 +759,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
             intel_arch_t uarch = detect_intel_microarchitecture();
 
             if (uarch == INTEL_SKYLAKE_CASCADE) {
-                fprintf(stderr,"[DEBUG] INTEL_SKYLAKE_CASCADE L2 (Multi-Pass)\n");
+                //fprintf(stderr,"[DEBUG] INTEL_SKYLAKE_CASCADE L2 (Multi-Pass)\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 12;
                 out_resolver->hw_events = skl_tma_l2_events;
@@ -770,7 +770,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 return 1;
             }
             else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
-                fprintf(stderr,"[DEBUG] INTEL_ICELAKE_SAPPHIRE L2\n");
+                //fprintf(stderr,"[DEBUG] INTEL_ICELAKE_SAPPHIRE L2\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 9;
                 out_resolver->hw_events = intel_modern_tma_l2_events;
@@ -785,7 +785,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
         else if (detect_if_amd()) { // L2 amd
             amd_arch_t uarch = detect_amd_microarchitecture();
             if (uarch == AMD_ZEN_4) {
-                fprintf(stderr,"[DEBUG] AMD_ZEN_4 L2 (Multi-Pass)\n");
+                //fprintf(stderr,"[DEBUG] AMD_ZEN_4 L2 (Multi-Pass)\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 9;
                 out_resolver->hw_events = amd_zen4_tma_l2_events;
@@ -802,7 +802,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
         if (detect_if_intel()) {
             intel_arch_t uarch = detect_intel_microarchitecture();
             if (uarch == INTEL_SKYLAKE_CASCADE) {
-                fprintf(stderr,"[DEBUG] INTEL_SKYLAKE_CASCADE L3_Mem (Multi-Pass)\n");
+                //fprintf(stderr,"[DEBUG] INTEL_SKYLAKE_CASCADE L3_Mem (Multi-Pass)\n");
                 out_resolver->is_supported = 1;
                 out_resolver->num_hw_events = 7;
                 out_resolver->hw_events = skl_tma_l3_mem_events;
