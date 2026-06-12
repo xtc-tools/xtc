@@ -299,8 +299,8 @@ static const pmu_event_def_t arm_raw_events[] = {
 
 /*
  * Source
- * Intel : https://github.com/torvalds/linux/blob/master/arch/x86/events/intel/core.c
- * AMD : https://github.com/torvalds/linux/blob/master/arch/x86/events/amd/core.c
+ * Intel : https://github.com/torvalds/linux/blob/m aster/arch/x86/events/intel/core.c
+ * AMD : https://github.com/torvalds/linux/blob/m aster/arch/x86/events/amd/core.c
  *       tools/perf/pmu-events/arch/x86/amdzen4/pipeline.json
  *
  * https://github.com/intel/perfmon

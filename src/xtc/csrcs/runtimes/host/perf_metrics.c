@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: BSD-3-Clause
+ * Copyright (c) 2024-2026 The XTC Project Authors
+ */
 #include <assert.h>
 #include <string.h>
 #include <linux/perf_event.h>
