@@ -85,14 +85,25 @@ def draw_cor(
     Y: Sequence[float],
     ref_label: str | None = None,
     label: str | None = None,
+    alpha: float = 1,
 ):
     ax.scatter(
         Yref,
         Y,
         label=label,
+        alpha=alpha,
     )
     if ref_label:
         ax.set_xlabel(ref_label)
+
+
+def draw_diag(
+    ax: Any,
+    ymin: float = 0,
+    ymax: float = 1,
+):
+    xy = [[ymin, ymax]] * 2
+    ax.plot(*xy, alpha=0.6, color="grey", linestyle="--")
 
 
 def save_fig(fname: str | Path):
@@ -120,6 +131,11 @@ def display_results(results: Sequence[ns], args: ns):
         setattr(axes, type, axs[idx])
         idx += 1
 
+    Ymin = min([min(r.Y) for r in results])
+    Ymax = max([max(r.Y) for r in results])
+    ymin = (Ymin * 100) // 10 / 10
+    ymax = (Ymax * 100 + 9) // 10 / 10
+
     if args.pmf:
         for res in results:
             draw_pmf(axes.pmf, res.Y, label=res.label)
@@ -134,10 +150,18 @@ def display_results(results: Sequence[ns], args: ns):
 
     if args.cor:
         assert len(results) >= 2
+        if args.diag:
+            draw_diag(axes.cor, ymin, ymax)
         ref = results[0]
         for res in results[1:]:
-            print("XXX", len(ref.Y), len(res.Y))
-            draw_cor(axes.cor, ref.Y, res.Y, ref_label=ref.label, label=res.label)
+            draw_cor(
+                axes.cor,
+                ref.Y,
+                res.Y,
+                ref_label=ref.label,
+                label=res.label,
+                alpha=args.alpha,
+            )
         axes.cor.legend(loc="upper left")
         axes.cor.set_title("Peak performance correlation")
 
@@ -176,10 +200,22 @@ def main():
         help="draw correlation",
     )
     parser.add_argument(
+        "--diag",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="draw diagonal on correlation",
+    )
+    parser.add_argument(
         "--show",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="show figure",
+    )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=0.6,
+        help="correlation alpha",
     )
     parser.add_argument(
         "--debug", action=argparse.BooleanOptionalAction, help="debug mode"
