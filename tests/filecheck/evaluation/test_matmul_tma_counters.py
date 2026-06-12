@@ -67,9 +67,9 @@ evaluator = module.get_evaluator(
     hw_counters=hw_counters,
 )
 results, code, error = evaluator.evaluate()
-print(f"{'CODE':<25}: {code}")
-print(f"{'counters':<25}: {hw_counters}")
-print(f"{'results':<25}: {[round(x, 2) for x in results]}")
+print(f"CODE: {code}")
+print(f"{'counters'}: {hw_counters}")
+print(f"{'results'}: {[round(x, 2) for x in results]}")
 
 
 use_colors = sys.stdout.isatty()
