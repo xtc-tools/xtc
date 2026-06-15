@@ -4,7 +4,11 @@
  */
 #include <assert.h>
 #include <string.h>
+
+#ifdef __linux__
 #include <linux/perf_event.h>
+#endif //__linux__
+
 #include <unistd.h>
 #include <stdint.h>
 //#include <stdio.h>
@@ -687,6 +691,7 @@ static void compute_arm_tma_l2(const double *raw, double *final) {
  *
  */
 int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
+#ifdef __linux__
     if (strcmp(metric_name, "TopdownL1") == 0) {
 
         if (detect_if_intel()) {
@@ -825,6 +830,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
         }
         return 0;
         }
+#endif //__linux__
 
     // Unsuported hardware / metric or the event is a pmu
     return 0;
