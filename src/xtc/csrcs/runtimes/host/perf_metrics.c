@@ -4,22 +4,20 @@
  */
 #include <assert.h>
 #include <string.h>
+#include <unistd.h>
+#include <stdint.h>
+//#include <stdio.h>
+
+#include "perf_metrics.h"
 
 #ifdef __linux__
 #include <linux/perf_event.h>
 #endif //__linux__
 
-#include <unistd.h>
-#include <stdint.h>
-//#include <stdio.h>
-#include <x86intrin.h>
-
-#include "perf_metrics.h"
-
-
 #if defined(__x86_64__) || defined(__i386__)
     #define ARCH_IS_X86 1
     #include <cpuid.h>
+    #include <x86intrin.h>
 #else
     #define ARCH_IS_X86 0
 #endif
@@ -830,10 +828,14 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
         }
         return 0;
         }
-#endif //__linux__
-
     // Unsuported hardware / metric or the event is a pmu
     return 0;
+    #else
+        (void)metric_name;
+        (void)out_resolver;
+        return 0;
+    #endif //__linux__
+
 }
 
 int get_perf_metric_results_count(const char *metric_name) {
