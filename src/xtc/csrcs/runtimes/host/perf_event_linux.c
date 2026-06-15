@@ -243,7 +243,31 @@ static const pmu_event_def_t skl_raw_events[] = {
     { "@skl_stalls_l1d_miss", X86_RAW(0xA3, 0x0C, 0x0C) },
     { "@skl_stalls_l2_miss",  X86_RAW(0xA3, 0x05, 0x05) },
     { "@skl_stalls_l3_miss",  X86_RAW(0xA3, 0x06, 0x06) },
-    { "@skl_bound_on_stores", X86_RAW(0xA6, 0x40, 0) }
+    { "@skl_bound_on_stores", X86_RAW(0xA6, 0x40, 0) },
+    // L3 Additional Metrics (Execution, Frontend, FPU)
+    { "@skl_divider_active",  X86_RAW(0x14, 0x14, 0x01) },
+    { "@skl_scoreboard",      X86_RAW(0xA2, 0x02, 0) },
+    { "@skl_icache_miss",     X86_RAW(0x83, 0x02, 0) },
+    { "@skl_itlb_miss",       X86_RAW(0x85, 0x0E, 0) },
+    { "@skl_clear_resteer",   X86_RAW(0x0D, 0x80, 0) },
+    { "@skl_lcp",             X86_RAW(0x87, 0x01, 0) },
+    { "@skl_dsb2mite",        X86_RAW(0xAB, 0x02, 0) },
+    { "@skl_ms_switches",     X86_RAW(0x79, 0x06, 0x01) },
+    { "@skl_idq_mite",        X86_RAW(0x79, 0x04, 0) },
+    { "@skl_idq_dsb",         X86_RAW(0x79, 0x08, 0) },
+    { "@skl_idq_ms",          X86_RAW(0x79, 0x30, 0) }, // Alias of heavy_ops
+    { "@skl_macro_fused",     X86_RAW(0xC2, 0x04, 0) },
+    { "@skl_mem_inst",        X86_RAW(0xD0, 0x81, 0) },
+    { "@skl_br_inst",         X86_RAW(0xC4, 0x00, 0) },
+    // L3 FPU / AVX
+    { "@skl_fp_scalar_s",     X86_RAW(0xC7, 0x02, 0) },
+    { "@skl_fp_scalar_d",     X86_RAW(0xC7, 0x01, 0) },
+    { "@skl_fp_128_s",        X86_RAW(0xC7, 0x08, 0) },
+    { "@skl_fp_128_d",        X86_RAW(0xC7, 0x04, 0) },
+    { "@skl_fp_256_s",        X86_RAW(0xC7, 0x20, 0) },
+    { "@skl_fp_256_d",        X86_RAW(0xC7, 0x10, 0) },
+    { "@skl_fp_512_s",        X86_RAW(0xC7, 0x80, 0) },
+    { "@skl_fp_512_d",        X86_RAW(0xC7, 0x40, 0) }
 };
 
 // INTEL MODERN (Ice Lake, Sapphire Rapids, Alder/Raptor Lake)

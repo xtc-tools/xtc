@@ -356,6 +356,139 @@ static void compute_skl_tma_l3_mem(const double *raw, double *final) {
     }
 }
 
+static const int skl_l3_passes[] = {5, 5, 5, 5, 5, 5, 5}; 
+
+static const char *skl_tma_l3_events[] = {
+    // Pass 1: Memory Bounds
+    "@skl_slots", 
+    "@skl_stalls_mem_any",
+    "@skl_stalls_l1d_miss",
+    "@skl_stalls_l2_miss",
+    "@skl_stalls_l3_miss",
+    
+    // Pass 2: Execution Stalls
+    "@skl_slots",
+    "@skl_divider_active",
+    "@skl_scoreboard",
+    "@skl_bound_on_stores",
+    "@skl_core_stalls",
+    
+    // Pass 3: Frontend Latency
+    "@skl_slots", 
+    "@skl_icache_miss",
+    "@skl_itlb_miss",
+    "@skl_clear_resteer",
+    "@skl_lcp",
+    
+    // Pass 4: Frontend Bandwidth
+    "@skl_slots", 
+    "@skl_dsb2mite",
+    "@skl_ms_switches",
+    "@skl_idq_mite",
+    "@skl_idq_dsb",
+    
+    // Pass 5: Instruction Mix
+    "@skl_slots", 
+    "@skl_idq_ms",
+    "@skl_macro_fused",
+    "@skl_mem_inst",
+    "@skl_br_inst",
+
+    // Pass 6: Floating Point 1 (Scalar & 128b)
+    "@skl_slots", 
+    "@skl_fp_scalar_s",
+    "@skl_fp_scalar_d",
+    "@skl_fp_128_s",
+    "@skl_fp_128_d",
+
+    // Pass 7: Floating Point 2 (256b & 512b)
+    "@skl_slots", 
+    "@skl_fp_256_s",
+    "@skl_fp_256_d",
+    "@skl_fp_512_s",
+    "@skl_fp_512_d"
+};
+
+static void compute_skl_tma_l3(const double *raw, double *final) {
+    // Extraction des cycles (raw[0], raw[5], raw[10], raw[15], raw[20], raw[25], raw[30])
+    double cyc_p1 = raw[0];  double cyc_p2 = raw[5];  double cyc_p3 = raw[10];
+    double cyc_p4 = raw[15]; double cyc_p5 = raw[20]; double cyc_p6 = raw[25];
+    double cyc_p7 = raw[30];
+
+    assert(cyc_p1 != cyc_p2 != cyc_p3 != cyc_p4 != cyc_p5 != cyc_p6 != cyc_p7 != 0);
+    if (cyc_p1 > 0 && cyc_p2 > 0 && cyc_p3 > 0 && cyc_p4 > 0 && cyc_p5 > 0 && cyc_p6 > 0 && cyc_p7 > 0) {
+        
+        // Memory Subsystem
+        double l1_bound   = (raw[1] - raw[2]) / cyc_p1;
+        double l2_bound   = (raw[2] - raw[3]) / cyc_p1;
+        double l3_bound   = (raw[3] - raw[4]) / cyc_p1;
+        double dram_bound = raw[4] / cyc_p1;
+        double store_bnd  = raw[8] / cyc_p2;
+
+        // Execution / ALU
+        double divider    = raw[6] / cyc_p2;
+        double serial     = raw[7] / cyc_p2;
+        double ports_util = (raw[9] - raw[6] - raw[7]) / cyc_p2; // core_stalls - divider - serial
+
+        // Frontend Fetch
+        double icache     = raw[11] / cyc_p3;
+        double itlb       = raw[12] / cyc_p3;
+        double lcp        = raw[14] / cyc_p3;
+        double dsb2mite   = raw[16] / cyc_p4;
+        double ms_swit    = raw[17] / cyc_p4;
+        double dsb        = raw[19] / (cyc_p4 * 4.0); // IDQ.DSB is in uops, divise by slots
+        double mite       = raw[18] / (cyc_p4 * 4.0); // IDQ.MITE is in uops
+
+        // Retiring & Instruction Mix
+        double ms_uops    = raw[21] / (cyc_p5 * 4.0);
+        double fused      = raw[22] / (cyc_p5 * 4.0);
+        double mem_ops    = raw[23] / (cyc_p5 * 4.0);
+        double non_fused  = (raw[24] - raw[22]) / (cyc_p5 * 4.0); // br_inst - fused
+
+        // Floating Point Arithmetic
+        double fp_arith   = (raw[26] + raw[27] + raw[28] + raw[29]) / (cyc_p6 * 4.0) +
+                            (raw[31] + raw[32] + raw[33] + raw[34]) / (cyc_p7 * 4.0);
+
+        // Bad Speculation(L3)
+        double resteers   = raw[13] / cyc_p3;
+        
+        // Order : 
+        // 0:resteers, 1:divider, 2:dram, 3:dsb, 4:dsb_switches, 5:few_uops, 6:fp_arith, 7:fused
+        // 8:icache, 9:itlb, 10:l1, 11:l2, 12:l3, 13:lcp, 14:mem_ops, 15:ms_uops, 16:mite
+        // 17:ms_swit, 18:non_fused_br, 19:other_light, 20:oth_misp, 21:nukes, 22:pmm, 23:ports, 24:serial, 25:store
+
+        final[0] = resteers * 100.0;
+        final[1] = divider * 100.0;
+        final[2] = dram_bound * 100.0;
+        final[3] = dsb * 100.0;
+        final[4] = dsb2mite * 100.0;
+        final[5] = 0.0; // few_uops
+        final[6] = fp_arith * 100.0;
+        final[7] = fused * 100.0;
+        final[8] = icache * 100.0;
+        final[9] = itlb * 100.0;
+        final[10] = l1_bound * 100.0;
+        final[11] = l2_bound * 100.0;
+        final[12] = l3_bound * 100.0;
+        final[13] = lcp * 100.0;
+        final[14] = mem_ops * 100.0;
+        final[15] = ms_uops * 100.0;
+        final[16] = mite * 100.0;
+        final[17] = ms_swit * 100.0;
+        final[18] = non_fused * 100.0;
+        final[19] = 0.0; // other light
+        final[20] = 0.0; // other misp
+        final[21] = 0.0; // nukes
+        final[22] = 0.0; // pmm (Intel Optane DC, deprecated tech)
+        final[23] = ports_util * 100.0;
+        final[24] = serial * 100.0;
+        final[25] = store_bnd * 100.0;
+
+        for (int i=0; i<26; i++) if (final[i] < 0.0) final[i] = 0.0;
+    } else {
+        for (int i=0; i<26; i++) final[i] = 0.0;
+    }
+}
 
 //  === Modern Inter arch ===
 
@@ -515,7 +648,7 @@ static void compute_amd_zen4_tma_l2(const double *raw, double *final) {
     double slots_p2 = raw[4] * 6.0;
 
     if (slots_p1 > 0 && slots_p2 > 0) {
-        //  Backend Bound
+        // Backend Bound
         double be_mem = raw[1] / slots_p1;
         double be_cpu = raw[2] / slots_p1;
 
@@ -525,11 +658,11 @@ static void compute_amd_zen4_tma_l2(const double *raw, double *final) {
         double fe_bw  = fe_tot - fe_lat;
         if (fe_bw < 0.0) fe_bw = 0.0;
 
-        // 3. Bad Speculation
+        // Bad Speculation
         double bs_misp = raw[6] / slots_p2;
         double bs_clear = raw[7] / slots_p2;
 
-        // 4. Retiring
+        // Retiring
         double ret_heavy = raw[8] / slots_p2;
 
         double total_retiring = 1.0 - (be_mem + be_cpu + fe_tot + bs_misp + bs_clear);
@@ -803,6 +936,23 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
         }
         return 0;
     }
+    else if (strcmp(metric_name, "TopdownL3") == 0) {
+        if (detect_if_intel()) {
+            intel_arch_t uarch = detect_intel_microarchitecture();
+
+            if (uarch == INTEL_SKYLAKE_CASCADE) {
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 35;
+                out_resolver->hw_events = skl_tma_l3_events;
+                out_resolver->num_results = 26;
+                out_resolver->num_passes = 7;
+                out_resolver->events_per_pass = skl_l3_passes;
+                out_resolver->compute_formula = compute_skl_tma_l3;
+                return 1;
+            }
+        }
+        return 0;
+    }
     else if (strcmp(metric_name, "TopdownL3_Mem") == 0) {
         if (detect_if_intel()) {
             intel_arch_t uarch = detect_intel_microarchitecture();
@@ -829,7 +979,7 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
             }
         }
         return 0;
-        }
+    }
     // Unsuported hardware / metric or the event is a pmu
     return 0;
     #else
