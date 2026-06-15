@@ -10,9 +10,6 @@
 
 #include "perf_metrics.h"
 
-#ifdef __linux__
-#include <linux/perf_event.h>
-#endif //__linux__
 
 #if defined(__x86_64__) || defined(__i386__)
     #define ARCH_IS_X86 1
@@ -31,6 +28,8 @@
 #if ARCH_IS_X86
 #include <cpuid.h>
 
+#ifdef __linux__
+#include <linux/perf_event.h>
 static void get_cpu_family_model(int *family, int *model) {
     unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
 
@@ -273,22 +272,22 @@ static void compute_skl_tma_l2(const double *raw, double *final) {
     double slots_p3 = raw[8] * 4.0;
 
     if (slots_p1 > 0 && slots_p2 > 0 && slots_p3 > 0) {
-        // 1. Frontend
+        // Frontend
         double fe_bound = raw[3] / slots_p1;
         double fetch_lat = (raw[5] + raw[6]) / slots_p2;
         double fetch_bw = fe_bound - fetch_lat;
 
-        // 2. Retiring
+        // Retiring
         double retiring = raw[7] / slots_p2;
         double heavy_ops = raw[9] / slots_p3;
         double light_ops = retiring - heavy_ops;
 
-        // 3. Bad Speculation
+        // Bad Speculation
         double br_misp = raw[10] / slots_p3;
         double m_clears = raw[11] / slots_p3;
         double bad_spec = br_misp + m_clears;
 
-        // 4. Backend
+        // Backend
         double mem_bound = raw[1] / slots_p1;
         double core_bound = raw[2] / slots_p1;
 
@@ -657,6 +656,9 @@ static void compute_arm_tma_l2(const double *raw, double *final) {
         for(int i=0; i<8; i++) final[i] = 0.0;
     }
 }
+
+#endif //__linux__
+
 
 // === Core logic ===
 
