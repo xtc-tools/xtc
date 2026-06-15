@@ -356,67 +356,73 @@ static void compute_skl_tma_l3_mem(const double *raw, double *final) {
     }
 }
 
-static const int skl_l3_passes[] = {5, 5, 5, 5, 5, 5, 5}; 
+static const int skl_l3_passes[] = {5, 5, 5, 5, 5, 5, 5, 5}; 
 
 static const char *skl_tma_l3_events[] = {
     // Pass 1: Memory Bounds
-    "@skl_slots", 
+    "@skl_slots",            // raw[0]
     "@skl_stalls_mem_any",
     "@skl_stalls_l1d_miss",
     "@skl_stalls_l2_miss",
     "@skl_stalls_l3_miss",
     
     // Pass 2: Execution Stalls
-    "@skl_slots",
+    "@skl_slots",           // raw[5]
     "@skl_divider_active",
     "@skl_scoreboard",
     "@skl_bound_on_stores",
     "@skl_core_stalls",
     
     // Pass 3: Frontend Latency
-    "@skl_slots", 
+    "@skl_slots",            // raw[10]
     "@skl_icache_miss",
     "@skl_itlb_miss",
     "@skl_clear_resteer",
     "@skl_lcp",
     
     // Pass 4: Frontend Bandwidth
-    "@skl_slots", 
+    "@skl_slots",            // raw[15]
     "@skl_dsb2mite",
     "@skl_ms_switches",
     "@skl_idq_mite",
     "@skl_idq_dsb",
     
     // Pass 5: Instruction Mix
-    "@skl_slots", 
+    "@skl_slots",            // raw[20]
     "@skl_idq_ms",
     "@skl_macro_fused",
     "@skl_mem_inst",
     "@skl_br_inst",
 
     // Pass 6: Floating Point 1 (Scalar & 128b)
-    "@skl_slots", 
+    "@skl_slots",            // raw[25]
     "@skl_fp_scalar_s",
     "@skl_fp_scalar_d",
     "@skl_fp_128_s",
     "@skl_fp_128_d",
 
     // Pass 7: Floating Point 2 (256b & 512b)
-    "@skl_slots", 
+    "@skl_slots",           // raw[30]
     "@skl_fp_256_s",
     "@skl_fp_256_d",
     "@skl_fp_512_s",
-    "@skl_fp_512_d"
+    "@skl_fp_512_d",
+
+    // Pass 8: Parent Nodes (Other)
+    "@skl_slots",          // raw[35]
+    "@skl_retiring",       // raw[36] (uops_retired.retire_slots)
+    "@skl_issued",         // raw[37] (uops_issued.any)
+    "@skl_br_misp",        // raw[38] (br_misp_retired.all_branches)
+    "@skl_nukes_mem"       // raw[39] (machine_clears.memory_ordering)
 };
 
 static void compute_skl_tma_l3(const double *raw, double *final) {
-    // Extraction des cycles (raw[0], raw[5], raw[10], raw[15], raw[20], raw[25], raw[30])
     double cyc_p1 = raw[0];  double cyc_p2 = raw[5];  double cyc_p3 = raw[10];
     double cyc_p4 = raw[15]; double cyc_p5 = raw[20]; double cyc_p6 = raw[25];
-    double cyc_p7 = raw[30];
+    double cyc_p7 = raw[30]; double cyc_p8 = raw[35];
 
-    assert(cyc_p1 != cyc_p2 != cyc_p3 != cyc_p4 != cyc_p5 != cyc_p6 != cyc_p7 != 0);
-    if (cyc_p1 > 0 && cyc_p2 > 0 && cyc_p3 > 0 && cyc_p4 > 0 && cyc_p5 > 0 && cyc_p6 > 0 && cyc_p7 > 0) {
+    assert(cyc_p1 != cyc_p2 != cyc_p3 != cyc_p4 != cyc_p5 != cyc_p6 != cyc_p7 != cyc_p8 != 0);
+    if (cyc_p1 > 0 && cyc_p2 > 0 && cyc_p3 > 0 && cyc_p4 > 0 && cyc_p5 > 0 && cyc_p6 > 0 && cyc_p7 > 0 && cyc_p8 > 0) {
         
         // Memory Subsystem
         double l1_bound   = (raw[1] - raw[2]) / cyc_p1;
@@ -451,6 +457,36 @@ static void compute_skl_tma_l3(const double *raw, double *final) {
 
         // Bad Speculation(L3)
         double resteers   = raw[13] / cyc_p3;
+
+        // Others
+        double retiring   = raw[36];
+        double issued     = raw[37];
+        double br_misp    = raw[38];
+        double nukes_mem  = raw[39];
+
+        // Few Uops Instructions
+        // (Retiring - Fused) / Slots
+        double few_uops = (retiring - raw[22]) / (cyc_p8 * 4.0);
+        if (few_uops < 0.0) few_uops = 0.0;
+
+        // Other Light Ops
+        // Retiring Light - (FP_Arith + Mem_Ops + Fused + Non_Fused)
+        double ret_light = (retiring - raw[21]) / (cyc_p8 * 4.0); // Retiring - ms_uops
+        double other_light = ret_light - (fp_arith + mem_ops + fused + non_fused);
+        if (other_light < 0.0) other_light = 0.0;
+
+        // Other Mispredicts
+        // Total Bad Speculation - Branch Mispredicts - Machine Clears
+        double bad_spec_tot = (issued - retiring + (4.0 * raw[13])) / (cyc_p8 * 4.0); // raw[13] = recovery_cycles
+        double r_br_misp = br_misp / (cyc_p8 * 4.0);
+        double m_clears = raw[11] / (cyc_p3 * 4.0); // raw[11] (clear_resteer)
+        double other_misp = bad_spec_tot - r_br_misp - m_clears;
+        if (other_misp < 0.0) other_misp = 0.0;
+
+        // Other Nukes
+        // Total Machine Clears - Memory Ordering Clears
+        double other_nukes = m_clears - (nukes_mem / (cyc_p8 * 4.0));
+        if (other_nukes < 0.0) other_nukes = 0.0;
         
         // Order : 
         // 0:resteers, 1:divider, 2:dram, 3:dsb, 4:dsb_switches, 5:few_uops, 6:fp_arith, 7:fused
@@ -462,7 +498,7 @@ static void compute_skl_tma_l3(const double *raw, double *final) {
         final[2] = dram_bound * 100.0;
         final[3] = dsb * 100.0;
         final[4] = dsb2mite * 100.0;
-        final[5] = 0.0; // few_uops
+        final[5] = few_uops * 100.0;
         final[6] = fp_arith * 100.0;
         final[7] = fused * 100.0;
         final[8] = icache * 100.0;
@@ -476,10 +512,10 @@ static void compute_skl_tma_l3(const double *raw, double *final) {
         final[16] = mite * 100.0;
         final[17] = ms_swit * 100.0;
         final[18] = non_fused * 100.0;
-        final[19] = 0.0; // other light
-        final[20] = 0.0; // other misp
-        final[21] = 0.0; // nukes
-        final[22] = 0.0; // pmm (Intel Optane DC, deprecated tech)
+        final[19] = other_light * 100.0;
+        final[20] = other_misp * 100.0;
+        final[21] = other_nukes * 100.0;
+        final[22] = 0.0; // pmm (Intel Optane DC, discontuated tech)
         final[23] = ports_util * 100.0;
         final[24] = serial * 100.0;
         final[25] = store_bnd * 100.0;
@@ -942,10 +978,10 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
 
             if (uarch == INTEL_SKYLAKE_CASCADE) {
                 out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 35;
+                out_resolver->num_hw_events = 40;
                 out_resolver->hw_events = skl_tma_l3_events;
                 out_resolver->num_results = 26;
-                out_resolver->num_passes = 7;
+                out_resolver->num_passes = 8;
                 out_resolver->events_per_pass = skl_l3_passes;
                 out_resolver->compute_formula = compute_skl_tma_l3;
                 return 1;

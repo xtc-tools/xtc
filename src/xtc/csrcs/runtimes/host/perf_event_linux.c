@@ -259,6 +259,7 @@ static const pmu_event_def_t skl_raw_events[] = {
     { "@skl_macro_fused",     X86_RAW(0xC2, 0x04, 0) },
     { "@skl_mem_inst",        X86_RAW(0xD0, 0x81, 0) },
     { "@skl_br_inst",         X86_RAW(0xC4, 0x00, 0) },
+    { "@skl_nukes_mem",       0x010402C3             }, // MACHINE_CLEARS.MEMORY_ORDERING (cmask=1, edge=1)
     // L3 FPU / AVX
     { "@skl_fp_scalar_s",     X86_RAW(0xC7, 0x02, 0) },
     { "@skl_fp_scalar_d",     X86_RAW(0xC7, 0x01, 0) },
