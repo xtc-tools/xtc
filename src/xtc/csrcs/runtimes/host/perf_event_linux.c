@@ -273,6 +273,7 @@ static const pmu_event_def_t skl_raw_events[] = {
 
 // INTEL MODERN (Ice Lake, Sapphire Rapids, Alder/Raptor Lake)
 static const pmu_event_def_t icl_raw_events[] = {
+    { "@icl_scoreboard",      X86_RAW(0x00, 0x00, 0) }, // Always return 0
     // L1 & L2 perf metrics
     { "@icl_slots",           X86_RAW(0x00, 0x04, 0) }, // 0x0400
     { "@icl_retiring",        X86_RAW(0x00, 0x80, 0) }, // 0x8000

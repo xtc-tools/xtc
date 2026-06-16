@@ -626,7 +626,7 @@ static const char *intel_modern_tma_l3_events[] = {
     // Pass 1: Memory Bounds
     "@icl_cyc", "@icl_stalls_mem_any", "@icl_stalls_l1d_miss", "@icl_stalls_l2_miss", "@icl_stalls_l3_miss",
     // Pass 2: Execution Stalls
-    "@icl_cyc", "@icl_divider_active", "@icl_core_stalls", "@icl_bound_on_stores", "@icl_core_stalls",
+    "@icl_cyc", "@icl_divider_active", "@icl_core_stalls", "@icl_bound_on_stores", "@icl_scoreboard",
     // Pass 3: Frontend Latency
     "@icl_cyc", "@icl_icache_miss", "@icl_itlb_miss", "@icl_clear_resteer", "@icl_lcp",
     // Pass 4: Frontend Bandwidth
