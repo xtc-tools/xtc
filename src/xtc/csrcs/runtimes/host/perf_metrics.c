@@ -356,7 +356,7 @@ static void compute_skl_tma_l3_mem(const double *raw, double *final) {
     }
 }
 
-static const int skl_l3_passes[] = {5, 5, 5, 5, 5, 5, 5, 5}; 
+static const int skl_l3_passes[] = {5, 5, 5, 5, 5, 5, 5, 5};
 
 static const char *skl_tma_l3_events[] = {
     // Pass 1: Memory Bounds
@@ -365,28 +365,28 @@ static const char *skl_tma_l3_events[] = {
     "@skl_stalls_l1d_miss",
     "@skl_stalls_l2_miss",
     "@skl_stalls_l3_miss",
-    
+
     // Pass 2: Execution Stalls
     "@skl_slots",           // raw[5]
     "@skl_divider_active",
     "@skl_scoreboard",
     "@skl_bound_on_stores",
     "@skl_core_stalls",
-    
+
     // Pass 3: Frontend Latency
     "@skl_slots",            // raw[10]
     "@skl_icache_miss",
     "@skl_itlb_miss",
     "@skl_clear_resteer",
     "@skl_lcp",
-    
+
     // Pass 4: Frontend Bandwidth
     "@skl_slots",            // raw[15]
     "@skl_dsb2mite",
     "@skl_ms_switches",
     "@skl_idq_mite",
     "@skl_idq_dsb",
-    
+
     // Pass 5: Instruction Mix
     "@skl_slots",            // raw[20]
     "@skl_idq_ms",
@@ -423,7 +423,7 @@ static void compute_skl_tma_l3(const double *raw, double *final) {
 
     assert(cyc_p1 != cyc_p2 != cyc_p3 != cyc_p4 != cyc_p5 != cyc_p6 != cyc_p7 != cyc_p8 != 0);
     if (cyc_p1 > 0 && cyc_p2 > 0 && cyc_p3 > 0 && cyc_p4 > 0 && cyc_p5 > 0 && cyc_p6 > 0 && cyc_p7 > 0 && cyc_p8 > 0) {
-        
+
         // Memory Subsystem
         double l1_bound   = (raw[1] - raw[2]) / cyc_p1;
         double l2_bound   = (raw[2] - raw[3]) / cyc_p1;
@@ -487,8 +487,8 @@ static void compute_skl_tma_l3(const double *raw, double *final) {
         // Total Machine Clears - Memory Ordering Clears
         double other_nukes = m_clears - (nukes_mem / (cyc_p8 * 4.0));
         if (other_nukes < 0.0) other_nukes = 0.0;
-        
-        // Order : 
+
+        // Order :
         // 0:resteers, 1:divider, 2:dram, 3:dsb, 4:dsb_switches, 5:few_uops, 6:fp_arith, 7:fused
         // 8:icache, 9:itlb, 10:l1, 11:l2, 12:l3, 13:lcp, 14:mem_ops, 15:ms_uops, 16:mite
         // 17:ms_swit, 18:non_fused_br, 19:other_light, 20:oth_misp, 21:nukes, 22:pmm, 23:ports, 24:serial, 25:store
@@ -617,6 +617,31 @@ static const char *intel_modern_tma_l3_mem_events[] = {
     "@icl_stalls_l3_miss",
     "@icl_bound_on_stores"
 };
+
+// intel_modern_tma_l3_mem use the same compute function as skl
+
+static const int icl_l3_passes[] = {5, 5, 5, 5, 5, 5, 5, 5};
+
+static const char *intel_modern_tma_l3_events[] = {
+    // Pass 1: Memory Bounds
+    "@icl_cyc", "@icl_stalls_mem_any", "@icl_stalls_l1d_miss", "@icl_stalls_l2_miss", "@icl_stalls_l3_miss",
+    // Pass 2: Execution Stalls
+    "@icl_cyc", "@icl_divider_active", "@icl_core_stalls", "@icl_bound_on_stores", "@icl_core_stalls",
+    // Pass 3: Frontend Latency
+    "@icl_cyc", "@icl_icache_miss", "@icl_itlb_miss", "@icl_clear_resteer", "@icl_lcp",
+    // Pass 4: Frontend Bandwidth
+    "@icl_cyc", "@icl_dsb2mite", "@icl_ms_switches", "@icl_idq_mite", "@icl_idq_dsb",
+    // Pass 5: Instruction Mix
+    "@icl_cyc", "@icl_idq_ms", "@icl_macro_fused", "@icl_mem_inst", "@icl_br_inst",
+    // Pass 6: Floating Point 1
+    "@icl_cyc", "@icl_fp_scalar_s", "@icl_fp_scalar_d", "@icl_fp_128_s", "@icl_fp_128_d",
+    // Pass 7: Floating Point 2
+    "@icl_cyc", "@icl_fp_256_s", "@icl_fp_256_d", "@icl_fp_512_s", "@icl_fp_512_d",
+    // Pass 8: Parent Nodes (Other)
+    "@icl_cyc", "@icl_retiring_uops", "@icl_issued_any", "@icl_br_misp", "@icl_nukes_mem"
+};
+
+// intel_modern_tma_l3 use the same compute function as skl
 
 // === Zen arch ===
 
@@ -986,7 +1011,18 @@ int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
                 out_resolver->compute_formula = compute_skl_tma_l3;
                 return 1;
             }
+            else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
+                out_resolver->is_supported = 1;
+                out_resolver->num_hw_events = 40;
+                out_resolver->hw_events = intel_modern_tma_l3_events;
+                out_resolver->num_results = 26;
+                out_resolver->num_passes = 8;
+                out_resolver->events_per_pass = icl_l3_passes;
+                out_resolver->compute_formula = compute_skl_tma_l3;
+                return 1;
+            }
         }
+
         return 0;
     }
     else if (strcmp(metric_name, "TopdownL3_Mem") == 0) {

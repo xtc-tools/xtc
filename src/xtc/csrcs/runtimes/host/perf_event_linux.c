@@ -273,22 +273,52 @@ static const pmu_event_def_t skl_raw_events[] = {
 
 // INTEL MODERN (Ice Lake, Sapphire Rapids, Alder/Raptor Lake)
 static const pmu_event_def_t icl_raw_events[] = {
-    { "@icl_slots",           X86_RAW(0x00, 0x04, 0) },
-    { "@icl_retiring",        X86_RAW(0x00, 0x80, 0) },
-    { "@icl_bad_spec",        X86_RAW(0x00, 0x81, 0) },
-    { "@icl_fe_bound",        X86_RAW(0x00, 0x82, 0) },
-    { "@icl_be_bound",        X86_RAW(0x00, 0x83, 0) },
-    { "@icl_heavy_ops",       X86_RAW(0x00, 0x84, 0) },
-    { "@icl_br_mispredict",   X86_RAW(0x00, 0x85, 0) },
-    { "@icl_fetch_lat",       X86_RAW(0x00, 0x86, 0) },
-    { "@icl_mem_bound",       X86_RAW(0x00, 0x87, 0) },
-    // Fallback L3 Memory events (same as Skylake)
+    // L1 & L2 perf metrics
+    { "@icl_slots",           X86_RAW(0x00, 0x04, 0) }, // 0x0400
+    { "@icl_retiring",        X86_RAW(0x00, 0x80, 0) }, // 0x8000
+    { "@icl_bad_spec",        X86_RAW(0x00, 0x81, 0) }, // 0x8100
+    { "@icl_fe_bound",        X86_RAW(0x00, 0x82, 0) }, // 0x8200
+    { "@icl_be_bound",        X86_RAW(0x00, 0x83, 0) }, // 0x8300
+    { "@icl_heavy_ops",       X86_RAW(0x00, 0x84, 0) }, // 0x8400
+    { "@icl_br_mispredict",   X86_RAW(0x00, 0x85, 0) }, // 0x8500
+    { "@icl_fetch_lat",       X86_RAW(0x00, 0x86, 0) }, // 0x8600
+    { "@icl_mem_bound",       X86_RAW(0x00, 0x87, 0) }, // 0x8700
+    // L3 Memory Bound (same as Skylake)
     { "@icl_cyc",             X86_RAW(0x3C, 0x00, 0) },
     { "@icl_stalls_mem_any",  X86_RAW(0xA3, 0x14, 0x14) },
     { "@icl_stalls_l1d_miss", X86_RAW(0xA3, 0x0C, 0x0C) },
     { "@icl_stalls_l2_miss",  X86_RAW(0xA3, 0x05, 0x05) },
     { "@icl_stalls_l3_miss",  X86_RAW(0xA3, 0x06, 0x06) },
-    { "@icl_bound_on_stores", X86_RAW(0xA6, 0x40, 0) }
+    { "@icl_bound_on_stores", X86_RAW(0xA6, 0x40, 0) },
+    // L3 Execution, Frontend, Retiring
+    { "@icl_core_stalls",     X86_RAW(0xA6, 0x01, 0) }, // EXE_ACTIVITY.EXE_BOUND_0_PORTS
+    { "@icl_divider_active",  X86_RAW(0x14, 0x14, 0x01) },
+    { "@icl_icache_miss",     X86_RAW(0x80, 0x04, 0) }, // ICACHE_16B.IFDATA_STALL
+    { "@icl_itlb_miss",       X86_RAW(0x83, 0x04, 0) }, // ICACHE_64B.IFTAG_STALL
+    { "@icl_clear_resteer",   X86_RAW(0x0D, 0x80, 0) },
+    { "@icl_lcp",             X86_RAW(0x87, 0x01, 0) },
+    { "@icl_dsb2mite",        X86_RAW(0xAB, 0x02, 0) },
+    { "@icl_ms_switches",     X86_RAW(0x79, 0x06, 0x01) },
+    { "@icl_idq_mite",        X86_RAW(0x79, 0x04, 0) },
+    { "@icl_idq_dsb",         X86_RAW(0x79, 0x08, 0) },
+    { "@icl_idq_ms",          X86_RAW(0x79, 0x30, 0) },
+    { "@icl_macro_fused",     X86_RAW(0xC2, 0x04, 0) },
+    { "@icl_mem_inst",        X86_RAW(0xD0, 0x81, 0) },
+    { "@icl_br_inst",         X86_RAW(0xC4, 0x00, 0) },
+    // L3 Parents (Other)
+    { "@icl_retiring_uops",   X86_RAW(0xC2, 0x02, 0) },
+    { "@icl_issued_any",      X86_RAW(0x0E, 0x01, 0) },
+    { "@icl_br_misp",         X86_RAW(0xC5, 0x00, 0) },
+    { "@icl_nukes_mem",       0x010402C3             },
+    // L3 FPU / AVX (same as Skylake)
+    { "@icl_fp_scalar_s",     X86_RAW(0xC7, 0x02, 0) },
+    { "@icl_fp_scalar_d",     X86_RAW(0xC7, 0x01, 0) },
+    { "@icl_fp_128_s",        X86_RAW(0xC7, 0x08, 0) },
+    { "@icl_fp_128_d",        X86_RAW(0xC7, 0x04, 0) },
+    { "@icl_fp_256_s",        X86_RAW(0xC7, 0x20, 0) },
+    { "@icl_fp_256_d",        X86_RAW(0xC7, 0x10, 0) },
+    { "@icl_fp_512_s",        X86_RAW(0xC7, 0x80, 0) },
+    { "@icl_fp_512_d",        X86_RAW(0xC7, 0x40, 0) }
 };
 
 // AMD ZEN 4 (Family 19h)
