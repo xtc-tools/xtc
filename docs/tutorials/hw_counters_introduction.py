@@ -60,9 +60,9 @@ def _(mo):
 @app.cell
 def _(mo):
     # UI sliders
-    tile_i_ui = mo.ui.slider(start=16, stop=1024, step=16, value=16, label="Tile I (Rows)")
-    tile_j_ui = mo.ui.slider(start=16, stop=1024, step=16, value=16, label="Tile J (Cols)")
-    unroll_ui = mo.ui.slider(start=1, stop=32, step=1, value=2, label="Unroll factor")
+    tile_i_ui = mo.ui.slider(start=4, stop=256, step=4, value=4, label="Tile I (Rows)")
+    tile_j_ui = mo.ui.slider(start=16, stop=512, step=16, value=16, label="Tile J (Cols)")
+    unroll_ui = mo.ui.slider(start=1, stop=128, step=1, value=2, label="Unroll factor")
     return tile_i_ui, tile_j_ui, unroll_ui
 
 
@@ -322,11 +322,12 @@ def _(btn_l1, exec_error, mo, module, platform):
 
         if tma_l1_counters and len(results_l1) > 0:
             if results_l1[0] < 0:
-                 _l1_ui_display = mo.accordion({"Fallback to `perf stat` output": mo.md(f"```text\n{error_l1}\n```")})
+                 _l1_ui_display = mo.accordion({"Arch not supported or hardware counters not activated. Fallback to `perf stat` output": mo.md(f"```text\n{error_l1}\n```")})
             else:
                 _l1_data = [{"Category": l, "Percentage (%)": round(v, 2)} for l, v in zip(_l1_labels, results_l1)]
+                _l1_data.sort(key=lambda x: x["Percentage (%)"], reverse=True)
                 _l1_ui_table = mo.ui.table(_l1_data, label="Topdown L1 Results")
-
+                
                 try:
                     import altair as alt
 
@@ -341,7 +342,8 @@ def _(btn_l1, exec_error, mo, module, platform):
                             ),
                             legend=alt.Legend(title="Bottlenecks")
                         ),
-                        tooltip=["Category:N", "Percentage (%):Q"]
+                        tooltip=["Category:N", "Percentage (%):Q"],
+                        order=alt.Order("Percentage (%):Q", sort="descending"),
                     ).properties(width=300, height=300, title="TMA L1 Breakdown")
 
                     _l1_ui_display = mo.hstack([_l1_ui_table, mo.ui.altair_chart(_chart)], justify="start", gap=4)
@@ -428,13 +430,13 @@ def _(btn_l2, exec_error, mo, module, platform):
         if tma_l2_counters and len(results_l2) > 0:
             if results_l2[0] < 0:
                  _l2_ui_display = mo.vstack([
-                     mo.callout(mo.md("*Internal C resolver unsupported for L2. Showing `perf stat` output below.*"), kind="warn"),
+                     mo.callout(mo.md("*Hardware counter not activated or internal C resolver unsupported for L2. Showing `perf stat` output below.*"), kind="warn"),
                      mo.accordion({"Terminal Output from perf": mo.md(f"```text\n{error_l2}\n```")})
                  ])
             else:
                 _l2_data = [{"Sub-Category": l, "Percentage (%)": round(v, 2)} for l, v in zip(_l2_labels, results_l2)]
+                _l2_data.sort(key=lambda x: x["Percentage (%)"], reverse=True)
                 _l2_ui_table = mo.ui.table(_l2_data, label="Topdown L2 Results")
-
                 try:
                     import altair as alt2
 
@@ -454,7 +456,8 @@ def _(btn_l2, exec_error, mo, module, platform):
                             ),
                             legend=alt2.Legend(title="Sub-Bottlenecks")
                         ),
-                        tooltip=["Sub-Category:N", "Percentage (%):Q"]
+                        tooltip=["Sub-Category:N", "Percentage (%):Q"],
+                        order=alt2.Order("Percentage (%):Q", sort="descending")
                     ).properties(width=350, height=300, title="TMA L2 Breakdown")
 
                     _l2_ui_display = mo.hstack([_l2_ui_table, mo.ui.altair_chart(_chart)], justify="start", gap=4)
@@ -777,5 +780,172 @@ def _(btn_sandbox, mo, module, sandbox_editor):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    btn_l3 = mo.ui.run_button(kind="neutral", label="Evaluate Topdown L3")
+    btn_asm = mo.ui.run_button(kind="neutral", label="Analyze Assembly (Spilling)")
+    
+    unroll_md = mo.md(f"""
+    --- 
+    
+    ## 5. The "Register Pressure" Wall (Spilling)
+    
+    In optimization, "more" is not always better. Let's demonstrate **Register Pressure**.
+    
+    Modern CPUs have a limited number of physical vector registers (e.g., 16 for AVX2, 32 for AVX-512). These registers act as the "L0 Cache" and can hold a very small matrix block (e.g., 4x16). If your inner tile sizes (`Tile I`, `Tile J`) or your `Unroll` factor are too large, the compiler runs out of physical registers to store intermediate accumulations. It is forced to "spill" them to the stack (which lives in the L1 Cache).
+    
+    **The Experiment:**
+    1. Set `Tile I` to **4**, `Tile J` to **32**, and `Unroll` to **2**. Click both buttons below. You should see a healthy Math/Memory ratio in the assembly.
+    2. Now, set `Tile I` to **64** and `Tile J` to **64**. Click both buttons again.
+    
+    You should see the **`L1 Bound`** explode in the Topdown L3 chart, and a massive spike of memory operations (`vmovups`, `mov`, etc.) dominating the assembly instruction table! The CPU is drowning in L1 Cache transfers because the micro-tile no longer fits in its physical registers.
+
+    If the tile is way too big, the bottleneck will be reported to **`L2 bound`** then **`L3 bound`** ...
+    
+    {mo.hstack([btn_l3, btn_asm])}
+    """)
+
+    return btn_asm, btn_l3, unroll_md
+
+
+@app.cell
+def _(btn_l3, exec_error, mo, module, platform):
+    mo.stop(not btn_l3.value, mo.md("*Click 'Evaluate Topdown L3' to execute.*"))
+
+    if module is None:
+        l3_ui = mo.md(f"**Compilation Error:**\n```python\n{exec_error}\n```")
+    else:
+        tma_l3_counters = ["TopdownL3"] if platform == "linux" else []
+        evaluator_l3 = module.get_evaluator(validate=False, hw_counters=tma_l3_counters)
+        results_l3, code_l3, error_l3 = evaluator_l3.evaluate()
+
+        _l3_labels = [
+            "Branch Resteers", "Divider", "DRAM Bound", "DSB", "DSB Switches", "Few Uops", 
+            "FP Arith", "Fused", "ICache Misses", "ITLB Misses", "L1 Bound", "L2 Bound", 
+            "L3 Bound", "LCP", "Memory Ops", "Microcode Seq", "MITE", "MS Switches", 
+            "Non-Fused Branches", "Other Light Ops", "Other Mispredicts", "Other Nukes", 
+            "PMM Bound", "Ports Utilization", "Serializing", "Store Bound"
+        ]
+
+        if tma_l3_counters and len(results_l3) > 0:
+            if results_l3[0] < 0:
+                 l3_ui_display = mo.vstack([
+                     mo.md("*Native TopdownL3 unsupported. Showing fallback output.*"),
+                     mo.accordion({"Fallback output": mo.md(f"```text\n{error_l3}\n```")})
+                 ])
+            else:
+                _l3_data = [{"Metric": l, "Percentage (%)": round(v, 2)} for l, v in zip(_l3_labels, results_l3) if v > 1.0]
+                
+                # move metrics < 1% into "others" 
+                _other_sum = sum(v for v in results_l3 if v <= 1.0)
+                if _other_sum > 0:
+                    _l3_data.append({"Metric": "Others (<1%)", "Percentage (%)": round(_other_sum, 2)})
+
+                _l3_data.sort(key=lambda x: x["Percentage (%)"], reverse=True)
+                _l3_ui_table = mo.ui.table(_l3_data, label="Topdown L3 (Metrics >1%)")
+
+                try:
+                    import altair as alt3
+                    color_condition = alt3.condition(
+                        alt3.datum.Metric == 'L1 Bound',
+                        alt3.value('#ef4444'), 
+                        alt3.Color('Metric:N')
+                    )
+
+                    _chart = alt3.Chart(alt3.Data(values=_l3_data)).mark_arc(innerRadius=40).encode(
+                        theta=alt3.Theta(field="Percentage (%)", type="quantitative"),
+                        color=color_condition,
+                        order=alt3.Order("Percentage (%):Q", sort="descending"),
+                        tooltip=["Metric:N", "Percentage (%):Q"]
+                    ).properties(width=350, height=300, title="TMA L3 Breakdown")
+
+                    l3_ui_display = mo.hstack([_l3_ui_table, mo.ui.altair_chart(_chart)], justify="start", gap=4)
+                except ImportError:
+                    l3_ui_display = _l3_ui_table
+        else:
+            l3_ui_display = mo.md("*TMA L3 is not supported on this machine.*")
+
+        l3_ui = mo.vstack([mo.md(f"**Execution Code:** `{code_l3}`"), l3_ui_display])
+
+    return evaluator_l3, l3_ui, results_l3, tma_l3_counters
+
+
+@app.cell
+def _(mo,unroll_md):
+    unroll_md
+    return
+
+@app.cell
+def _(mo,l3_ui):
+    l3_ui
+    return
+
+@app.cell
+def _(btn_asm, mo, module):
+    mo.stop(not btn_asm.value, mo.md("*Click 'Analyze Assembly' to parse instructions.*"))
+
+    so_path = getattr(module, "file_name", None)
+    if not so_path:
+        asm_ui = mo.md("**Module shared object (.so) not available for analysis.**")
+    else:
+        import subprocess
+        from collections import Counter
+
+        try:
+            out = subprocess.check_output(["objdump", "-d", so_path], universal_newlines=True)
+
+            counter = Counter()
+            mem_instr = 0
+            math_instr = 0
+            spill_count = 0
+
+            for line in out.splitlines():
+                if ":" in line:
+                    parts = line.split("\t")
+                    if len(parts) >= 3:
+                        instr_full = parts[2].strip()
+                        mnemonic = instr_full.split()[0]
+                        operands = instr_full[len(mnemonic):]
+
+                        if mnemonic.isalnum(): 
+                            counter[mnemonic] += 1
+
+                        if "mov" in mnemonic or "ldr" in mnemonic or "str" in mnemonic:
+                            mem_instr += 1
+                            # Spilling on stack
+                            if "%rsp" in operands or "%rbp" in operands:
+                                spill_count += 1
+                                print(f"[DEBUG] Spill at : {mnemonic} {operands}")
+                        elif "add" in mnemonic or "mul" in mnemonic or "fma" in mnemonic:
+                            math_instr += 1
+
+            if not counter:
+                asm_ui = mo.md("*Could not parse assembly instructions from the binary.*")
+            else:
+                asm_data = [{"Mnemonic": k, "Occurrences": v} for k, v in counter.most_common(20)]
+                ratio = mem_instr / max(math_instr, 1)
+
+                alerts = []
+                # Avoid the absolute value put at the end of the function
+                if spill_count > 1:
+                    alerts.append(mo.callout(mo.md(f"**REGISTER SPILLING DETECTED!** Found **{spill_count}** memory operations hitting the stack (`%rsp` or `%rbp`). The compiler ran out of physical vector registers!"), kind="danger"))
+                elif ratio > 1.5:
+                    alerts.append(mo.callout(mo.md(f"**High Memory Traffic ({ratio:.1f}x).** No stack spills detected, but the loop is drowning in memory operations. The compiler probably failed to keep the accumulator matrix 'C' in registers (missing Load/Store Hoisting)."), kind="warn"))
+                else:
+                    alerts.append(mo.callout(mo.md(f"**Healthy Memory/Math Ratio ({ratio:.1f}x).** Accumulators are efficiently kept in registers."), kind="success"))
+
+                asm_ui = mo.vstack(alerts + [mo.ui.table(asm_data, label="Top 20 Instructions")])
+
+        except Exception as e:
+            asm_ui = mo.md(f"*Failed to run objdump: {e}*")
+
+    return asm_ui,
+
+@app.cell
+def _(mo,asm_ui):
+    asm_ui
+    return
+
+    
 if __name__ == "__main__":
     app.run()
