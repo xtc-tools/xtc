@@ -68,7 +68,7 @@ def _(mo):
 
     def create_backend_radio(label: str = "Backend:"):
         """Create a radio button for backend selection."""
-        return mo.ui.radio(options=["MLIR", "TVM"], value="MLIR", label=label)
+        return mo.ui.radio(options=["MLIR", "TVM"], value="TVM", label=label)
 
     def create_output_radio(backend_name: str, label: str = "Output options:"):
         """Create a radio button for output options based on backend."""
@@ -340,6 +340,18 @@ def _(mo):
 
 @app.cell
 def _(mo):
+
+    descript_spec = mo.ui.code_editor(
+    value='''# Schedule specification
+    schedule_spec = """
+    i: parallelize
+    k:
+    j:
+    i#8: unroll
+    j#16: vectorize
+    """''',
+        language="python",
+        label="")
     descript_editor = mo.ui.code_editor(
         value='''import xtc.graphs.xtc.op as O
     from xtc.graphs.xtc.graph import XTCGraph
@@ -362,21 +374,13 @@ def _(mo):
     graph = matmul_graph(I, J, K, dtype)
     backend = Backend(graph)
 
-    # Schedule specification
-    schedule_spec = """
-    i: parallelize
-    k:
-    j:
-    i#8: unroll
-    j#16: vectorize
-    """
-
     # Compile
     scheduler = backend.get_scheduler()
     descript_scheduler(
        scheduler=scheduler,
        node_name="C",
        abstract_dims=["i", "j", "k"],
+       abstract_matrix=["A", "B", "C"],
        spec=schedule_spec
     )
     schedule = scheduler.schedule()
@@ -395,8 +399,8 @@ def _(mo):
         language="python",
         label=""
     )
-    descript_editor
-    return (descript_editor,)
+    mo.vstack([descript_spec, descript_editor])
+    return descript_editor, descript_spec
 
 
 @app.cell
@@ -417,6 +421,7 @@ def _(
     descript_backend_radio,
     descript_editor,
     descript_output_radio,
+    descript_spec,
     execute_editor_code,
     get_backend_class,
     get_print_opts_dict,
@@ -427,6 +432,7 @@ def _(
         "Backend": get_backend_class(descript_backend_radio.value),
         "print_opts": get_print_opts_dict(descript_output_radio.value),
     }
+    exec(descript_spec.value, _namespace)
     _success, _output, _captured = execute_editor_code(descript_editor.value, display_results_fn=True, initial_namespace=_namespace)
     mo.stop(not _success, mo.md(f"**Code error:**\n```\n{_output}\n```"))
     render_editor_output(_success, _output, _captured)
@@ -557,16 +563,14 @@ def _(mo):
       i:
       j:
       k:
-      j#16:
-      k#32: unroll
       i#i1: unroll=i_u
       j#j1: vectorize=j_v
       constraints:
           - j1+j1*i1<128
-          - i1*j1 > 16
+          - i1*j1 > 8
        """
        strategy = Strategy(graph, schedule_spec, partial_unrolls=False, partial_tiles=False)
-       backend = MLIR_Backend
+       backend = TVM_Backend
        configurations = list(strategy.sample(1000))
        total = len(configurations)
 
