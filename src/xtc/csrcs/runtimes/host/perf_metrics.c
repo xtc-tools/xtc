@@ -72,6 +72,7 @@ intel_arch_t detect_intel_microarchitecture(void) {
             // Arch without TMA counter
             case 0x4E: case 0x5E: case 0x55: // Skylake-X / Cascade Lake-X / Cooper Lake
             case 0x8E: case 0x9E:            // Whiskey Lake / Kaby Lake / Coffee Lake
+            case 0xA5: case 0xA6:            // Comet Lake
             case 0x3D: case 0x47: case 0x4F: // Broadwell
             case 0x56:                       // Broadwell-DE
                 return INTEL_SKYLAKE_CASCADE;
@@ -79,7 +80,7 @@ intel_arch_t detect_intel_microarchitecture(void) {
             // Arch with TMA counter
             case 0x7E: case 0x7D: case 0x9D: // Ice Lake
             case 0x6A: case 0x6C: case 0x8C: // Ice Lake SP/D
-            case 0x8F:                       // Sapphire Rapids
+            case 0x8F:                       // Sapphire Rapids / Emerald Rapids
             case 0x97: case 0x9A:            // Alder Lake
             case 0xB7: case 0xBA: case 0xBF: // Raptor Lake
             case 0xAA: case 0xAC:            // Meteor Lake
