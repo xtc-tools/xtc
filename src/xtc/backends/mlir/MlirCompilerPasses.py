@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+
 from .MlirLoopNames import parent_name
 from dataclasses import dataclass
 from mlir.dialects import transform
@@ -137,6 +138,7 @@ class MlirProgramInsertTransformPass:
         self._super_vectorize_sequence: NamedSequenceOp | None = None
         self._post_bufferize_sequence: NamedSequenceOp | None = None
         self._named_sequence: NamedSequenceOp | None = None
+        self._gpu_block_order: ArrayAttr | None = None
         self._nodes_schedules = (
             self._mlir_schedule.schedule_impl if self._mlir_schedule is not None else []
         )
@@ -578,6 +580,7 @@ class MlirProgramInsertTransformPass:
                 attr_array["mapping"] = ArrayAttr.get(
                     [self._get_block_id(index) for index in mapping_order]
                 )
+                self._gpu_block_order = attr_array["mapping"]
             attr_array["tile_sizes"] = tiling_vector
             tiling_command = TileUsingForallOp(sched_state.handle, **attr_array)
         else:
@@ -587,6 +590,8 @@ class MlirProgramInsertTransformPass:
         assert len(tiling_command.results) == 2
         new_loop = tiling_command.results[-1]
         sched_state.all_loops[loop_name] = new_loop
+        if schedule.gpu_blocks:
+            loop_name = schedule.gpu_blocks[0]
         # Annotate the resulting loop if successfully generated
         transform.AnnotateOp(new_loop, loop_name)
 
@@ -769,7 +774,7 @@ class MlirProgramInsertTransformPass:
         sched_state: SchedulingState,
     ):
         tiles_sizes_by_loops = self._generate_tiling_insns(schedule)
-        if schedule.gpu_blocks:
+        if schedule.gpu_blocks and not self._using_tensors:
             new_loop = next(
                 (
                     sched_state.all_loops[loop_name]
@@ -797,6 +802,44 @@ class MlirProgramInsertTransformPass:
                     new_loop,
                     block_dims=block_dims,
                 )
+        elif (
+            schedule.gpu_blocks
+            and self._using_tensors
+            and self._post_bufferize_sequence
+            and self._gpu_block_order is not None
+        ):
+            with (
+                InsertionPoint.at_block_begin(self._post_bufferize_sequence.body),
+                self._mlir_program.mlir_context,
+                self._loc,
+            ):
+                gpu_block_handle = structured_match(
+                    results_=transform.AnyOpType.get(),
+                    target=self._post_bufferize_sequence.bodyTarget,
+                    op_attrs={
+                        schedule.gpu_blocks[0]: UnitAttr.get(),
+                        "mapping": self._gpu_block_order,
+                    },
+                )
+                # Since we know there only 1 non zero number
+                # TODO Find a way to put thread number instead of putting tile size
+                new_loop = MapForallToBlocks(
+                    gpu_block_handle,
+                    generate_gpu_launch=True,
+                ).result
+                if schedule.gpu_threads:
+                    block_dims = [
+                        max(tiles_sizes_by_loops[loop_name_block])
+                        // max(tiles_sizes_by_loops[loop_name])
+                        for loop_name, loop_name_block in zip(
+                            schedule.gpu_threads, schedule.gpu_blocks
+                        )
+                    ]
+                    block_dims = block_dims + [1] * (3 - len(block_dims))
+                    MapNestedForallToThreads(
+                        new_loop,
+                        block_dims=block_dims,
+                    )
 
 
 def find_producer_handles(module: Module, root_handle: str) -> list[str | None]:
