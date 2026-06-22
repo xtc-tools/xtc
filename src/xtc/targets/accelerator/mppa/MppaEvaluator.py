@@ -44,7 +44,7 @@ class MppaEvaluator(itf.exec.Evaluator):
         self._reference_impl = kwargs.get(
             "reference_impl", self._module._reference_impl
         )
-        self._pmu_counters = kwargs.get("pmu_counters", [])
+        self._hw_counters = kwargs.get("hw_counters", [])
 
         assert self._module.file_type == "shlib", "only support shlib for evaluation"
 
@@ -78,7 +78,7 @@ class MppaEvaluator(itf.exec.Evaluator):
             results = evaluate_performance(
                 func,
                 parameters,
-                self._pmu_counters,
+                self._hw_counters,
                 self._repeat,
                 self._number,
                 self._min_repeat_ms,

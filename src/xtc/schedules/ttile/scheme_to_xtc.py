@@ -736,8 +736,8 @@ def build_schedule_from_ttile(
 
 
 # Launch scheme execution & measurement through xdsl-transform script (higher level)
-# - By default, if pmu_counters is "[]", the time (+ the peak_perf) is reported
-# - peak_perf is computed from the first "time" or "clk" counter detected inside "pmu_counters"
+# - By default, if hw_counters is "[]", the time (+ the peak_perf) is reported
+# - peak_perf is computed from the first "time" or "clk" counter detected inside "hw_counters"
 # - l_verbose: (print_source_ir, print_transformed_ir, print_assembly)
 def launch_and_measure_scheme_graph_interf(
     comp: Computation,
@@ -745,7 +745,7 @@ def launch_and_measure_scheme_graph_interf(
     scheme: List[Atom],
     dsizes: dict[str, int],
     backend: str,
-    pmu_counters: list[str] = [],
+    hw_counters: list[str] = [],
     l_verbose: tuple[int, int, int] = (False, False, False),
 ) -> dict[str, float]:
     # 1) Computation - described as a graph
@@ -845,19 +845,19 @@ def launch_and_measure_scheme_graph_interf(
         module = compiler.compile(sched)
         evaluator = module.get_evaluator(
             validate=True,
-            pmu_counters=pmu_counters,
+            hw_counters=hw_counters,
             **evaluate_args,
         )
         results, code, error = evaluator.evaluate()
 
-    # If we did not have any pmu_counters specified, the only returned value is "time"
-    if pmu_counters == []:
-        pmu_counters = ["time"]
+    # If we did not have any hw_counters specified, the only returned value is "time"
+    if hw_counters == []:
+        hw_counters = ["time"]
 
-    assert len(results) == len(pmu_counters)
+    assert len(results) == len(hw_counters)
     res_measurement = dict()
-    for i in range(len(pmu_counters)):
-        res_measurement[pmu_counters[i]] = float(results[i])
+    for i in range(len(hw_counters)):
+        res_measurement[hw_counters[i]] = float(results[i])
 
     # Peak_perf computation:
     #  - We detect if we have a time/cycle counter in res_measurement
@@ -866,18 +866,18 @@ def launch_and_measure_scheme_graph_interf(
     ltime_cycles_counter_names = ltime_counter_names + lcycles_counter_names
 
     i_time_ref = -1
-    for i in range(len(pmu_counters)):
-        if pmu_counters[i] in ltime_cycles_counter_names:
+    for i in range(len(hw_counters)):
+        if hw_counters[i] in ltime_cycles_counter_names:
             i_time_ref = i
             break
 
     # One of the counter is time or num_cycle => compute the peak_perf from it
     if i_time_ref >= 0:
-        if pmu_counters[i_time_ref] in ltime_counter_names:  # If the counter is time
-            time = res_measurement[pmu_counters[i_time_ref]]
+        if hw_counters[i_time_ref] in ltime_counter_names:  # If the counter is time
+            time = res_measurement[hw_counters[i_time_ref]]
 
             if (
-                pmu_counters[i_time_ref] != "time"
+                hw_counters[i_time_ref] != "time"
             ):  # "time" is in second, the rest in "ns"
                 time = time / 1e9
 
@@ -907,9 +907,9 @@ def launch_and_measure_scheme_graph_interf(
             )
 
         elif (
-            pmu_counters[i_time_ref] in lcycles_counter_names
+            hw_counters[i_time_ref] in lcycles_counter_names
         ):  # If the counter is a num_cycle
-            cycles = res_measurement[pmu_counters[i_time_ref]]
+            cycles = res_measurement[hw_counters[i_time_ref]]
 
             num_ops = compute_number_ops(comp, dsizes)
             peak_cycles = cpu_peak_cycle(num_ops, dtype)

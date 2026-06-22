@@ -20,8 +20,9 @@ dev = [
     "pytest-xdist",
     "pyright==1.1.407",
     "types-PyYAML",
-    "marimo==0.19.6",
+    "marimo>=0.20.0",
     "ruff==0.14.10",
+    "matplotlib"
 ]
 
 [tool.setuptools]
