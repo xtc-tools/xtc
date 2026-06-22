@@ -12,4 +12,4 @@ pyright==1.1.407
 types-PyYAML
 ruff==0.14.10
 altair
-
+plotly
