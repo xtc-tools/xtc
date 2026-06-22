@@ -292,19 +292,35 @@ class Scheduler(ABC):
 
     @abstractmethod
     def gpu_thread(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
-        """
-        Map an axis to a certain gpu thread either x, y or z.
-        The mapped axis need to be in parallelization.
-        We can only map 3 dimensions for gpu thread
+        """Maps iteration axes to GPU thread dimensions.
+
+        The mapping is positional:
+            - axes[0] -> threadIdx.x
+            - axes[1] -> threadIdx.y
+            - axes[2] -> threadIdx.z
+        At most 3 axes may be provided. If there are less than 3 axes,
+        only the corresponding block dimensions are assigned.
+
+        Args:
+            axes: list of maximum 3 element that are maps to the dimension x, y, z respectively
+            root: the parent split (or the operator's absolute root)
         """
         ...
 
     @abstractmethod
     def gpu_block(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         """
-        Map an axis to a certain gpu block either x, y or z.
-        The mapped axis need to be in parallelization.
-        We can only map 3 dimensions for gpu block
+        Maps iteration axes to GPU block dimensions.
+        The mapping is positional:
+            - axes[0] -> blockIdx.x
+            - axes[1] -> blockIdx.y
+            - axes[2] -> blockIdx.z
+        At most 3 axes may be provided. If there are less than 3 axes,
+        only the corresponding block dimensions are assigned.
+
+        Args:
+            axes: list of maximum 3 element that are maps to the dimension x, y, z respectively
+            root: the parent split (or the operator's absolute root)
         """
         ...
 

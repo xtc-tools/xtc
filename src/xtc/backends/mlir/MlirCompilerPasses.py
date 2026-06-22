@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-
 from .MlirLoopNames import parent_name
 from dataclasses import dataclass
 from mlir.dialects import transform
@@ -570,18 +569,20 @@ class MlirProgramInsertTransformPass:
         schedule: MlirNodeSchedule,
         sched_state: SchedulingState,
     ) -> OpResult:
-        if loop_name in schedule.parallelization:
-            attr_array = {}
-            if loop_name in schedule.gpu_threads:
-                attr_array["mapping"] = ArrayAttr.get(
-                    [self._get_thread_id(index) for index in mapping_order]
-                )
-            elif loop_name in schedule.gpu_blocks:
-                attr_array["mapping"] = ArrayAttr.get(
-                    [self._get_block_id(index) for index in mapping_order]
-                )
-                self._gpu_block_order = attr_array["mapping"]
-            attr_array["tile_sizes"] = tiling_vector
+        attr_array = {}
+        attr_array["tile_sizes"] = tiling_vector
+        if loop_name in schedule.gpu_blocks:
+            attr_array["mapping"] = ArrayAttr.get(
+                [self._get_block_id(index) for index in mapping_order]
+            )
+            self._gpu_block_order = attr_array["mapping"]
+            tiling_command = TileUsingForallOp(sched_state.handle, **attr_array)
+        elif loop_name in schedule.gpu_threads:
+            attr_array["mapping"] = ArrayAttr.get(
+                [self._get_thread_id(index) for index in mapping_order]
+            )
+            tiling_command = TileUsingForallOp(sched_state.handle, **attr_array)
+        elif loop_name in schedule.parallelization:
             tiling_command = TileUsingForallOp(sched_state.handle, **attr_array)
         else:
             tiling_command = TileUsingForOp(sched_state.handle, sizes=tiling_vector)
@@ -590,7 +591,7 @@ class MlirProgramInsertTransformPass:
         assert len(tiling_command.results) == 2
         new_loop = tiling_command.results[-1]
         sched_state.all_loops[loop_name] = new_loop
-        if schedule.gpu_blocks:
+        if loop_name in schedule.gpu_blocks:
             loop_name = schedule.gpu_blocks[0]
         # Annotate the resulting loop if successfully generated
         transform.AnnotateOp(new_loop, loop_name)
@@ -638,11 +639,12 @@ class MlirProgramInsertTransformPass:
             vector.ApplyTransferPermutationPatternsOp()
 
         # the remaining patterns must be applied post-bufferization to work properly
-        if not self._post_bufferize_sequence:
+        if not self._post_bufferize_sequence and not schedule.gpu_blocks:
             with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
                 vector.ApplyLowerOuterProductPatternsOp()
                 vector.ApplyLowerContractionPatternsOp()
-        else:
+        # Do not lower vector contract as it can be useful for gpu optimisation
+        elif self._post_bufferize_sequence and not schedule.gpu_blocks:
             func_name = self._mlir_program.mlir_module.body.operations[0].attributes[
                 "sym_name"
             ]
