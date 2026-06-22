@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.23.8"
+__generated_with = "0.20.0"
 app = marimo.App()
 
 
@@ -659,6 +659,64 @@ def _(
     ax = mo.ui.matplotlib(plt.gca())
 
     mo.vstack([mo.md("\n".join(_summary_lines)), ax])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## Transformations
+
+    As shown above, `descript` can be used to explore configurations for optimizations other than loop interchange and tiling. This section will show the supported transformations and the corresponding syntax and exploration parameters.
+
+    These transformations are written on the same line as the tile they apply to. For instance, to unroll a tile of size 16 on the axis `i` by a factor of 4, one would write: ` i#16: unroll=4`.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Unroll, parallelize, and vectorize
+
+    `unroll` by itself mean full loop unrolling. An unroll factor can also be used as seen above. That unroll factor can also be replaced by a variable, which indicates that the unroll factor is a parameter to explore.
+
+    By default, unroll factors divide their respective tile size, but this can be changed by adding `partial_unrolls=True` to the strategy's arguments.
+
+    | Unroll syntax                       | Description |
+    |-------------------------------------|-------------------------------------------------------------------|
+    | `unroll`                       | Full unroll on the corresponding tile |
+    | `unroll=8`                      | Unroll of factor 8 on the corresponding tile |
+    | `unroll=i_unroll`     | Unroll factor to be explored (named i_unroll in the constraints) |
+
+    `parallelize` and `vectorize` can only be applied on the outermost (for `parallelize`) or innermost (for `vectorize`) tiles.
+
+    They cannot be up to a factor, but a variable can be used to explore the presence or abscence of the transformation.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Read/Write Buffers
+
+    `descript` also allows specifying read and write buffers, and gives two syntaxes to do so.
+
+    The first syntax follows the XTC API and has two optimizations: `buffer` for write buffers, and `pack` for read buffers.
+
+    `buffer` takes one optional argument: the buffer memory type for the allocation, which can be a string, or `None` to use XTC's default.
+
+    `pack` takes three arguments, in order: the index of the input to pack, the buffer memory type, and wether or not to pad the buffer.
+
+    The second syntax doesn't distiguish between buffer and pack. It is writen like an axis, but using the name of the tensor to buffer instead of an axis: `A: pack`. In the case of packing, `pad` can be added to enable padding.
+
+    | Buffer syntax                       | Description |
+    |-------------------------------------|-------------------------------------------------------------------|
+    | `buffer`                       | Write buffer |
+    | `pack=(0, None, False)`                      | Read buffer for the first input, with default memory and no padding |
+    | `B: pack pad`     | Read buffer for the second input, with padding |
+    """)
     return
 
 
