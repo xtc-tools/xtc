@@ -67,23 +67,48 @@ intel_arch_t detect_intel_microarchitecture(void) {
     int family, model;
     get_cpu_family_model(&family, &model);
 
+    // source : https://github.com/torvalds/linux/blob/ma ster/arch/x86/include/asm/intel-family.h
+    
     if (family == 6) {
         switch (model) {
             // Arch without TMA counter
             case 0x4E: case 0x5E: case 0x55: // Skylake-X / Cascade Lake-X / Cooper Lake
-            case 0x8E: case 0x9E:            // Whiskey Lake / Kaby Lake / Coffee Lake
+            case 0x8E: case 0x9E:            // Whiskey Lake / Kaby Lake / Coffee Lake / Amber lake
             case 0xA5: case 0xA6:            // Comet Lake
             case 0x3D: case 0x47: case 0x4F: // Broadwell
             case 0x56:                       // Broadwell-DE
+            case 0x66:                       // Cannon Lake
                 return INTEL_SKYLAKE_CASCADE;
 
             // Arch with TMA counter
-            case 0x7E: case 0x7D: case 0x9D: // Ice Lake
-            case 0x6A: case 0x6C: case 0x8C: // Ice Lake SP/D
-            case 0x8F:                       // Sapphire Rapids / Emerald Rapids
-            case 0x97: case 0x9A:            // Alder Lake
-            case 0xB7: case 0xBA: case 0xBF: // Raptor Lake
-            case 0xAA: case 0xAC:            // Meteor Lake
+            case 0x7E: case 0x7D: case 0x9D: // Ice Lake Client
+            case 0x6A: case 0x6C:            // Ice Lake Server (Xeon)
+            case 0xA7:                       // Rocket Lake (Cypress Cove)
+            case 0x8C: case 0x8D:            // Tiger Lake
+            case 0x8A:                       // Lakefield
+            case 0x8F:                       // Sapphire Rapids (Xeon)
+            case 0xCF:                       // Emerald Rapids (Xeon)
+            case 0xAD: case 0xAE:            // Granite Rapids (Xeon X et D)
+            case 0x97: case 0x9A:            // Alder Lake (12th Gen)
+            case 0xB7: case 0xBA: case 0xBF: // Raptor Lake (13th/14th Gen)
+            case 0xD7:                       // Bartlett Lake
+            case 0xAA: case 0xAC:            // Meteor Lake (Core Ultra 1)
+            case 0xB5: case 0xC5: case 0xC6: // Arrow Lake
+            case 0xBD:                       // Lunar Lake (Core Ultra 2)
+            case 0xCC: case 0xE5:            // Panther Lake
+            case 0xD5:                       // Wildcat Lake
+                return INTEL_ICELAKE_SAPPHIRE;
+        }
+    }
+    else if (family == 18) {
+        switch (model) {
+            case 0x01: case 0x03:            // Nova Lake
+                return INTEL_ICELAKE_SAPPHIRE;
+        }
+    }
+    else if (family == 19) {
+        switch (model) {
+            case 0x01:                       // Diamond Rapids (Xeon)
                 return INTEL_ICELAKE_SAPPHIRE;
         }
     }
