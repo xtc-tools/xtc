@@ -1,5 +1,5 @@
 """
-Schema architecture global (caches,front,back...) coloré en fonctions des métriques 
+Schema architecture global (caches,front,back...) coloré en fonctions des métriques
 Exemple de code de recuperation de compteur avec l'API XTC (une seule partie éditable?)
 Tuilage imposé progressif avec le tuto (naif -> ... -> maxi tuilé opti)
 Exemple de raté ? (4k aliasing)
@@ -34,7 +34,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo, platform):
     _warnings = []
-    
+
     if platform == "darwin":
         _warnings.append(mo.callout(mo.md("**MacOS Detected:** Hardware counters are restricted. The notebook will run, but TMA metrics might be unavailable or require `sudo` privileges."), kind="danger"))
 
@@ -64,7 +64,7 @@ def _(mo):
     """)
     return
 
-# µpipe Sankey diagram 
+# µpipe Sankey diagram
 @app.cell(hide_code=True)
 def _(mo):
     def plot_upipe(l1_res, l2_res=None, l3_res=None):
@@ -175,7 +175,7 @@ def _(mo):
                                 add_link(n_l2, n_l3, l3_val, color)
 
                 map_light = map_heavy = map_clears = map_misp = map_fbw = map_flat = map_core = map_mem = None
-                
+
                 if l3_res and len(l3_res) >= 26:
                     map_light = [("FP Arith", 6), ("Mem Ops", 14), ("Fused", 7), ("Non-Fused", 18), ("Other Light", 19)]
                     map_heavy = [("Few Uops", 5), ("Microcode", 15)]
@@ -231,7 +231,25 @@ def _(mo):
             return mo.md(f"**Error generating Sankey diagram:**\n```python\n{error_trace}\n```")
 
     return plot_upipe,
-    
+
+
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    btn_all = mo.ui.run_button(label="Run All Experiments", kind="success")
+
+    run_all_ui = mo.vstack([
+        mo.md("---"),
+        mo.md("## Evaluate All Steps"),
+        mo.md("Click the button below to compile and evaluate all steps at once."),
+        btn_all
+    ])
+
+    run_all_ui
+    return btn_all, run_all_ui
+
+
 
 #@app.cell(hide_code=True)
 #def _(mo):
@@ -249,7 +267,7 @@ def _(mo):
 #    """)
 #    return
 #
-#    
+#
 #
 #@app.cell
 #def _(mo, platform):
@@ -269,7 +287,7 @@ def _(mo):
 #
 #    # Basic Schedule based on UI inputs
 #    schedule_spec = '''
-#    i: 
+#    i:
 #    j:
 #    k:
 #    '''
@@ -277,9 +295,9 @@ def _(mo):
 #
 #    scheduler = backend.get_scheduler()
 #    descript_scheduler(
-#        scheduler=scheduler, 
-#        node_name="C", 
-#        abstract_dims=["i", "j", "k"], 
+#        scheduler=scheduler,
+#        node_name="C",
+#        abstract_dims=["i", "j", "k"],
 #        spec=schedule_spec
 #    )
 #
@@ -292,10 +310,10 @@ def _(mo):
 #        print_assembly=False,
 #        shared_lib=True
 #    )
-#    
+#
 #    module = compiler.compile(sched)
 #
-#    
+#
 #    # Evaluation
 #    tma_counters = ["TopdownL1", "TopdownL2", "TopdownL3"] if platform == "linux" else []
 #    evaluator = module.get_evaluator(validate=False, hw_counters=tma_counters)
@@ -324,7 +342,7 @@ def _(mo):
 #            mo.md("**Microarchitecture Pipeline Bottlenecks:**"),
 #            plot_upipe(ex1_l1_res, ex1_l2_res, ex1_l3_res)
 #        ])
-#    
+#
 #    ex1_output
 #    return ex1_output,
 
@@ -349,9 +367,9 @@ def _(mo, platform, plot_upipe):
 
         backend = Backend(gb.graph)
         scheduler = backend.get_scheduler()
-        
+
         descript_scheduler(scheduler=scheduler, node_name="C", abstract_dims=["i", "j", "k"], spec=schedule_spec)
-        
+
         compiler = backend.get_compiler(dump_file="matmul_mlir", shared_lib=True)
         module = compiler.compile(scheduler.schedule())
 
@@ -375,7 +393,7 @@ def _(mo, platform, plot_upipe):
 @app.cell(hide_code=True)
 def _(mo):
     btn_ex1 = mo.ui.run_button(label="Run Step 1", kind="neutral")
-    
+
     mo.md(f"""
     ---
     ## Step 1: Naive Implementation
@@ -388,16 +406,16 @@ def _(mo):
           C[i, j] += A[i, k] * B[k, j]
     ```
     *Expectation: High Backend Bound (Memory latency).*
-    
+
     {btn_ex1}
     """)
     return btn_ex1,
 
 
 @app.cell(hide_code=True)
-def _(btn_ex1, mo, run_experiment):
-    mo.stop(not btn_ex1.value)
-    
+def _(btn_ex1, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex1.value or btn_all.value))
+
     spec_1 = '''
 i:
 j:
@@ -410,7 +428,7 @@ k:
 @app.cell(hide_code=True)
 def _(mo):
     btn_ex2 = mo.ui.run_button(label="Run Step 2", kind="neutral")
-    
+
     mo.md(f"""
     ---
     ## Step 2: Vectorization
@@ -424,16 +442,16 @@ def _(mo):
             C[i, ...] += A[i, k] * B[k, ...]
     ```
     *Expectation: Higher Retiring, but still bottlenecked by memory loads.*
-    
+
     {btn_ex2}
     """)
     return btn_ex2,
 
 
 @app.cell(hide_code=True)
-def _(btn_ex2, mo, run_experiment):
-    mo.stop(not btn_ex2.value)
-    
+def _(btn_ex2, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex2.value or btn_all.value))
+
     spec_2 = '''
 i:
 j:
@@ -447,7 +465,7 @@ j#16: vectorize
 @app.cell(hide_code=True)
 def _(mo):
     btn_ex3 = mo.ui.run_button(label="Run Step 3", kind="neutral")
-    
+
     mo.md(f"""
     ---
     ## Step 3: Register Tiling (2x16)
@@ -462,16 +480,16 @@ def _(mo):
               C[...] += A[...] * B[...]
     ```
     *Expectation: Retiring improves, but the CPU still re-loads the accumulator `C` at every `k` iteration.*
-    
+
     {btn_ex3}
     """)
     return btn_ex3,
 
 
 @app.cell(hide_code=True)
-def _(btn_ex3, mo, run_experiment):
-    mo.stop(not btn_ex3.value)
-    
+def _(btn_ex3, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex3.value or btn_all.value))
+
     spec_3 = '''
 i:
 j:
@@ -486,7 +504,7 @@ j#16: vectorize
 @app.cell(hide_code=True)
 def _(mo):
     btn_ex4 = mo.ui.run_button(label="Run Step 4", kind="neutral")
-    
+
     mo.md(f"""
     ---
     ## Step 4: Load/Store Hoisting
@@ -496,23 +514,23 @@ def _(mo):
     for i_out in 256:
       for j_out in 32:
         # Load C into registers once
-        for k in 512: 
+        for k in 512:
           for i_unroll in 2:
             for j_vec in 16:
               C_reg[...] += A[...] * B[...]
         # Store C to memory once
     ```
     *Expectation: Massive drop in L1 Bound. The CPU becomes highly Core Bound (saturating ALUs).*
-    
+
     {btn_ex4}
     """)
     return btn_ex4,
 
 
 @app.cell(hide_code=True)
-def _(btn_ex4, mo, run_experiment):
-    mo.stop(not btn_ex4.value)
-    
+def _(btn_ex4, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex4.value or btn_all.value))
+
     spec_4 = '''
         i:
         j:
@@ -527,7 +545,7 @@ def _(btn_ex4, mo, run_experiment):
 @app.cell(hide_code=True)
 def _(mo):
     btn_ex5 = mo.ui.run_button(label="Run Step 5", kind="neutral")
-    
+
     mo.md(f"""
     ---
     ## Step 5: Cache Tiling
@@ -536,21 +554,21 @@ def _(mo):
     ```python
     for i_blk in 64, for j_blk in 64, for k_blk in 64: # Cache blocking
       for i_out, for j_out:
-        for k_in in 64: 
+        for k_in in 64:
           for i_unroll in 2, for j_vec in 16:
             C_reg[...] += A[...] * B[...]
     ```
     *Expectation: Memory Bound drops significantly. Computation is now purely limited by execution units.*
-    
+
     {btn_ex5}
     """)
     return btn_ex5,
 
 
 @app.cell(hide_code=True)
-def _(btn_ex5, mo, run_experiment):
-    mo.stop(not btn_ex5.value)
-    
+def _(btn_ex5, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex5.value or btn_all.value))
+
     spec_5 = '''
         i:
         j:
@@ -568,7 +586,7 @@ def _(btn_ex5, mo, run_experiment):
 @app.cell(hide_code=True)
 def _(mo):
     btn_ex6 = mo.ui.run_button(label="Run Step 6", kind="neutral")
-    
+
     mo.md(f"""
     ---
     ## Step 6: Peak Optimization (3x16)
@@ -577,21 +595,21 @@ def _(mo):
     ```python
     for i_blk in 64, for j_blk in 64, for k_blk in 64:
       for i_out, for j_out:
-        for k_in in 64: 
+        for k_in in 64:
           for i_unroll in 3, for j_vec in 16: # Optimized Register Tile
             C_reg[...] += A[...] * B[...]
     ```
     *Expectation: Maximum Retiring percentage. Peak theoretical performance.*
-    
+
     {btn_ex6}
     """)
     return btn_ex6,
 
 
 @app.cell(hide_code=True)
-def _(btn_ex6, mo, run_experiment):
-    mo.stop(not btn_ex6.value)
-    
+def _(btn_ex6, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex6.value or btn_all.value))
+
     spec_6 = '''
         i:
         j:
