@@ -248,6 +248,7 @@ def _(mo, platform, plot_upipe):
         import xtc.graphs.xtc.op as O
         from xtc.backends.mlir import Backend
         from xtc.schedules.descript import descript_scheduler
+        from xtc.runtimes.host import HostRuntime
         import subprocess
 
         # Fixed matrix size for all tests
@@ -275,9 +276,38 @@ def _(mo, platform, plot_upipe):
         )
         module = compiler.compile(scheduler.schedule())
 
+        rt = HostRuntime.get()
+        peak_flops = rt.evaluate_flops(dtype)
+
+        # Evaluate pure execution time
+        eval_time = module.get_evaluator(validate=False)
+        time_results, _, _ = eval_time.evaluate()
+        exec_time = min(time_results)
+
+        # Calculate percentage of theoretical peak (MACs / Time / Peak_MACs)
+        peak_perf_pct = (I * J * K) / exec_time / peak_flops * 100
+
+        # Visual progress bar for Peak Perf
+        bar_color = "#ef4444" if peak_perf_pct < 10 else ("#f59e0b" if peak_perf_pct < 50 else "#22c55e")
+        fill_width = max(min(peak_perf_pct, 100), 2) # Ensure at least 2% so the text is visible
+
+        perf_ui = mo.Html(f'''
+        <div style="margin-bottom: 15px; width: 100%; max-width: 600px;">
+            <strong>Computational Efficiency (Theoretical Peak):</strong>
+            <div style="width: 100%; background-color: #f3f4f6; border-radius: 6px; margin-top: 6px; overflow: hidden; border: 1px solid #d1d5db; display: flex;">
+                <div style="width: {fill_width}%; background-color: {bar_color}; color: #000; padding: 4px 0; text-align: center; font-size: 12px; font-family: monospace; font-weight: bold; white-space: nowrap; transition: width 0.5s ease-in-out;">
+                    {peak_perf_pct:.1f}%
+                </div>
+            </div>
+        </div>
+        ''')
+
+
+
         tma_counters = ["TopdownL1", "TopdownL2", "TopdownL3"] if platform == "linux" else []
         evaluator = module.get_evaluator(validate=False, hw_counters=tma_counters)
         res, code, err = evaluator.evaluate()
+
 
         if err: return mo.md(f"**Error:**\n```text\n{err}\n```")
 
@@ -295,6 +325,7 @@ def _(mo, platform, plot_upipe):
                 asm_code = f"Failed to extract assembly: {e}"
 
         return mo.vstack([
+            perf_ui,
             plot_upipe(l1_res, l2_res, l3_res),
 
             mo.accordion({
