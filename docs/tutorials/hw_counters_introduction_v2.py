@@ -266,6 +266,7 @@ def _(mo, platform, plot_upipe):
             scheduler=scheduler,
             node_name="C",
             abstract_dims=["i", "j", "k"],
+            abstract_matrix=["A", "B", "C"],
             spec=schedule_spec
         )
 
@@ -654,10 +655,80 @@ def _(btn_ex6, btn_all, mo, run_experiment):
     run_experiment(spec_6)
     return spec_6,
 
+
+
+@app.cell(hide_code=True)
+def _():
+    btn_ex7 = mo.ui.run_button(label="Run Step 7", kind="neutral")
+
+    mo.md(f"""
+    ---
+    ## Step 7: Data Packing (Memory Layout Optimization)
+    Even with cache tiling, reading original matrices `A` and `B` with large memory strides causes cache line fragmentation and TLB (Translation Lookaside Buffer) misses.
+    By **packing** the data, the compiler copies the required blocks into contiguous temporary buffers before the inner loops, ensuring perfect linear memory access for the micro-kernel.
+
+    ```python
+    # Global navigation (RAM / L3 Cache)
+    for i_out in range(I / 64):
+        for j_out in range(J / 64):
+            for k_out in range(K / 64):
+
+                # Data packing
+                # Copy non-contiguous tiles into contiguous L2/L1 buffers
+                A_pack = contiguous_copy(A[i_out*64 : i_out*64+64, k_out*64 : k_out*64+64])
+                B_pack = contiguous_copy(B[k_out*64 : k_out*64+64, j_out*64 : j_out*64+64])
+
+                # Block navigation (L2 / L1 Cache)
+                for i_in in range(64 / 3):
+                    for j_in in range(64 / 16):
+
+                        # Load hoisting
+                        C_vec_0 = C[i,     j : j+16]
+                        C_vec_1 = C[i + 1, j : j+16]
+                        C_vec_2 = C[i + 2, j : j+16]
+
+                        # Accumulation loop
+                        for k_in in range(64):
+                            # Reading from contiguous packed buffer
+                            B_vec = B_pack[k_in, j_in : j_in+16]
+
+                            # Unrolled Micro-kernel
+                            C_vec_0 += A_pack[i_in,     k_in] * B_vec
+                            C_vec_1 += A_pack[i_in + 1, k_in] * B_vec
+                            C_vec_2 += A_pack[i_in + 2, k_in] * B_vec
+
+                        # Store hoisting
+                        C[i,     j : j+16] = C_vec_0
+                        C[i + 1, j : j+16] = C_vec_1
+                        C[i + 2, j : j+16] = C_vec_2
+    ```
+    *Expectation: TLB misses drop significantly. Memory Bound achieves its lowest possible value.*
+
+    {btn_ex7}
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(btn_ex7, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex7.value or btn_all.value))
+
+    spec_7 = '''
+        i:
+        j:
+        k:
+        A: pack
+        B: pack
+        i#64:
+        j#64:
+        k#64:
+        i#3: unroll
+        j#16: vectorize
+    '''
+    run_experiment(spec_7)
+    return
+
+
+
 if __name__ == "__main__":
     app.run()
-
-
-
-
-# TODO : Rajouter le calcul du peek-perf a chaque exp
