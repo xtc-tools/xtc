@@ -26,7 +26,7 @@ def _(mo):
 
     Optimizing code requires understanding exactly how the CPU executes it.
 
-    In this notebook, we will use **XTC** to compile a Matrix Multiplication and evaluate it using hardware counters and Top-down Microarchitecture Analysis (TMA)
+    In this Marimo, we will use **XTC** to compile a Matrix Multiplication and evaluate it using hardware counters and Top-down Microarchitecture Analysis (TMA)
     """)
     return
 
@@ -36,7 +36,7 @@ def _(mo, platform):
     _warnings = []
 
     if platform == "darwin":
-        _warnings.append(mo.callout(mo.md("**MacOS Detected:** Hardware counters are restricted. The notebook will run, but TMA metrics might be unavailable or require `sudo` privileges."), kind="danger"))
+        _warnings.append(mo.callout(mo.md("**MacOS Detected:** Hardware counters are restricted. The Marimo will run, but TMA metrics might be unavailable."), kind="danger"))
 
     _warnings.append(mo.callout(mo.md(r"""
     **Hardware Counters Prerequisites:**
@@ -251,111 +251,13 @@ def _(mo):
 
 
 
-#@app.cell(hide_code=True)
-#def _(mo):
-#    mo.md(r"""
-#    ---
-#    ## Step 1: The Naive Implementation
-#    Let's evaluate a standard, unoptimized Matrix Multiplication. No tiling, no vectorization, no unrolling.
-#
-#    ```
-#    for i in 128
-#      for j in 512
-#        for k in 1024
-#    ```
-#
-#    """)
-#    return
-#
-#
-#
-#@app.cell
-#def _(mo, platform):
-#
-#    import xtc.graphs.xtc.op as O
-#    from xtc.backends.mlir import Backend
-#    from xtc.schedules.descript import descript_scheduler
-#
-#    I, J, K, dtype = 128, 512, 1024, "float32"
-#
-#    a = O.tensor((I, K), dtype, name="A")
-#    b = O.tensor((K, J), dtype, name="B")
-#    with O.graph(name="matmul") as gb:
-#        O.matmul(a, b, name="C")
-#
-#    backend = Backend(gb.graph)
-#
-#    # Basic Schedule based on UI inputs
-#    schedule_spec = '''
-#    i:
-#    j:
-#    k:
-#    '''
-#
-#
-#    scheduler = backend.get_scheduler()
-#    descript_scheduler(
-#        scheduler=scheduler,
-#        node_name="C",
-#        abstract_dims=["i", "j", "k"],
-#        spec=schedule_spec
-#    )
-#
-#    sched = scheduler.schedule()
-#
-#    compiler = backend.get_compiler(
-#        dump_file="matmul_mlir",
-#        print_source_ir=False,
-#        print_transformed_ir=False,
-#        print_assembly=False,
-#        shared_lib=True
-#    )
-#
-#    module = compiler.compile(sched)
-#
-#
-#    # Evaluation
-#    tma_counters = ["TopdownL1", "TopdownL2", "TopdownL3"] if platform == "linux" else []
-#    evaluator = module.get_evaluator(validate=False, hw_counters=tma_counters)
-#    res, code, err = evaluator.evaluate()
-#
-#    # Slicing results
-#    ex1_l1_res = res[0:4] if len(res) >= 4 else None
-#    ex1_l2_res = res[4:12] if len(res) >= 12 else None
-#    ex1_l3_res = res[12:38] if len(res) >= 38 else None
-#
-#    print(f"[DEBUG] ex1 l1 : {ex1_l1_res}")
-#    print(f"[DEBUG] ex1 l2 : {ex1_l2_res}")
-#    print(f"[DEBUG] ex1 l3 : {ex1_l3_res}")
-#
-#
-#    return I, J, K, a, b, backend, code, dtype, err, evaluator, gb, ex1_l1_res, ex1_l2_res, ex1_l3_res,module, res, schedule_spec, scheduler, tma_counters
-#
-#
-#@app.cell
-#def _(err, ex1_l1_res, ex1_l2_res, ex1_l3_res, mo, plot_upipe):
-#    # Display the upipe diagram
-#    if err:
-#        ex1_output = mo.md(f"**Error:**\n```text\n{err}\n```")
-#    else:
-#        ex1_output = mo.vstack([
-#            mo.md("**Microarchitecture Pipeline Bottlenecks:**"),
-#            plot_upipe(ex1_l1_res, ex1_l2_res, ex1_l3_res)
-#        ])
-#
-#    ex1_output
-#    return ex1_output,
-
-
-
-
-
 @app.cell(hide_code=True)
 def _(mo, platform, plot_upipe):
     def run_experiment(schedule_spec):
         import xtc.graphs.xtc.op as O
         from xtc.backends.mlir import Backend
         from xtc.schedules.descript import descript_scheduler
+        import subprocess
 
         # Fixed matrix size for all tests
         I, J, K, dtype = 512, 512, 512, "float32"
@@ -368,9 +270,18 @@ def _(mo, platform, plot_upipe):
         backend = Backend(gb.graph)
         scheduler = backend.get_scheduler()
 
-        descript_scheduler(scheduler=scheduler, node_name="C", abstract_dims=["i", "j", "k"], spec=schedule_spec)
+        descript_scheduler(
+            scheduler=scheduler,
+            node_name="C",
+            abstract_dims=["i", "j", "k"],
+            spec=schedule_spec
+        )
 
-        compiler = backend.get_compiler(dump_file="matmul_mlir", shared_lib=True)
+        compiler = backend.get_compiler(
+            dump_file="matmul_mlir",
+            shared_lib=True,
+            print_assembly=True
+        )
         module = compiler.compile(scheduler.schedule())
 
         tma_counters = ["TopdownL1", "TopdownL2", "TopdownL3"] if platform == "linux" else []
@@ -383,9 +294,23 @@ def _(mo, platform, plot_upipe):
         l2_res = res[4:12] if len(res) >= 12 else None
         l3_res = res[12:38] if len(res) >= 38 else None
 
+
+        so_path = getattr(module, "file_name", None)
+        if so_path:
+            try:
+                # Silently dump the assembly to a Python string
+                asm_code = subprocess.check_output(["objdump", "--disassemble=matmul", so_path], universal_newlines=True)
+            except Exception as e:
+                asm_code = f"Failed to extract assembly: {e}"
+
         return mo.vstack([
             plot_upipe(l1_res, l2_res, l3_res),
-            mo.accordion({"Click here to see the XTC schedule": mo.md(f"```\n{schedule_spec}\n```")})
+
+            mo.accordion({
+                "View XTC Schedule Source": mo.md(f"```yaml\n{schedule_spec}\n```"),
+                "View Generated Assembly": mo.md(f"```x86asm\n{asm_code}\n```")
+            })
+
         ])
     return run_experiment,
 
