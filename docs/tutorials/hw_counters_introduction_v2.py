@@ -433,15 +433,19 @@ def _(mo):
     ---
     ## Step 2: Vectorization
     Processing multiple elements per instruction using SIMD (Single Instruction, Multiple Data).
+    The inner loop disappears completely: the CPU computes 16 elements at once in a single clock cycle.
 
     ```python
-    for i in 512:
-      for j_out in 32:
-        for k in 512:
-          for j_vec in 16: # Vectorized execution (e.g., AVX-512)
-            C[i, ...] += A[i, k] * B[k, ...]
+    for i in range(512):
+        for j in range(0, 512, 16): # Steps of 16
+            for k in range(512):
+
+                # Vectorized execution (e.g., AVX-512)
+                # A single SIMD instruction computes 16 elements
+                C[i, j : j+16] += A[i, k] * B[k, j : j+16]
     ```
-    *Expectation: Higher Retiring, but still bottlenecked by memory loads.*
+
+    *Expectation: Higher Retiring, but still heavily bottlenecked by memory loads since `C` is read and written 512 times for nothing.*
 
     {btn_ex2}
     """)
@@ -469,17 +473,20 @@ def _(mo):
     mo.md(f"""
     ---
     ## Step 3: Register Tiling (2x16)
-    Unrolling the outer loop allows the CPU to process multiple vectors simultaneously, hiding instruction latency by keeping accumulators inside physical registers.
+    Unrolling the outer loop allows the CPU to process multiple vectors simultaneously. The compiler duplicates the instructions, breaking data dependency chains and keeping accumulators inside physical registers.
 
     ```python
-    for i_out in 256:
-      for j_out in 32:
-        for k in 512:
-          for i_unroll in 2: # Unrolled
-            for j_vec in 16: # Vectorized
-              C[...] += A[...] * B[...]
+    for i in range(0, 512, 2):      # Steps of 2
+        for j in range(0, 512, 16): # Steps of 16
+            for k in range(512):
+
+                # Unrolled & Vectorized (2x16)
+                # Two independent FMAs are exposed to the CPU per k-iteration
+                C[i,     j : j+16] += A[i,     k] * B[k, j : j+16]
+                C[i + 1, j : j+16] += A[i + 1, k] * B[k, j : j+16]
     ```
-    *Expectation: Retiring improves, but the CPU still re-loads the accumulator `C` at every `k` iteration.*
+
+    *Expectation: Retiring improves (Instruction-Level Parallelism), but the CPU still re-loads the accumulator `C` at every `k` iteration.*
 
     {btn_ex3}
     """)
@@ -511,16 +518,35 @@ def _(mo):
     By interchanging the `k` loop *outside* of the unrolled micro-kernel, we prevent the compiler from loading and storing the `C` matrix to L1 cache repeatedly. `C` stays in the vector registers during the entire `k` accumulation.
 
     ```python
-    for i_out in 256:
-      for j_out in 32:
-        # Load C into registers once
-        for k in 512:
-          for i_unroll in 2:
-            for j_vec in 16:
-              C_reg[...] += A[...] * B[...]
-        # Store C to memory once
+    I = 512
+    J = 512
+    K = 512
+    # 1. Global navigation (RAM)
+    for i_out in range(I / 2):       # Steps of 2
+        for j_out in range(J / 16):  # Steps of 16
+
+            # --- LOAD HOISTING ---
+            # We load 2 independent vector registers (16 floats each) once!
+            C_vec_0 = C[i,     j : j+16]
+            C_vec_1 = C[i + 1, j : j+16]
+
+            # 2. Accumulation loop
+            for k in range(K):       # 4096 iterations!
+
+                # Vector Load (16 floats loaded at once)
+                B_vec = B[k, j : j+16]
+
+                # 3. Unrolled & Vectorized Micro-kernel
+                C_vec_0 += A[i, k]     * B_vec
+                C_vec_1 += A[i + 1, k] * B_vec
+
+            # --- STORE HOISTING ---
+            # We trigger 2 simultaneous vector stores to memory!
+            C[i,     j : j+16] = C_vec_0
+            C[i + 1, j : j+16] = C_vec_1
     ```
-    *Expectation: Massive drop in L1 Bound. The CPU becomes highly Core Bound (saturating ALUs).*
+
+    *Expectation: Massive drop in L1 Bound since C is no longer repeatedly spilled to the cache.*
 
     {btn_ex4}
     """)
@@ -551,13 +577,41 @@ def _(mo):
     ## Step 5: Cache Tiling
     Large matrices evict each other from L1/L2 caches. We tile the problem into 64x64 blocks to ensure data perfectly fits in the fast cache hierarchy.
 
-    ```python
-    for i_blk in 64, for j_blk in 64, for k_blk in 64: # Cache blocking
-      for i_out, for j_out:
-        for k_in in 64:
-          for i_unroll in 2, for j_vec in 16:
-            C_reg[...] += A[...] * B[...]
+    # Global navigation (RAM / L3 Cache)
+    I = 512
+    J = 512
+    K = 512
+    for i_out in range(I / 64):
+        for j_out in range(J / 64):
+            for k_out in range(K / 64):
+
+                # Block navigation (L2 / L1 Cache)
+                for i_in in range(64 / 2):       # Steps of 2
+                    for j_in in range(64 / 16):  # Steps of 16
+
+                        # Load hoisting
+                        C_reg_0 = C[i,     j : j+16]
+                        C_reg_1 = C[i + 1, j : j+16]
+
+                        # Accumulation loop
+                        for k_in in range(64):
+                            B_vec = B[k, j : j+16] # Broadcasted or Vector loaded
+
+                            # Micro-kernel (Physical Registers)
+                            #for i_unroll in range(3):        # Unrolled 3x
+                            #    for j_vec in range(16):      # Vectorized 16x
+                            #       C_reg[...] += A[...] * B[...]
+
+                            # Unrolled micro-kernel
+                            C_reg_0 += A[i, k]     * B_vec
+                            C_reg_1 += A[i + 1, k] * B_vec
+
+                        # Store hoisting
+                        # C[i_out...i_in, j_out...j_in] = C_reg
+                        C[i,     j : j+16] = C_reg_0
+                        C[i + 1, j : j+16] = C_reg_1
     ```
+
     *Expectation: Memory Bound drops significantly. Computation is now purely limited by execution units.*
 
     {btn_ex5}
@@ -593,13 +647,40 @@ def _(mo):
     We maximize physical register usage. A 3x16 tile uses 3 AVX-512 registers for `C`, maximizing Instruction-Level Parallelism without spilling to the L1 cache.
 
     ```python
-    for i_blk in 64, for j_blk in 64, for k_blk in 64:
-      for i_out, for j_out:
-        for k_in in 64:
-          for i_unroll in 3, for j_vec in 16: # Optimized Register Tile
-            C_reg[...] += A[...] * B[...]
+    # Global navigation (RAM / L3 Cache)
+    for i_out in range(I / 64):
+        for j_out in range(J / 64):
+            for k_out in range(K / 64):
+
+                # Block navigation (L2 / L1 Cache)
+                for i_in in range(64 / 3):       # Steps of 3
+                    for j_in in range(64 / 16):  # Steps of 16
+
+                        # Load hoisting
+                        C_reg_0 = C[i,     j : j+16]
+                        C_reg_1 = C[i + 1, j : j+16]
+                        C_reg_2 = C[i + 2, j : j+16]
+
+                        # Accumulation loop
+                        for k_in in range(64):
+                            B_vec = B[k, j : j+16] # Broadcasted or Vector loaded
+
+                            # Micro-kernel (Physical Registers)
+                            #for i_unroll in range(3):        # Unrolled 3x
+                            #    for j_vec in range(16):      # Vectorized 16x
+                            #       C_reg[...] += A[...] * B[...]
+
+                            # Unrolled micro-kernel
+                            C_reg_0 += A[i, k]     * B_vec
+                            C_reg_1 += A[i + 1, k] * B_vec
+                            C_reg_2 += A[i + 2, k] * B_vec
+
+                        # Store hoisting
+                        # C[i_out...i_in, j_out...j_in] = C_reg
+                        C[i,     j : j+16] = C_reg_0
+                        C[i + 1, j : j+16] = C_reg_1
+                        C[i + 2, j : j+16] = C_reg_2
     ```
-    *Expectation: Maximum Retiring percentage. Peak theoretical performance.*
 
     {btn_ex6}
     """)
@@ -630,3 +711,5 @@ if __name__ == "__main__":
 
 
 # TODO : Rajouter le calcul du peek-perf a chaque exp
+#    Check pseudo code
+#    vectorisé k dans l'étape 4 ?
