@@ -1,12 +1,3 @@
-"""
-Schema architecture global (caches,front,back...) coloré en fonctions des métriques
-Exemple de code de recuperation de compteur avec l'API XTC (une seule partie éditable?)
-Tuilage imposé progressif avec le tuto (naif -> ... -> maxi tuilé opti)
-Exemple de raté ? (4k aliasing)
-Taille de tuile éditable -> possibilité de rentrer les chiffres
-"""
-
-
 import marimo
 
 __generated_with = "0.19.6"
@@ -500,8 +491,11 @@ def _(mo):
     mo.md(f"""
     ---
     ## Step 5: Cache Tiling
+
     Large matrices evict each other from L1/L2 caches. We tile the problem into 64x64 blocks to ensure data perfectly fits in the fast cache hierarchy.
 
+
+    ```python
     # Global navigation (RAM / L3 Cache)
     I = 512
     J = 512
@@ -636,5 +630,3 @@ if __name__ == "__main__":
 
 
 # TODO : Rajouter le calcul du peek-perf a chaque exp
-#    Check pseudo code
-#    vectorisé k dans l'étape 4 ?
