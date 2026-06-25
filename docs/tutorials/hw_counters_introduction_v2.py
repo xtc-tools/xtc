@@ -730,5 +730,151 @@ def _(btn_ex7, btn_all, mo, run_experiment):
 
 
 
+@app.cell(hide_code=True)
+def _():
+    _sandbox_code = """import xtc.graphs.xtc.op as O
+    from xtc.backends.mlir import Backend
+    from xtc.schedules.descript import descript_scheduler
+
+    # 1. Problem setup
+    I, J, K, dtype = 256, 256, 256, "float32"
+    a = O.tensor((I, K), dtype, name="A")
+    b = O.tensor((K, J), dtype, name="B")
+
+    with O.graph(name="matmul") as gb:
+        O.matmul(a, b, name="C")
+
+    # 2. Scheduling
+    backend = Backend(gb.graph)
+    scheduler = backend.get_scheduler()
+
+    schedule_spec = '''
+        i:
+        j:
+        k:
+        A: pack
+        B: pack
+        i#64:
+        j#64:
+        k#64:
+        i#3: unroll
+        j#16: vectorize
+    '''
+
+    descript_scheduler(
+        scheduler=scheduler, 
+        node_name="C", 
+        abstract_dims=["i", "j", "k"], 
+        abstract_matrix=["A", "B", "C"],
+        spec=schedule_spec
+    )
+    sched = scheduler.schedule()
+
+    # 3. Compilation
+    compiler = backend.get_compiler(
+        dump_file="sandbox_mlir", 
+        shared_lib=True,
+        print_assembly=False
+    )
+    module = compiler.compile(sched)
+
+    # 4. Evaluation
+    import sys
+    hw_counters = ["Cycles","TopdownL1", "TopdownL2","TopdownL3_Mem"] if sys.platform == "linux" else []
+    evaluator = module.get_evaluator(validate=True, hw_counters=hw_counters)
+
+    print("Evaluating Schedule...")
+    results, code, err = evaluator.evaluate()
+
+    if err:
+        print(f"Error:\\n{err}")
+    else:
+        print(f"Raw Results Array: {[round(x, 2) for x in results]}")
+    """
+    api_sandbox_editor = mo.ui.code_editor(
+        value=_sandbox_code,
+        language="python",
+        label="XTC Full API Sandbox"
+    )
+    btn_api_sandbox = mo.ui.run_button(kind="neutral", label="Run Sandbox")
+
+    sandbox_ui = mo.vstack([
+        mo.md(r"""
+        ---
+        ## Complete API Sandbox
+
+        Below is a fully editable XTC script. It demonstrates the complete API workflow: defining the computational graph, applying a schedule, compiling to MLIR, and running the hardware evaluation. 
+
+        Feel free to modify the tensor sizes, the schedule specification, or the list of hardware counters. If `Topdown` metrics are requested, the microarchitecture pipeline diagram will automatically be rendered below the output.
+        """),
+        api_sandbox_editor,
+        btn_api_sandbox
+    ])
+    return api_sandbox_editor, btn_api_sandbox, sandbox_ui
+
+
+@app.cell
+def _(sandbox_ui):
+    sandbox_ui
+    return
+
+
+@app.cell
+def _(api_sandbox_editor, btn_api_sandbox):
+    mo.stop(not btn_api_sandbox.value, mo.md("*Click 'Run Sandbox' to see the output.*"))
+
+    import io
+    from contextlib import redirect_stdout, redirect_stderr
+    import traceback
+
+    out = io.StringIO()
+    err = io.StringIO()
+    local_vars = {}
+
+    with redirect_stdout(out), redirect_stderr(err):
+        try:
+            exec(api_sandbox_editor.value, globals().copy(), local_vars)
+        except Exception as e:
+            traceback.print_exc()
+
+    stdout_val = out.getvalue()
+    stderr_val = err.getvalue()
+
+    output_blocks = []
+    if stdout_val:
+        output_blocks.append(mo.md(f"**Standard Output:**\n```text\n{stdout_val}\n```"))
+    if stderr_val:
+        output_blocks.append(mo.md(f"**Standard Error / Exceptions:**\n```text\n{stderr_val}\n```"))
+
+    if not stdout_val and not stderr_val:
+        output_blocks.append(mo.md("*Script executed successfully with no output.*"))
+
+    hw_counters = local_vars.get("hw_counters", [])
+    results = local_vars.get("results", [])
+    code = local_vars.get("code", -1)
+
+    if code == 0 and hw_counters and results:
+        sizes = {"TopdownL1": 4, "TopdownL2": 8, "TopdownL3": 26, "TopdownL3_Mem": 5}
+        l1_res, l2_res, l3_res = None, None, None
+        curr_idx = 0
+
+        for c in hw_counters:
+            s = sizes.get(c, 1)
+            chunk = results[curr_idx : curr_idx + s]
+
+            if c == "TopdownL1": l1_res = chunk
+            if c == "TopdownL2": l2_res = chunk
+            if c in ["TopdownL3", "TopdownL3_Mem"]: l3_res = chunk
+
+            curr_idx += s
+
+        if l1_res and len(l1_res) >= 4 and l1_res[0] >= 0:
+            output_blocks.append(mo.md("**Generated Top-down Diagram:**"))
+            output_blocks.append(plot_upipe(l1_res, l2_res, l3_res))
+
+    mo.vstack(output_blocks),
+    return mo.vstack(output_blocks),
+
+
 if __name__ == "__main__":
     app.run()
