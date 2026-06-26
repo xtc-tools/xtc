@@ -41,6 +41,7 @@ def _(mo, platform):
     """), kind="warn"))
 
     prerequisites_ui = mo.vstack(_warnings)
+    prerequisites_ui
     return prerequisites_ui,
 
 
@@ -49,12 +50,23 @@ def _(mo):
     mo.md(r"""
         ---
 
-        For a better experience, it's recommended to be familiar with the XTC's `descript` syntax and the general usage of XTC.
+        ### For a better experience, it's recommended to be familiar with the XTC's `descript` syntax and the general usage of XTC.
 
+        ```bash
+        marimo run docs/tutorials/xtc_101.py
+        marimo run docs/tutorials/descript++_notebook.py
+        ```
         ---
     """)
     return
 
+
+@app.cell
+def _(supported_arch_msg):
+    supported_arch_msg
+    return
+
+    
 # µpipe Sankey diagram
 @app.cell(hide_code=True)
 def _(mo):
@@ -816,6 +828,206 @@ def _():
 @app.cell
 def _(sandbox_ui):
     sandbox_ui
+    return
+
+
+@app.cell
+def _(mo):
+    tma_support_content = mo.md(
+        """
+        | Microarchitecture | Supported TMA Levels | Execution Mode |
+        |---|---|---|
+        | **Intel Skylake / Cascade Lake** | `TopdownL1`, `TopdownL2`, `TopdownL3_Mem`, `TopdownL3` | Native API |
+        | **Intel Modern (Ice Lake+)**     | `TopdownL1`, `TopdownL2`, `TopdownL3_Mem`, `TopdownL3` | Native API |
+        | **AMD Zen 4**                    | `TopdownL1`, `TopdownL2` | Native API |
+        | **ARM**                          | `TopdownL1 ?`, `TopdownL2 ?` | Native API (untested) |
+        | **Generic Linux (`perf` tool)**  | `TopdownL1` to `TopdownL6` | System Fallback *(Multiplexed)* |
+
+        *Note 1: TopdownL3_Mem returns [L1 Bound, L2 Bound, L3 Bound, DRAM Bound, Store Bound].*
+
+        *Note 2: AMD architectures do not have native Topdown metrics. They are rebuilt using AMD-specific hardware events and pipeline width formulas.*
+        """
+    )
+
+    amd_zen4_formulas = mo.md(
+        """
+        **Zen 4 Pipeline Width:** 6 slots per cycle.
+        `Total Slots = Cycles * 6`
+
+        **Level 1 Formulas:**
+        *   **Frontend Bound:** `Frontend Stalls / Total Slots`
+        *   **Retiring:** `Ops Retired / Total Slots`
+        *   **Bad Speculation:** `(Ops Dispatched - Ops Retired) / Total Slots`
+        *   **Backend Bound:** `100% - (Frontend Bound + Retiring + Bad Speculation)`
+
+        **Level 2 Formulas:**
+        *   **Fetch Latency:** `Fetch Latency Stalls / Total Slots`
+        *   **Fetch Bandwidth:** `Frontend Bound - Fetch Latency`
+        *   **Memory Bound:** `Backend Memory Stalls / Total Slots`
+        *   **Core Bound:** `Backend CPU Stalls / Total Slots`
+        *   **Branch Mispredicts:** `Branch Mispredict Stalls / Total Slots`
+        *   **Machine Clears:** `Pipeline Restarts / Total Slots`
+        *   **Heavy Ops:** `Microcode Ops Retired / Total Slots`
+        *   **Light Ops:** `Total Retiring - Heavy Ops`
+        """
+    )
+
+    zen4_accordion = mo.accordion({
+        "Show AMD Zen 4 TMA reconstruction formulas": amd_zen4_formulas
+    })
+
+    fallback_note = mo.md("*Unsupported metrics will automatically use the `perf` fallback.*")
+
+    supported_arch_msg = mo.accordion({
+        "View supported TMA architectures": mo.vstack([
+            tma_support_content,
+            zen4_accordion,
+            fallback_note
+        ])
+    })
+
+    return (supported_arch_msg,)
+
+@app.cell
+def _(mo):
+    l1_md = mo.md(
+        """
+        **Array Order:** `[Retiring, Bad Speculation, Frontend Bound, Backend Bound]`
+
+        | Index | Metric | Description |
+        |---|---|---|
+        | `[0]` | **Retiring** | Fraction of slots utilized by useful work (issued uops that get retired). |
+        | `[1]` | **Bad Speculation** | Fraction of slots wasted due to incorrect speculations. |
+        | `[2]` | **Frontend Bound** | Fraction of slots where the Frontend undersupplies the Backend. |
+        | `[3]` | **Backend Bound** | Fraction of slots where no uops are delivered due to a lack of Backend resources. |
+        """
+    )
+
+    l2_md = mo.md(
+        """
+        **Array Order:** `[Light Ops, Heavy Ops, Machine Clears, Branch Mispredicts, Fetch Bandwidth, Fetch Latency, Core Bound, Memory Bound]`
+
+        | Index | Category | Sub-Metric | Description |
+        |---|---|---|---|
+        | `[0]` | `Retiring` | `light_operations` | Retiring typical, single-uop instructions. |
+        | `[1]` | `Retiring` | `heavy_operations` | Retiring complex, multi-uop or microcoded instructions. |
+        | `[2]` | `Bad Speculation` | `machine_clears` | Wasted slots due to pipeline flushes (e.g., memory ordering issues, exceptions). |
+        | `[3]` | `Bad Speculation` | `branch_mispredicts` | Wasted slots due to incorrect branch predictions. |
+        | `[4]` | `Frontend Bound` | `fetch_bandwidth` | Frontend cannot decode or deliver enough instructions per cycle. |
+        | `[5]` | `Frontend Bound` | `fetch_latency` | Frontend is completely starved and delivering nothing (e.g., Instruction Cache miss). |
+        | `[6]` | `Backend Bound` | `core_bound` | Execution stalled waiting for execution units (ALU/FPU) or due to data dependencies. |
+        | `[7]` | `Backend Bound` | `memory_bound` | Execution stalled waiting for data from the memory (L1/L2/L3/RAM). |
+        """
+    )
+
+    l3_md = mo.md(
+        """
+        | Index | Category | Metric | Description |
+        |---|---|---|---|
+        | `[0]` | `Bad Speculation` | `branch_resteers` | Stalls due to branch resteers at execution stage. |
+        | `[1]` | `Backend Bound` | `divider` | Cycles where the Divider unit was active. |
+        | `[2]` | `Backend Bound` | `dram_bound` | Stalled on external memory (DRAM) accesses. |
+        | `[3]` | `Frontend Bound` | `dsb` | Limited by Decoded Stream Buffer (uop cache) pipeline. |
+        | `[4]` | `Frontend Bound` | `dsb_switches` | Stalls due to switching from DSB to MITE pipelines. |
+        | `[5]` | `Retiring` | `few_uops_instructions` | Instructions decoded into 2 or more uops. |
+        | `[6]` | `Retiring` | `fp_arith` | Floating-point (FP) operations executed. |
+        | `[7]` | `Retiring` | `fused_instructions` | One uop representing multiple contiguous instructions. |
+        | `[8]` | `Frontend Bound` | `icache_misses` | Stalls due to instruction cache misses. |
+        | `[9]` | `Frontend Bound` | `itlb_misses` | Stalls due to Instruction TLB (ITLB) misses. |
+        | `[10]` | `Backend Bound` | `l1_bound` | Stalled without missing the L1 Data (L1D) cache. |
+        | `[11]` | `Backend Bound` | `l2_bound` | Stalled due to L2 cache accesses. |
+        | `[12]` | `Backend Bound` | `l3_bound` | Stalled due to L3 cache accesses or sibling Core contention. |
+        | `[13]` | `Frontend Bound` | `lcp` | Stalls due to Length Changing Prefixes. |
+        | `[14]` | `Retiring` | `memory_operations` | Memory load or store uops retired. |
+        | `[15]` | `Retiring` | `microcode_sequencer` | Uops fetched by the Microcode Sequencer (MS) unit. |
+        | `[16]` | `Frontend Bound` | `mite` | Limited by MITE pipeline (legacy decode pipeline). |
+        | `[17]` | `Frontend Bound` | `ms_switches` | Stalls due to switching uop delivery to the MS unit. |
+        | `[18]` | `Retiring` | `non_fused_branches` | Branch instructions that were not fused. |
+        | `[19]` | `Retiring` | `other_light_ops` | Remaining light uops not covered by other sibling nodes. |
+        | `[20]` | `Bad Speculation` | `other_mispredicts` | Stalls due to other misprediction cases (non-retired branches). |
+        | `[21]` | `Bad Speculation` | `other_nukes` | Machine Clears not related to memory ordering. |
+        | `[22]` | `Backend Bound` | `pmm_bound` | Stalled on accesses to Persistent Memory Modules (Optane). |
+        | `[23]` | `Backend Bound` | `ports_utilization` | Limited due to execution ports saturation (FPU/ALU contention). |
+        | `[24]` | `Backend Bound` | `serializing_operation` | Issue-pipeline stalled due to serializing operations. |
+        | `[25]` | `Backend Bound` | `store_bound` | Stalled due to store memory accesses and Read For Ownership(RFO) requests. |
+        """
+    )
+
+    l4_md = mo.md(
+        """
+
+        | Metric | Description |
+        |---|---|
+        | `4k_aliasing` | Load accesses aliased by preceding stores with a 4K address offset. |
+        | `assists` | Uops delivered by Microcode Sequencer as a result of Assists. |
+        | `cisc` | Uops originated from CISC instructions. |
+        | `clears_resteers` | Branch Resteers as a result of Machine Clears. |
+        | `code_stlb_hit` / `miss` | ITLB missed, hitting or missing Second-level TLB (STLB). |
+        | `contested_accesses` | Memory handling synchronizations due to contested accesses. |
+        | `data_sharing` | Memory handling synchronizations due to data-sharing. |
+        | `decoder0_alone` | Decoder-0 was the only active decoder. |
+        | `dtlb_load` / `store` | DTLB missed by load or store accesses. |
+        | `false_sharing` | CPU handling synchronizations due to False Sharing. |
+        | `fb_full` | L1D Fill Buffer unavailability limited memory accesses. |
+        | `fp_scalar` / `vector` | Arithmetic FP scalar or vector uops retired. |
+        | `l1_latency_dependency` | Demand load accesses that hit the L1D cache. |
+        | `l2_hit_latency` / `l3` | Demand load accesses that hit L2 or L3 under unloaded scenarios. |
+        | `lock_latency` | Cache misses due to lock operations. |
+        | `mem_bandwidth` | Approaching bandwidth limits of external memory (DRAM/HBM). |
+        | `mem_latency` | Latency from external memory (DRAM/HBM). |
+        | `mispredicts_resteers` | Branch Resteers due to Branch Misprediction. |
+        | `nop_instructions` | NOP (no op) instructions retired. |
+        | `ports_utilized_0/1/2/3m` | CPU executed 0, 1, 2, or 3+ uops per cycle on all execution ports. |
+        | `split_loads` / `stores` | Handling memory split accesses crossing 64-byte boundaries. |
+        | `sq_full` | Super Queue (SQ) was full. |
+        | `store_fwd_blk` | Loads blocked unable to forward data from earlier overlapping stores. |
+        | `store_latency` | CPU handling L1D store misses. |
+        | `unknown_branches` | Stalls due to new branch address clears. |
+        | `x87_use` | Approximation of legacy x87 usage. |
+        """
+    )
+
+    l5_md = mo.md(
+        """
+
+        | Metric | Description |
+        |---|---|
+        | `alu/load/store_op_utilization` | Cycles CPU dispatched uops on execution ports for ALU, Load, or Store. |
+        | `fp_assists` | Uops retired as a result of handing Floating Point (FP) Assists. |
+        | `fp_vector_128b/256b/512b` | FP vector uops retired for 128, 256, or 512-bit wide vectors. |
+        | `load/store_stlb_hit/miss` | DTLB/TLB missed by load/store accesses, hitting or missing STLB. |
+        | `local/remote_mem` | Memory access constrained by local or remote NUMA nodes. |
+        | `mixing_vectors` | Penalty for injected blend uops. |
+        """
+    )
+
+    l6_md = mo.md(
+        """
+
+        | Metric | Description |
+        |---|---|
+        | `port_0` to `port_7` | Fraction of cycles the CPU dispatched uops on specific hardware execution ports (e.g., ALU, Loads, Stores). |
+        | `load/store_stlb_miss_X` | Cycles to walk memory paging structures for 4K, 2M or 1G pages. |
+        """
+    )
+
+    reminder_output_msg = mo.vstack([
+        mo.md("**TMA Metrics Dictionary:**"),
+        mo.accordion({
+            "Level 1 (4 metrics)": l1_md,
+            "Level 2 (8 metrics)": l2_md,
+            "Level 3 (26 metrics)": l3_md,
+            "Level 4 (32 metrics)": l4_md,
+            "Level 5 (15 metrics)": l5_md,
+            "Level 6 (8 metrics)": l6_md
+        })
+    ])
+
+    return reminder_output_msg,
+
+@app.cell
+def _(reminder_output_msg):
+    reminder_output_msg
     return
 
 
