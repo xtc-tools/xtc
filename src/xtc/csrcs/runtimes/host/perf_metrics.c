@@ -28,125 +28,7 @@
 #if ARCH_IS_X86
 #include <cpuid.h>
 
-#ifdef __linux__
-#include <linux/perf_event.h>
-static void get_cpu_family_model(int *family, int *model) {
-    unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
 
-    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
-        int base_family = (eax >> 8) & 0xF;
-        int base_model  = (eax >> 4) & 0xF;
-
-        int ext_family = (eax >> 20) & 0xFF;
-        int ext_model  = (eax >> 16) & 0xF;
-
-        *family = base_family;
-        *model = base_model;
-
-        if (base_family == 0xF) {
-            *family += ext_family;
-        }
-        if (base_family == 0x6 || base_family == 0xF) {
-            *model += (ext_model << 4);
-        }
-    } else {
-        *family = 0;
-        *model = 0;
-    }
-}
-#endif
-
-typedef enum {
-    INTEL_UNKNOWN = 0,
-    INTEL_SKYLAKE_CASCADE,
-    INTEL_ICELAKE_SAPPHIRE
-} intel_arch_t;
-
-intel_arch_t detect_intel_microarchitecture(void) {
-#if ARCH_IS_X86
-    int family, model;
-    get_cpu_family_model(&family, &model);
-
-    // source : https://github.com/torvalds/linux/blob/ma ster/arch/x86/include/asm/intel-family.h
-    
-    if (family == 6) {
-        switch (model) {
-            // Arch without TMA counter
-            case 0x4E: case 0x5E: case 0x55: // Skylake-X / Cascade Lake-X / Cooper Lake
-            case 0x8E: case 0x9E:            // Whiskey Lake / Kaby Lake / Coffee Lake / Amber lake
-            case 0xA5: case 0xA6:            // Comet Lake
-            case 0x3D: case 0x47: case 0x4F: // Broadwell
-            case 0x56:                       // Broadwell-DE
-            case 0x66:                       // Cannon Lake
-                return INTEL_SKYLAKE_CASCADE;
-
-            // Arch with TMA counter
-            case 0x7E: case 0x7D: case 0x9D: // Ice Lake Client
-            case 0x6A: case 0x6C:            // Ice Lake Server (Xeon)
-            case 0xA7:                       // Rocket Lake (Cypress Cove)
-            case 0x8C: case 0x8D:            // Tiger Lake
-            case 0x8A:                       // Lakefield
-            case 0x8F:                       // Sapphire Rapids (Xeon)
-            case 0xCF:                       // Emerald Rapids (Xeon)
-            case 0xAD: case 0xAE:            // Granite Rapids (Xeon X et D)
-            case 0x97: case 0x9A:            // Alder Lake (12th Gen)
-            case 0xB7: case 0xBA: case 0xBF: // Raptor Lake (13th/14th Gen)
-            case 0xD7:                       // Bartlett Lake
-            case 0xAA: case 0xAC:            // Meteor Lake (Core Ultra 1)
-            case 0xB5: case 0xC5: case 0xC6: // Arrow Lake
-            case 0xBD:                       // Lunar Lake (Core Ultra 2)
-            case 0xCC: case 0xE5:            // Panther Lake
-            case 0xD5:                       // Wildcat Lake
-                return INTEL_ICELAKE_SAPPHIRE;
-        }
-    }
-    else if (family == 18) {
-        switch (model) {
-            case 0x01: case 0x03:            // Nova Lake
-                return INTEL_ICELAKE_SAPPHIRE;
-        }
-    }
-    else if (family == 19) {
-        switch (model) {
-            case 0x01:                       // Diamond Rapids (Xeon)
-                return INTEL_ICELAKE_SAPPHIRE;
-        }
-    }
-#endif
-    return INTEL_UNKNOWN;
-}
-
-typedef enum {
-    AMD_UNKNOWN = 0,
-    AMD_ZEN_1_2,
-    AMD_ZEN_3,
-    AMD_ZEN_4
-} amd_arch_t;
-
-amd_arch_t detect_amd_microarchitecture(void) {
-#if ARCH_IS_X86
-    int family, model;
-    get_cpu_family_model(&family, &model);
-
-    if (family == 0x17) {
-        // Zen 1 : Naples, Summit Ridge
-        // Zen+ : Pinnacle Ridge
-        // Zen 2 : Rome, Matisse, Naples
-        return AMD_ZEN_1_2;
-    }
-
-    if (family == 0x19) {
-        if (model >= 0x10 && model <= 0x1F) return AMD_ZEN_4; // Genoa
-        if (model >= 0x60 && model <= 0x7F) return AMD_ZEN_4; // Phoenix/Dragon Range
-        if (model >= 0xA0 && model <= 0xAF) return AMD_ZEN_4; // Bergamo
-
-        // Todo : double check if missing models
-        return AMD_ZEN_3; // (Milan, Vermeer...)
-    }
-    // todo family 0x1A for Zen 5 (Turin, Granite Ridge)
-#endif
-    return AMD_UNKNOWN;
-}
 
 #define GET_METRIC(m, i) (((m) >> (i*8)) & 0xff)
 
@@ -187,50 +69,128 @@ call. */
 
 
 
-
-int detect_if_intel(void) {
-#if ARCH_IS_X86
-    unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
-    if (__get_cpuid(0, &eax, &ebx, &ecx, &edx)) {
-        // ebx = "Genu" (0x756e6547)
-        // edx = "ineI" (0x49656e69)
-        // ecx = "ntel" (0x6c65746e)
-        if (ebx == 0x756e6547 && edx == 0x49656e69 && ecx == 0x6c65746e) {
-            return 1;
-        }
-    }
-#endif
-    return 0;
-}
-
-int detect_if_amd(void) {
-#if ARCH_IS_X86
+#ifdef __linux__
+#include <linux/perf_event.h>
+static void get_cpu_family_model(int *family, int *model) {
     unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
 
-    if (__get_cpuid(0, &eax, &ebx, &ecx, &edx)) {
-        // ebx = "Auth" (0x68747541)
-        // edx = "enti" (0x69746e65)
-        // ecx = "cAMD" (0x444d4163)
-        if (ebx == 0x68747541 && edx == 0x69746e65 && ecx == 0x444d4163) {
-            return 1;
+    if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+        int base_family = (eax >> 8) & 0xF;
+        int base_model  = (eax >> 4) & 0xF;
+
+        int ext_family = (eax >> 20) & 0xFF;
+        int ext_model  = (eax >> 16) & 0xF;
+
+        *family = base_family;
+        *model = base_model;
+
+        if (base_family == 0xF) {
+            *family += ext_family;
+        }
+        if (base_family == 0x6 || base_family == 0xF) {
+            *model += (ext_model << 4);
+        }
+    } else {
+        *family = 0;
+        *model = 0;
+    }
+}
+#endif
+
+typedef enum {
+    UARCH_UNKNOWN = 0,
+    UARCH_INTEL_OLD,        // No native tma counters
+    UARCH_INTEL_MODERN,     // Native tma counters
+    UARCH_AMD_ZEN_1_2,
+    UARCH_AMD_ZEN_3,
+    UARCH_AMD_ZEN_4,
+    UARCH_ARM
+} cpu_uarch_t;
+
+static cpu_uarch_t current_uarch = UARCH_UNKNOWN;
+static int is_uarch_initialized = 0;
+
+static cpu_uarch_t detect_hardware_architecture(void) {
+#if ARCH_IS_X86
+    unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+    if (!__get_cpuid(0, &eax, &ebx, &ecx, &edx)) return UARCH_UNKNOWN;
+
+    int family = 0, model = 0;
+    get_cpu_family_model(&family, &model);
+
+    // Intel: ebx="Genu", edx="ineI", ecx="ntel"
+    if (ebx == 0x756e6547 && edx == 0x49656e69 && ecx == 0x6c65746e) {
+        if (family == 6) {
+            switch (model) {
+                case 0x4E: case 0x5E: case 0x55: // Skylake, Cascade Lake, Cooper Lake
+                case 0x8E: case 0x9E:            // Kaby, Coffee, Whiskey, Amber Lake
+                case 0xA5: case 0xA6:            // Comet Lake
+                case 0x3D: case 0x47: case 0x4F: // Broadwell
+                case 0x56:                       // Broadwell-DE
+                case 0x66:                       // Cannon Lake
+                    return UARCH_INTEL_OLD;
+                    
+                case 0x7E: case 0x7D: case 0x9D: // Ice Lake Client
+                case 0x6A: case 0x6C:            // Ice Lake Server
+                case 0xA7:                       // Rocket Lake
+                case 0x8C: case 0x8D:            // Tiger Lake
+                case 0x8A:                       // Lakefield
+                case 0x8F:                       // Sapphire Rapids
+                case 0xCF:                       // Emerald Rapids
+                case 0xAD: case 0xAE:            // Granite Rapids
+                case 0x97: case 0x9A:            // Alder Lake
+                case 0xB7: case 0xBA: case 0xBF: // Raptor Lake
+                case 0xD7:                       // Bartlett Lake
+                case 0xAA: case 0xAC:            // Meteor Lake
+                case 0xB5: case 0xC5: case 0xC6: // Arrow Lake
+                case 0xBD:                       // Lunar Lake
+                case 0xCC: case 0xE5:            // Panther Lake
+                case 0xD5:                       // Wildcat Lake
+                    return UARCH_INTEL_MODERN;
+            }
+        }
+        else if (family == 18) {
+            switch (model) {
+                case 0x01: case 0x03:
+                    return UARCH_INTEL_MODERN; // Nova Lake
+            }
+        } 
+        else if (family == 19) {
+            switch (model) {
+                case 0x01:
+                    return UARCH_INTEL_MODERN; // Diamond Rapids
+            }
         }
     }
+    // AMD: ebx="Auth", edx="enti", ecx="cAMD"
+    else if (ebx == 0x68747541 && edx == 0x69746e65 && ecx == 0x444d4163) {
+        if (family == 0x17) {
+            return UARCH_AMD_ZEN_1_2; // Zen 1 (Naples, Summit Ridge), Zen+ (Pinnacle), Zen 2 (Rome, Matisse)
+        } 
+        else if (family == 0x19) {
+            if (model >= 0x10 && model <= 0x1F) return UARCH_AMD_ZEN_4; // Genoa
+            if (model >= 0x60 && model <= 0x7F) return UARCH_AMD_ZEN_4; // Phoenix, Dragon Range
+            if (model >= 0xA0 && model <= 0xAF) return UARCH_AMD_ZEN_4; // Bergamo
+            
+            return UARCH_AMD_ZEN_3; // Milan, Vermeer... (Default for family 19h not Zen 4)
+        }
+        // TODO: add family 0x1A pour Zen 5 (Turin, Granite Ridge)
+    }
+#elif ARCH_IS_ARM
+    return UARCH_ARM; // need sysfs for more info
 #endif
-    return 0;
+    return UARCH_UNKNOWN;
 }
 
-int detect_if_arm(void) {
-    return ARCH_IS_ARM;
+static inline cpu_uarch_t get_current_uarch(void) {
+    if (!is_uarch_initialized) {
+        current_uarch = detect_hardware_architecture();
+        is_uarch_initialized = 1;
+    }
+    return current_uarch;
 }
 
-
-static const int pass_1[] = {1};
-static const int pass_4[] = {4};
-static const int pass_5[] = {5};
-static const int pass_9[] = {9};
-
-
-// === Skylake arch ===
+// Skylake arch
 
 static const char *skl_tma_l1_events[] = {
     "@skl_slots",      // 0x003c (Cycles)
@@ -552,7 +512,7 @@ static void compute_skl_tma_l3(const double *raw, double *final) {
     }
 }
 
-//  === Modern Inter arch ===
+//  Modern Inter arch
 
 static const char *intel_modern_tma_l1_events[] = {
     "@icl_slots",      // 0x0400 (Group Leader)
@@ -669,7 +629,7 @@ static const char *intel_modern_tma_l3_events[] = {
 
 // intel_modern_tma_l3 use the same compute function as skl
 
-// === Zen arch ===
+// Zen arch
 
 static const char *amd_zen4_tma_l1_events[] = {
     "@zen4_cyc",   // 0x0076 (Cycles)
@@ -772,7 +732,7 @@ static void compute_amd_zen4_tma_l2(const double *raw, double *final) {
 }
 
 
-// === ARM arch ===
+// ARM arch
 
 static const int arm_l1_passes[] = {5};
 static const char *arm_tma_l1_events[] = {
@@ -880,17 +840,46 @@ static void compute_arm_tma_l2(const double *raw, double *final) {
 #endif //__linux__
 
 
-// === Core logic ===
+// Resolver logic
 
+typedef struct {
+    const char *metric_name;
+    cpu_uarch_t uarch;
+    
+    int num_results;
+    int num_passes;
+    int num_hw_events;
+    const int *events_per_pass;
+    const char **hw_events;
+    void (*compute_formula)(const double *raw_values, double *final_results);
+} metric_registry_entry_t;
 
-/* AMD metrics
- * backend_bound_memory = Memory bound
- * backend_bound_cpu = Core Bound
- * frontend_bound_latency = Fetch Latency
- * frontend_bound_bw = Bandwidth
- * bad_speculation_mispredicts = Branch Mispredicts
- */
+static const int pass_1[] = {1};
+static const int pass_4[] = {4};
+static const int pass_5[] = {5};
+static const int pass_9[] = {9};
 
+static const metric_registry_entry_t METRICS_REGISTRY[] = {
+    // Topdown L1
+    {"TopdownL1", UARCH_INTEL_OLD,              4, 1, 5, pass_5, skl_tma_l1_events,          compute_skl_tma_l1},
+    {"TopdownL1", UARCH_INTEL_MODERN,           4, 1, 5, pass_5, intel_modern_tma_l1_events, compute_intel_modern_tma_l1},
+    {"TopdownL1", UARCH_AMD_ZEN_4,              4, 1, 4, pass_4, amd_zen4_tma_l1_events,     compute_amd_zen34_tma_l1},
+    {"TopdownL1", UARCH_ARM,                    4, 1, 5, arm_l1_passes, arm_tma_l1_events,   compute_arm_tma_l1},
+
+    // Topdown L2
+    {"TopdownL2", UARCH_INTEL_OLD,              8, 3, 12, skl_l2_passes, skl_tma_l2_events,          compute_skl_tma_l2},
+    {"TopdownL2", UARCH_INTEL_MODERN,           8, 1,  9, pass_9,        intel_modern_tma_l2_events, compute_intel_modern_tma_l2},
+    {"TopdownL2", UARCH_AMD_ZEN_4,              8, 2,  9, amd_zen4_l2_passes, amd_zen4_tma_l2_events, compute_amd_zen4_tma_l2},
+
+    // Topdown L3
+    {"TopdownL3", UARCH_INTEL_OLD,              26, 8, 40, skl_l3_passes, skl_tma_l3_events,          compute_skl_tma_l3},
+    {"TopdownL3", UARCH_INTEL_MODERN,           26, 8, 40, icl_l3_passes, intel_modern_tma_l3_events, compute_skl_tma_l3},
+
+    // Topdown L3 Mem
+    {"TopdownL3_Mem", UARCH_INTEL_OLD,          5, 2, 7, skl_l3_mem_passes, skl_tma_l3_mem_events,          compute_skl_tma_l3_mem},
+    {"TopdownL3_Mem", UARCH_INTEL_MODERN,       5, 2, 7, icl_l3_mem_passes, intel_modern_tma_l3_mem_events, compute_skl_tma_l3_mem},
+};
+static const int METRICS_REGISTRY_SIZE = sizeof(METRICS_REGISTRY) / sizeof(METRICS_REGISTRY[0]);
 
 
 
@@ -911,181 +900,31 @@ static void compute_arm_tma_l2(const double *raw, double *final) {
  *
  */
 int resolve_metric(const char *metric_name, metric_resolver_t *out_resolver) {
-#ifdef __linux__
-    if (strcmp(metric_name, "TopdownL1") == 0) {
+#ifndef __linux__
+    return 0;
+#else
+    cpu_uarch_t current_cpu = get_current_uarch();
 
-        if (detect_if_intel()) {
-            //fprintf(stderr,"[DEBUG] INTEL detected\n");
-            intel_arch_t uarch = detect_intel_microarchitecture();
+    for (int i = 0; i < METRICS_REGISTRY_SIZE; i++) {
+        const metric_registry_entry_t *entry = &METRICS_REGISTRY[i];
 
-            if (uarch == INTEL_SKYLAKE_CASCADE) {
-                //fprintf(stderr,"[DEBUG] Old Intel detected\n");
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 5;
-                out_resolver->hw_events = skl_tma_l1_events;
-                out_resolver->num_results = 4;
-                out_resolver->num_passes = 1;
-                out_resolver->events_per_pass = pass_5;
-                out_resolver->compute_formula = compute_skl_tma_l1;
-                return 1;
-            } else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
-                //fprintf(stderr,"[DEBUG] Modern Intel detected\n");
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 5;
-                out_resolver->hw_events = intel_modern_tma_l1_events;
-                out_resolver->num_results = 4;
-                out_resolver->num_passes = 1;
-                out_resolver->events_per_pass = pass_5;
-                out_resolver->compute_formula = compute_intel_modern_tma_l1;
-                return 1;
-            }
-        }
-        else if (detect_if_amd()) {
-            amd_arch_t uarch = detect_amd_microarchitecture();
-
-            if (uarch == AMD_ZEN_4) {
-                //fprintf(stderr,"[DEBUG] AMD_ZEN_4 detected\n");
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 4;
-                out_resolver->hw_events = amd_zen4_tma_l1_events;
-                out_resolver->num_results = 4;
-                out_resolver->num_passes = 1;
-                out_resolver->events_per_pass = pass_4;
-                out_resolver->compute_formula = compute_amd_zen34_tma_l1;
-                return 1;
-            }
-            else if (uarch == AMD_ZEN_1_2) {
-                //fprintf(stderr,"[DEBUG] AMD_ZEN_1_2 detected (unsuported)\n");
-                //out_resolver->is_supported = 1;
-                //out_resolver->num_hw_events = 4;
-                //out_resolver->hw_events = amd_zen4_tma_l1_events; // Todo change to zen1
-                //out_resolver->num_results = 4;
-                //out_resolver->num_passes = 1;
-                //out_resolver->events_per_pass = pass_4;
-                //out_resolver->compute_formula = compute_amd_zen34_tma_l1; // Todo change to zen1
-                return 0;
-            }
-            // else if (uarch == AMD_ZEN_3) ...
-        }
-        else if (detect_if_arm()) {
-            //fprintf(stderr,"[DEBUG] ARM AArch64 detected\n");
+        if (entry->uarch == current_cpu && strcmp(entry->metric_name, metric_name) == 0) {
+            
             out_resolver->is_supported = 1;
-            out_resolver->num_hw_events = 5;
-            out_resolver->hw_events = arm_tma_l1_events;
-            out_resolver->num_results = 4;
-            out_resolver->num_passes = 1;
-            out_resolver->events_per_pass = arm_l1_passes;
-            out_resolver->compute_formula = compute_arm_tma_l1;
+            out_resolver->num_results = entry->num_results;
+            out_resolver->num_passes = entry->num_passes;
+            out_resolver->num_hw_events = entry->num_hw_events;
+            out_resolver->events_per_pass = entry->events_per_pass;
+            out_resolver->hw_events = entry->hw_events;
+            out_resolver->compute_formula = entry->compute_formula;
+            
             return 1;
         }
     }
-    else if (strcmp(metric_name, "TopdownL2") == 0) {
-        if (detect_if_intel()) { // L2 intel
-            intel_arch_t uarch = detect_intel_microarchitecture();
 
-            if (uarch == INTEL_SKYLAKE_CASCADE) {
-                //fprintf(stderr,"[DEBUG] INTEL_SKYLAKE_CASCADE L2 (Multi-Pass)\n");
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 12;
-                out_resolver->hw_events = skl_tma_l2_events;
-                out_resolver->num_results = 8;
-                out_resolver->num_passes = 3;
-                out_resolver->events_per_pass = skl_l2_passes; // Tableau {4, 4, 4}
-                out_resolver->compute_formula = compute_skl_tma_l2;
-                return 1;
-            }
-            else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
-                //fprintf(stderr,"[DEBUG] INTEL_ICELAKE_SAPPHIRE L2\n");
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 9;
-                out_resolver->hw_events = intel_modern_tma_l2_events;
-                out_resolver->num_results = 8;
-                out_resolver->num_passes = 1;
-                out_resolver->events_per_pass = pass_9;
-                out_resolver->compute_formula = compute_intel_modern_tma_l2;
-                return 1;
-            }
-        }
-
-        else if (detect_if_amd()) { // L2 amd
-            amd_arch_t uarch = detect_amd_microarchitecture();
-            if (uarch == AMD_ZEN_4) {
-                //fprintf(stderr,"[DEBUG] AMD_ZEN_4 L2 (Multi-Pass)\n");
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 9;
-                out_resolver->hw_events = amd_zen4_tma_l2_events;
-                out_resolver->num_results = 8;
-                out_resolver->num_passes = 2;
-                out_resolver->events_per_pass = amd_zen4_l2_passes;
-                out_resolver->compute_formula = compute_amd_zen4_tma_l2;
-                return 1;
-            }
-        }
-        return 0;
-    }
-    else if (strcmp(metric_name, "TopdownL3") == 0) {
-        if (detect_if_intel()) {
-            intel_arch_t uarch = detect_intel_microarchitecture();
-
-            if (uarch == INTEL_SKYLAKE_CASCADE) {
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 40;
-                out_resolver->hw_events = skl_tma_l3_events;
-                out_resolver->num_results = 26;
-                out_resolver->num_passes = 8;
-                out_resolver->events_per_pass = skl_l3_passes;
-                out_resolver->compute_formula = compute_skl_tma_l3;
-                return 1;
-            }
-            else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 40;
-                out_resolver->hw_events = intel_modern_tma_l3_events;
-                out_resolver->num_results = 26;
-                out_resolver->num_passes = 8;
-                out_resolver->events_per_pass = icl_l3_passes;
-                out_resolver->compute_formula = compute_skl_tma_l3;
-                return 1;
-            }
-        }
-
-        return 0;
-    }
-    else if (strcmp(metric_name, "TopdownL3_Mem") == 0) {
-        if (detect_if_intel()) {
-            intel_arch_t uarch = detect_intel_microarchitecture();
-            if (uarch == INTEL_SKYLAKE_CASCADE) {
-                //fprintf(stderr,"[DEBUG] INTEL_SKYLAKE_CASCADE L3_Mem (Multi-Pass)\n");
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 7;
-                out_resolver->hw_events = skl_tma_l3_mem_events;
-                out_resolver->num_results = 5;
-                out_resolver->num_passes = 2;
-                out_resolver->events_per_pass = skl_l3_mem_passes;
-                out_resolver->compute_formula = compute_skl_tma_l3_mem;
-                return 1;
-            }
-            else if (uarch == INTEL_ICELAKE_SAPPHIRE) {
-                out_resolver->is_supported = 1;
-                out_resolver->num_hw_events = 7;
-                out_resolver->hw_events = intel_modern_tma_l3_mem_events;
-                out_resolver->num_results = 5;
-                out_resolver->num_passes = 2;
-                out_resolver->events_per_pass = icl_l3_mem_passes;
-                out_resolver->compute_formula = compute_skl_tma_l3_mem; // same as skl
-                return 1;
-            }
-        }
-        return 0;
-    }
-    // Unsuported hardware / metric or the event is a pmu
+    out_resolver->is_supported = 0;
     return 0;
-    #else
-        (void)metric_name;
-        (void)out_resolver;
-        return 0;
-    #endif //__linux__
-
+#endif
 }
 
 int get_perf_metric_results_count(const char *metric_name) {

@@ -171,6 +171,71 @@ DERIVED_METRICS_SIZES = {
 }
 
 
+def _fallback_perf_stat(
+    failed_counters: list[str], run_dummy_workload: Callable[[], None]
+) -> str:
+    perf_path = shutil.which("perf")
+    if not perf_path:
+        return "perf tool not found in PATH"
+
+    my_pid = str(os.getpid())
+
+    perf_metrics = [c for c in failed_counters if c in DERIVED_METRICS_SIZES]
+    perf_events = [c for c in failed_counters if c not in DERIVED_METRICS_SIZES]
+
+    #    is_amd = False
+    #    if sys.platform == "linux":
+    #        try:
+    #            with open("/proc/cpuinfo", "r") as f:
+    #                if "AuthenticAMD" in f.read():
+    #                    is_amd = True
+    #        except Exception:
+    #            pass
+
+    # if is_amd and "TopdownL2" in perf_metrics:
+    #    perf_metrics.remove("TopdownL2")
+    #    perf_metrics.extend([
+    #        "backend_bound_memory",
+    #        "backend_bound_cpu",
+    #        "frontend_bound_latency",
+    #        "frontend_bound_bandwidth",
+    #    ])
+
+    cmd = [perf_path, "stat", "-p", my_pid]
+
+    if perf_events:
+        cmd.extend(["-e", ",".join(perf_events)])
+    if perf_metrics:
+        cmd.extend(["-M", ",".join(perf_metrics)])
+
+    try:
+        # print("[DEBUG] Starting perf...")q
+        perf_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+
+        # Time to hook to the process
+        time.sleep(0.75)
+
+        run_dummy_workload()
+
+        perf_proc.send_signal(signal.SIGINT)
+        _, stderr_output = perf_proc.communicate(timeout=5.0)
+
+        cmd_str = " ".join(cmd)
+        formatted_fallback_output = f"$ {cmd_str}\n\n{stderr_output}"
+
+        print(f"\n====== Fallback 'perf stat' Output for {failed_counters} ======\n")
+        print(stderr_output)
+        print("===================================\n")
+
+        return formatted_fallback_output
+
+    except Exception as e:
+        # print(f"[DEBUG] Fallback perf stat failed : {e}")
+        return f"Fallback perf stat failed: {e}"
+
+
 def evaluate_performance(
     func: Callable[[Any], Any],
     parameters: tuple[list[NDArray], list[NDArray]],
@@ -246,61 +311,16 @@ def evaluate_performance(
         current_idx += size
 
     # Fallback on linux perf tool
+    fallback_output = ""
     if failed_counters:
         print(
             f"[WARNING] Some hardware counters failed: {failed_counters}. Fallback to 'perf stat'..."
         )
 
-        perf_path = shutil.which("perf")
-        if not perf_path:
-            return (eval_results, 0, "perf tool not found in PATH")
-
-        my_pid = str(os.getpid())
-
-        perf_metrics = [c for c in failed_counters if c in DERIVED_METRICS_SIZES]
-        perf_events = [c for c in failed_counters if c not in DERIVED_METRICS_SIZES]
-
-        # amd have no native TopdownL2 but we can reconstruct it with right metrics
-        is_amd = False
-        if sys.platform == "linux":
-            try:
-                with open("/proc/cpuinfo", "r") as f:
-                    if "AuthenticAMD" in f.read():
-                        is_amd = True
-            except:
-                pass
-
-        if is_amd and "TopdownL2" in perf_metrics:
-            perf_metrics.remove("TopdownL2")
-            perf_metrics.extend(
-                [
-                    "backend_bound_memory",
-                    "backend_bound_cpu",
-                    "frontend_bound_latency",
-                    "frontend_bound_bandwidth",
-                ]
-            )
-
-        cmd = [perf_path, "stat", "-p", my_pid]
-
-        if len(perf_events) > 0:
-            cmd.extend(["-e", ",".join(perf_events)])
-        if len(perf_metrics) > 0:
-            cmd.extend(["-M", ",".join(perf_metrics)])
-
-        try:
-            # print("[DEBUG] Starting perf...")
-            perf_proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-            )
-
-            time.sleep(0.75)
-
-            # Rerun evaluation without HW counters to generate activity for perf
+        def dummy_workload():
             dummy_results = (ctypes.c_double * repeat)()
             if cfunc.is_packed:
-                # print("[DEBUG] Rerun packed (perf)...")
-                _ = runtime.evaluate_packed_perf(
+                runtime.evaluate_packed_perf(
                     dummy_results,
                     [],
                     repeat,
@@ -312,10 +332,7 @@ def evaluate_performance(
                     len(args_tuples),
                 )
             else:
-                assert args_array_packed is not None
-                assert args_codes_packed is not None
-                # print("[DEBUG] Rerun not packed (perf)...")
-                args_array = (ctypes.c_voidp * len(args_tuples))(
+                _args_array = (ctypes.c_voidp * len(args_tuples))(
                     *[arg[0] for arg in args_tuples]
                 )
                 runtime.evaluate_perf(
@@ -326,30 +343,12 @@ def evaluate_performance(
                     min_repeat_ms,
                     cfunc,
                     args_array,
-                    len(args_array),
+                    len(args_tuples),
                 )
 
-            # print("[DEBUG] Stopping perf...")
-            perf_proc.send_signal(signal.SIGINT)
-            _, stderr_output = perf_proc.communicate(timeout=5.0)
+        fallback_output = _fallback_perf_stat(failed_counters, dummy_workload)
 
-            cmd_str = " ".join(cmd)
-            formatted_fallback_output = f"$ {cmd_str}\n\n{stderr_output}"
-
-            print(
-                f"\n====== Fallback 'perf stat' Output for {failed_counters} ======\n"
-            )
-            print(stderr_output)
-            print("===================================\n")
-
-            return (eval_results, 0, formatted_fallback_output)
-
-        except Exception as e:
-            # print(f"[DEBUG] Fallback perf stat failed : {e}")
-            return (eval_results, 0, f"Fallback perf stat failed: {e}")
-
-    # Return API result
-    return (eval_results, 0, "")
+    return (eval_results, 0, fallback_output)
 
 
 def copy_outputs(
