@@ -481,27 +481,25 @@ def _(mo):
     I = 512
     J = 512
     K = 512
-    # 1. Global navigation (RAM)
+    # Global navigation (RAM)
     for i_out in range(I / 2):       # Steps of 2
         for j_out in range(J / 16):  # Steps of 16
 
-            # --- LOAD HOISTING ---
-            # We load 2 independent vector registers (16 floats each) once!
+            # Load hosting
             C_vec_0 = C[i,     j : j+16]
             C_vec_1 = C[i + 1, j : j+16]
 
-            # 2. Accumulation loop
-            for k in range(K):       # 4096 iterations!
+            # Accumulation loop
+            for k in range(K)
 
                 # Vector Load (16 floats loaded at once)
                 B_vec = B[k, j : j+16]
 
-                # 3. Unrolled & Vectorized Micro-kernel
+                # Unrolled & Vectorized Micro-kernel
                 C_vec_0 += A[i, k]     * B_vec
                 C_vec_1 += A[i + 1, k] * B_vec
 
-            # --- STORE HOISTING ---
-            # We trigger 2 simultaneous vector stores to memory!
+            # Store hoisting
             C[i,     j : j+16] = C_vec_0
             C[i + 1, j : j+16] = C_vec_1
     ```
@@ -559,11 +557,6 @@ def _(mo):
                         # Accumulation loop
                         for k_in in range(64):
                             B_vec = B[k, j : j+16] # Broadcasted or Vector loaded
-
-                            # Micro-kernel (Physical Registers)
-                            #for i_unroll in range(3):        # Unrolled 3x
-                            #    for j_vec in range(16):      # Vectorized 16x
-                            #       C_reg[...] += A[...] * B[...]
 
                             # Unrolled micro-kernel
                             C_reg_0 += A[i, k]     * B_vec
