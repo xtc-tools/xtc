@@ -338,6 +338,7 @@ class MlirProgramInsertTransformPass:
             return sched_state
         gpu_material = True
         gpu_mat_thread = True
+        gpu_warp_thread = True
         # Materialize the loops
         for loop_name in permutation:
             # Manage the splits
@@ -400,6 +401,29 @@ class MlirProgramInsertTransformPass:
                             sched_state=sched_state,
                         )
                         gpu_material = False
+                elif loop_name in schedule.gpu_warps:
+                    tile_vect = [
+                        sum(values)
+                        for values in zip(
+                            *[tiles_sizes_by_loops[loop] for loop in schedule.gpu_warps]
+                        )
+                    ]
+                    tile_vect = tile_vect + [0] * (3 - len(tile_vect))
+                    position_index = [
+                        permutation.index(loop) for loop in schedule.gpu_warps
+                    ]
+                    mapping_order = sorted(
+                        range(len(position_index)), key=lambda i: position_index[i]
+                    )
+                    if gpu_warp_thread:
+                        self._strip_mine(
+                            loop_name=loop_name,
+                            tiling_vector=tile_vect,
+                            mapping_order=mapping_order,
+                            schedule=schedule,
+                            sched_state=sched_state,
+                        )
+                        gpu_warp_thread = False
                 elif loop_name in schedule.gpu_threads:
                     tile_vect = [
                         sum(values)
@@ -413,6 +437,29 @@ class MlirProgramInsertTransformPass:
                     tile_vect = tile_vect + [0] * (3 - len(tile_vect))
                     position_index = [
                         permutation.index(loop) for loop in schedule.gpu_threads
+                    ]
+                    mapping_order = sorted(
+                        range(len(position_index)), key=lambda i: position_index[i]
+                    )
+                    if gpu_mat_thread:
+                        self._strip_mine(
+                            loop_name=loop_name,
+                            tiling_vector=tile_vect,
+                            mapping_order=mapping_order,
+                            schedule=schedule,
+                            sched_state=sched_state,
+                        )
+                        gpu_mat_thread = False
+                elif loop_name in schedule.gpu_lanes:
+                    tile_vect = [
+                        sum(values)
+                        for values in zip(
+                            *[tiles_sizes_by_loops[loop] for loop in schedule.gpu_lanes]
+                        )
+                    ]
+                    tile_vect = tile_vect + [0] * (3 - len(tile_vect))
+                    position_index = [
+                        permutation.index(loop) for loop in schedule.gpu_lanes
                     ]
                     mapping_order = sorted(
                         range(len(position_index)), key=lambda i: position_index[i]
@@ -580,6 +627,16 @@ class MlirProgramInsertTransformPass:
         elif loop_name in schedule.gpu_threads:
             attr_array["mapping"] = ArrayAttr.get(
                 [self._get_thread_id(index) for index in mapping_order]
+            )
+            tiling_command = TileUsingForallOp(sched_state.handle, **attr_array)
+        elif loop_name in schedule.gpu_warps:
+            attr_array["mapping"] = ArrayAttr.get(
+                [self._get_warp_id(index) for index in mapping_order]
+            )
+            tiling_command = TileUsingForallOp(sched_state.handle, **attr_array)
+        elif loop_name in schedule.gpu_lanes:
+            attr_array["mapping"] = ArrayAttr.get(
+                [self._get_lane_id(index) for index in mapping_order]
             )
             tiling_command = TileUsingForallOp(sched_state.handle, **attr_array)
         elif loop_name in schedule.parallelization:
@@ -790,6 +847,14 @@ class MlirProgramInsertTransformPass:
 
         return fused_producers
 
+    def _get_lane_id(self, index: int) -> Attribute:
+        ctx = self._mlir_program.mlir_context
+        return Attribute.parse(f"#gpu.lane<linear_dim_{index}>", context=ctx)
+
+    def _get_warp_id(self, index: int) -> Attribute:
+        ctx = self._mlir_program.mlir_context
+        return Attribute.parse(f"#gpu.warp<{_GPU_DIM[index]}>", context=ctx)
+
     def _get_thread_id(self, index: int) -> Attribute:
         ctx = self._mlir_program.mlir_context
         return Attribute.parse(f"#gpu.thread<{_GPU_DIM[index]}>", context=ctx)
@@ -819,6 +884,11 @@ class MlirProgramInsertTransformPass:
                 new_loop,
                 generate_gpu_launch=True,
             ).result
+            # Tiling threads number
+            # threads, block / threads
+            # warps, tile size at least 32 threads
+            # lane, tile size, preferably 32 threads
+            block_dims = []
             if schedule.gpu_threads:
                 block_dims = [
                     max(tiles_sizes_by_loops[loop_name_block])
@@ -827,6 +897,26 @@ class MlirProgramInsertTransformPass:
                         schedule.gpu_threads, schedule.gpu_blocks
                     )
                 ]
+            if schedule.gpu_lanes:
+                block_dims = [
+                    max(tiles_sizes_by_loops[loop_name_block])
+                    // max(tiles_sizes_by_loops[loop_name])
+                    for loop_name, loop_name_block in zip(
+                        schedule.gpu_lanes, schedule.gpu_blocks
+                    )
+                ]
+            if schedule.gpu_warps:
+                block_dims = [
+                    32
+                    * (
+                        max(tiles_sizes_by_loops[loop_name_block])
+                        // max(tiles_sizes_by_loops[loop_name])
+                    )
+                    for loop_name, loop_name_block in zip(
+                        schedule.gpu_warps, schedule.gpu_blocks
+                    )
+                ]
+            if block_dims:
                 block_dims = block_dims + [1] * (3 - len(block_dims))
                 MapNestedForallToThreads(
                     new_loop,
@@ -857,6 +947,7 @@ class MlirProgramInsertTransformPass:
                     gpu_block_handle,
                     generate_gpu_launch=True,
                 ).result
+                block_dims = []
                 if schedule.gpu_threads:
                     block_dims = [
                         max(tiles_sizes_by_loops[loop_name_block])
@@ -865,6 +956,26 @@ class MlirProgramInsertTransformPass:
                             schedule.gpu_threads, schedule.gpu_blocks
                         )
                     ]
+                if schedule.gpu_lanes:
+                    block_dims = [
+                        max(tiles_sizes_by_loops[loop_name_block])
+                        // max(tiles_sizes_by_loops[loop_name])
+                        for loop_name, loop_name_block in zip(
+                            schedule.gpu_lanes, schedule.gpu_blocks
+                        )
+                    ]
+                if schedule.gpu_warps:
+                    block_dims = [
+                        32
+                        * (
+                            max(tiles_sizes_by_loops[loop_name_block])
+                            // max(tiles_sizes_by_loops[loop_name])
+                        )
+                        for loop_name, loop_name_block in zip(
+                            schedule.gpu_warps, schedule.gpu_blocks
+                        )
+                    ]
+                if block_dims:
                     block_dims = block_dims + [1] * (3 - len(block_dims))
                     MapNestedForallToThreads(
                         new_loop,
@@ -894,7 +1005,6 @@ def find_producer_handles(module: Module, root_handle: str) -> list[str | None]:
                 if attr.startswith("__xtc_id_"):
                     producer_handles[-1] = attr
     return producer_handles
-
 
 
 class MlirProgramApplyTransformPass:

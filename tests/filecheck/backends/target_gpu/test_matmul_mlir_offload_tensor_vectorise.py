@@ -24,12 +24,11 @@ impl = Backend(graph)
 sch = impl.get_scheduler()
 sch.tile("i", {"i1": 128, "i2": 32})
 sch.tile("j", {"j1": 128, "j2": 32})
-sch.tile("k", {"k1": 64})
+sch.tile("k", {"k1": 8})
 sch.unroll({"i2": 2})
 sch.gpu_block(["i", "j"])
 sch.gpu_thread(["i1", "j1"])
 sch.interchange(["i", "j", "i1", "j1","k", "k1", "i2", "j2"])
-sched = sch.schedule()
 sch.vectorize(["j2"])
 sched = sch.schedule()
 
@@ -67,7 +66,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.annotate %forall_op "./i" : !transform.any_op
 # CHECK-NEXT:      %tiled_op_2, %forall_op_3 = transform.structured.tile_using_forall %tiled_op tile_sizes [32, 32, 0](mapping = [#gpu.thread<x>, #gpu.thread<y>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %forall_op_3 "./i1" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_op_2 tile_sizes [0, 0, 64] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_op_2 tile_sizes [0, 0, 8] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_5 "./k" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_7 "./k1" : !transform.any_op
@@ -97,7 +96,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %0 = ub.poison : f32
 # CHECK-NEXT:      %c2 = arith.constant 2 : index
 # CHECK-NEXT:      %c32 = arith.constant 32 : index
-# CHECK-NEXT:      %c64 = arith.constant 64 : index
+# CHECK-NEXT:      %c8 = arith.constant 8 : index
 # CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:      %c0 = arith.constant 0 : index
 # CHECK-NEXT:      %c512 = arith.constant 512 : index
@@ -135,12 +134,12 @@ print(f"CODE: {res}")
 # CHECK-NEXT:        %subview_10 = memref.subview %subview[%3, 0] [32, 512] [1, 1] : memref<128x512xf32, strided<[512, 1], offset: ?>> to memref<32x512xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:        %subview_11 = memref.subview %subview_8[0, %4] [512, 32] [1, 1] : memref<512x128xf32, strided<[512, 1], offset: ?>> to memref<512x32xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:        %subview_12 = memref.subview %subview_9[%3, %4] [32, 32] [1, 1] : memref<128x128xf32, strided<[512, 1], offset: ?>> to memref<32x32xf32, strided<[512, 1], offset: ?>>
-# CHECK-NEXT:        scf.for %arg15 = %c0 to %c512 step %c64 {
-# CHECK-NEXT:          %subview_13 = memref.subview %subview_10[0, %arg15] [32, 64] [1, 1] : memref<32x512xf32, strided<[512, 1], offset: ?>> to memref<32x64xf32, strided<[512, 1], offset: ?>>
-# CHECK-NEXT:          %subview_14 = memref.subview %subview_11[%arg15, 0] [64, 32] [1, 1] : memref<512x32xf32, strided<[512, 1], offset: ?>> to memref<64x32xf32, strided<[512, 1], offset: ?>>
-# CHECK-NEXT:          scf.for %arg16 = %c0 to %c64 step %c1 {
-# CHECK-NEXT:            %subview_15 = memref.subview %subview_13[0, %arg16] [32, 1] [1, 1] : memref<32x64xf32, strided<[512, 1], offset: ?>> to memref<32x1xf32, strided<[512, 1], offset: ?>>
-# CHECK-NEXT:            %subview_16 = memref.subview %subview_14[%arg16, 0] [1, 32] [1, 1] : memref<64x32xf32, strided<[512, 1], offset: ?>> to memref<1x32xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:        scf.for %arg15 = %c0 to %c512 step %c8 {
+# CHECK-NEXT:          %subview_13 = memref.subview %subview_10[0, %arg15] [32, 8] [1, 1] : memref<32x512xf32, strided<[512, 1], offset: ?>> to memref<32x8xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:          %subview_14 = memref.subview %subview_11[%arg15, 0] [8, 32] [1, 1] : memref<512x32xf32, strided<[512, 1], offset: ?>> to memref<8x32xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:          scf.for %arg16 = %c0 to %c8 step %c1 {
+# CHECK-NEXT:            %subview_15 = memref.subview %subview_13[0, %arg16] [32, 1] [1, 1] : memref<32x8xf32, strided<[512, 1], offset: ?>> to memref<32x1xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:            %subview_16 = memref.subview %subview_14[%arg16, 0] [1, 32] [1, 1] : memref<8x32xf32, strided<[512, 1], offset: ?>> to memref<1x32xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:            scf.for %arg17 = %c0 to %c32 step %c2 {
 # CHECK-NEXT:              %subview_17 = memref.subview %subview_15[%arg17, 0] [1, 1] [1, 1] : memref<32x1xf32, strided<[512, 1], offset: ?>> to memref<1x1xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:              %subview_18 = memref.subview %subview_12[%arg17, 0] [1, 32] [1, 1] : memref<32x32xf32, strided<[512, 1], offset: ?>> to memref<1x32xf32, strided<[512, 1], offset: ?>>
