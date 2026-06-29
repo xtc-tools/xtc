@@ -115,9 +115,19 @@ class MlirNodeScheduler:
         self._plain_sch.gpu_thread(axes, root)
 
     def map_gpu_blocks(self, axes: list[str], root: str = DEFAULT_ROOT):
-        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu thread"
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu block"
         assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu block"
         self._plain_sch.gpu_block(axes, root)
+
+    def map_gpu_lanes(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu lane"
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu lane"
+        self._plain_sch.gpu_lane(axes, root)
+
+    def map_gpu_warps(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu warp"
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu warp"
+        self._plain_sch.gpu_warp(axes, root)
 
     def get_node_schedule(self) -> MlirNodeSchedule:
         plain_schedule = self._plain_sch.get_plain_schedule()

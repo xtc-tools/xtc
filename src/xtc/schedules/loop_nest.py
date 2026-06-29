@@ -118,6 +118,8 @@ class LoopNestNode(Node["LoopNestNode"]):
     pack_at: dict[str, tuple[int, str | None, bool]] = field(default_factory=dict)
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
     fuse_consumer_at: list[str] = field(default_factory=list)
+    gpu_lane: dict[str, int] = field(default_factory=dict)
+    gpu_warp: dict[str, int] = field(default_factory=dict)
     gpu_block: dict[str, int] = field(default_factory=dict)
     gpu_thread: dict[str, int] = field(default_factory=dict)
 
@@ -247,6 +249,10 @@ class LoopNestNode(Node["LoopNestNode"]):
             annotations.append(f"fuse_producer({prod_idx})")
         if loop_name in self.fuse_consumer_at:
             annotations.append("fuse_consumer")
+        if loop_name in self.gpu_lane:
+            annotations.append(f"gpu_lane({self.gpu_lane[loop_name]})")
+        if loop_name in self.gpu_warp:
+            annotations.append(f"gpu_warp({self.gpu_warp[loop_name]})")
         if loop_name in self.gpu_block:
             annotations.append(f"gpu_block({self.gpu_block[loop_name]})")
         if loop_name in self.gpu_thread:
