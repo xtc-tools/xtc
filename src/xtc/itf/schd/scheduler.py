@@ -291,6 +291,43 @@ class Scheduler(ABC):
         ...
 
     @abstractmethod
+    def gpu_lane(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        """Maps iteration axes to GPU lane dimensions.
+
+        The mapping is positional:
+            - axes[0] -> linear_dim_0
+            - axes[1] -> linear_dim_1
+            - axes[2] -> linear_dim_2
+        At most 3 axes may be provided. If there are less than 3 axes,
+        only the corresponding lane dimensions are assigned.
+        By default lane are mapped on 32 id.
+
+        Args:
+            axes: list of maximum 3 element that are maps to the dimension x, y, z respectively
+            root: the parent split (or the operator's absolute root)
+        """
+        ...
+
+    @abstractmethod
+    def gpu_warp(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        """Maps iteration axes to GPU warp dimensions.
+
+        The mapping is positional:
+            - axes[0] -> warp for threadIdx.x
+            - axes[1] -> warp for threadIdx.y
+            - axes[2] -> warp for threadIdx.z
+        At most 3 axes may be provided. If there are less than 3 axes,
+        only the corresponding warp dimensions are assigned.
+        It is preferable to map warp only on the x axis.
+        The thread size of the warp should be a multiple of 32.
+
+        Args:
+            axes: list of maximum 3 element that are maps to the dimension x, y, z respectively
+            root: the parent split (or the operator's absolute root)
+        """
+        ...
+
+    @abstractmethod
     def gpu_thread(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         """Maps iteration axes to GPU thread dimensions.
 
@@ -299,7 +336,7 @@ class Scheduler(ABC):
             - axes[1] -> threadIdx.y
             - axes[2] -> threadIdx.z
         At most 3 axes may be provided. If there are less than 3 axes,
-        only the corresponding block dimensions are assigned.
+        only the corresponding thread dimensions are assigned.
 
         Args:
             axes: list of maximum 3 element that are maps to the dimension x, y, z respectively

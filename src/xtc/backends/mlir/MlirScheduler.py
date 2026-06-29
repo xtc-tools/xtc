@@ -205,6 +205,14 @@ class MlirScheduler(itf.schd.Scheduler):
         )
 
     @override
+    def gpu_lane(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        self._current_scheduler.map_gpu_lanes(axes, root=root)
+
+    @override
+    def gpu_warp(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        self._current_scheduler.map_gpu_warps(axes, root=root)
+
+    @override
     def gpu_thread(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         self._current_scheduler.map_gpu_threads(axes, root=root)
 
