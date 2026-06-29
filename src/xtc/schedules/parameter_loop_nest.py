@@ -108,6 +108,8 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             (input_idx, mtype, pad). input_idx is the input buffer index,
             mtype is the memory type (None for default), pad enables padding.
         constraints: List of generated constraints.
+        gpu_block: Maps loops to block id, that loop need to be parallelize
+        gpu_thread: Maps loops to thread id, that loop need to be parallelize
     """
 
     root: str
@@ -122,6 +124,9 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     buffer_at: dict[str, str | None] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool | str]] = field(default_factory=dict)
     constraints: list[str] = field(default_factory=list)
+    # TODO: make gpu_block and gpu_thread work for parameter loop nest
+    gpu_block: dict[str, int] = field(default_factory=dict)
+    gpu_thread: dict[str, int] = field(default_factory=dict)
 
     def apply_sample(self, sample: dict[str, int]) -> LoopNestNode:
         """

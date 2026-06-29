@@ -495,6 +495,16 @@ class TVMScheduler(itf.schd.Scheduler):
         # TODO: not implemented for now
         pass
 
+    @override
+    def gpu_thread(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def gpu_block(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        # TODO: not implemented for now
+        pass
+
     def _get_plain_schedule(self) -> TVMPlainSchedule:
         return TVMPlainSchedule(
             dims=deepcopy(self.dims),
