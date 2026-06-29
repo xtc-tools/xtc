@@ -837,7 +837,6 @@ static void compute_arm_tma_l2(const double *raw, double *final) {
     }
 }
 
-#endif //__linux__
 
 
 // Resolver logic
@@ -881,6 +880,7 @@ static const metric_registry_entry_t METRICS_REGISTRY[] = {
 };
 static const int METRICS_REGISTRY_SIZE = sizeof(METRICS_REGISTRY) / sizeof(METRICS_REGISTRY[0]);
 
+#endif //__linux__
 
 
 /*
