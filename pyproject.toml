@@ -22,7 +22,8 @@ dev = [
     "types-PyYAML",
     "marimo>=0.20.0",
     "ruff==0.14.10",
-    "matplotlib"
+    "matplotlib",
+    "plotly"
 ]
 
 [tool.setuptools]
