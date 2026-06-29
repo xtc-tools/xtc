@@ -22,6 +22,7 @@ sch.tile("j", {"j1": 16})
 sch.vectorize(["j1"])
 sch.gpu_block(["i"])
 sch.gpu_thread(["i1"])
+sch.interchange(["i", "j", "k", "i1", "i2", "j1"])
 sched = sch.schedule()
 
 comp = impl.get_compiler(

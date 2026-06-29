@@ -446,14 +446,44 @@ class MlirProgramToLLVMDialectPass:
             "canonicalize",
             "cse",
             "sccp",
-            "convert-vector-to-llvm{vector-contract-lowering=outerproduct}",
             "buffer-results-to-out-params",
+            # GPU to LLVM pipeline
+            "func.func(gpu-eliminate-barriers)",
+            "convert-nvgpu-to-nvvm",
+            "gpu-kernel-outlining",
+            "gpu-launch-sink-index-computations",
+            "convert-vector-to-scf",
+            "convert-vector-to-llvm{vector-contract-lowering=outerproduct}",
+            "nvgpu-optimize-shared-memory",
+            "convert-scf-to-cf",
+            "convert-nvvm-to-llvm",
             "convert-func-to-llvm{use-bare-ptr-memref-call-conv=true}",
-            "gpu-lower-to-nvvm-pipeline{cubin-chip="
+            "expand-strided-metadata",
+            "nvvm-attach-target{chip="
             + sm_arch
-            + " cubin-features=+ptx"
+            + " features=+ptx"
             + "".join(ptx_version.split("."))
-            + " opt-level=3}",
+            + " O=3 fast=true}",
+            "lower-affine",
+            "convert-arith-to-llvm",
+            "convert-index-to-llvm",
+            "canonicalize",
+            "cse",
+            "reconcile-unrealized-casts",
+            "gpu.module(convert-gpu-to-nvvm{use-bare-ptr-memref-call-conv=true})",
+            "gpu.module(canonicalize)",
+            "gpu.module(cse)",
+            "gpu.module(reconcile-unrealized-casts)",
+            "gpu-to-llvm{use-bare-pointers-for-host=true use-bare-pointers-for-kernels=true}",
+            "gpu.module(reconcile-unrealized-casts)",
+            "reconcile-unrealized-casts",
+            "convert-math-to-llvm",
+            "gpu.module(reconcile-unrealized-casts)",
+            "reconcile-unrealized-casts",
+            "gpu-module-to-binary",
+            "canonicalize",
+            "cse",
+            "reconcile-unrealized-casts",
         ]
 
     def run(self, sm_arch: str, ptx_version: str) -> None:
