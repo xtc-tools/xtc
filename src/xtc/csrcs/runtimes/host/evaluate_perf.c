@@ -125,7 +125,7 @@ typedef int (*packed_func_t)(PackedArg *, int *, int, PackedArg *, int *);
   CLOSE_PERF_EVENTS(events_num, perf_fds);                              \
 }
 
-void evaluate_packed_perf(double *results, int events_num, const char *events_names[],
+static void run_evaluate_packed(double *results, int events_num, const char *events_names[],
                           int repeat, int number, int min_repeat_ms,
                           packed_func_t func, PackedArg *args, int *codes, int nargs)
 {
@@ -184,6 +184,50 @@ void evaluate6_perf(double *results, int events_num, const char *events_names[],
   define_evaluateN(func, arg0, arg1, arg2, arg3, arg4, arg5);
 }
 
+typedef enum {
+  EXEC_UNPACKED,
+  EXEC_PACKED
+} exec_type_t;
+
+typedef struct {
+  exec_type_t type;
+  union {
+    struct {
+      void (*func)();
+      void **args;
+      int nargs;
+    } unpacked;
+    struct {
+      packed_func_t func;
+      PackedArg *args;
+      int *codes;
+      int nargs;
+    } packed;
+  };
+} exec_context_t;
+
+
+static void dispatch_execution(double *results, int events_num, const char *events_names[],
+                               int repeat, int number, int min_repeat_ms,
+                               exec_context_t *ctx) 
+{
+  if (ctx->type == EXEC_UNPACKED) {
+    switch (ctx->unpacked.nargs) {
+      case 0: evaluate0_perf(results, events_num, events_names, repeat, number, min_repeat_ms, (func0_t)ctx->unpacked.func); break;
+      case 1: evaluate1_perf(results, events_num, events_names, repeat, number, min_repeat_ms, (func1_t)ctx->unpacked.func, ctx->unpacked.args[0]); break;
+      case 2: evaluate2_perf(results, events_num, events_names, repeat, number, min_repeat_ms, (func2_t)ctx->unpacked.func, ctx->unpacked.args[0], ctx->unpacked.args[1]); break;
+      case 3: evaluate3_perf(results, events_num, events_names, repeat, number, min_repeat_ms, (func3_t)ctx->unpacked.func, ctx->unpacked.args[0], ctx->unpacked.args[1], ctx->unpacked.args[2]); break;
+      case 4: evaluate4_perf(results, events_num, events_names, repeat, number, min_repeat_ms, (func4_t)ctx->unpacked.func, ctx->unpacked.args[0], ctx->unpacked.args[1], ctx->unpacked.args[2], ctx->unpacked.args[3]); break;
+      case 5: evaluate5_perf(results, events_num, events_names, repeat, number, min_repeat_ms, (func5_t)ctx->unpacked.func, ctx->unpacked.args[0], ctx->unpacked.args[1], ctx->unpacked.args[2], ctx->unpacked.args[3], ctx->unpacked.args[4]); break;
+      case 6: evaluate6_perf(results, events_num, events_names, repeat, number, min_repeat_ms, (func6_t)ctx->unpacked.func, ctx->unpacked.args[0], ctx->unpacked.args[1], ctx->unpacked.args[2], ctx->unpacked.args[3], ctx->unpacked.args[4], ctx->unpacked.args[5]); break;
+      default: assert(0); break;
+    }
+  } else {
+    run_evaluate_packed(results, events_num, events_names, repeat, number, min_repeat_ms,
+                        ctx->packed.func, ctx->packed.args, ctx->packed.codes, ctx->packed.nargs);
+  }
+}
+
 typedef struct {
   int is_derived;
   metric_resolver_t resolver;
@@ -192,22 +236,14 @@ typedef struct {
   int start_pass;
 } metric_map_t;
 
-void evaluate_perf(double *results, int events_num, const char *events_names[],
-                   int repeat, int number, int min_repeat_ms,
-                   void (*func)(), void **args, int nargs)
+
+static void evaluate_perf_multipass_engine(double *results, int events_num, const char *events_names[],
+                                           int repeat, int number, int min_repeat_ms,
+                                           exec_context_t *ctx)
 {
   // No event only time
   if (events_num == 0) {
-    switch (nargs) {
-      case 0: evaluate0_perf(results, 0, NULL, repeat, number, min_repeat_ms, (func0_t)func); break;
-      case 1: evaluate1_perf(results, 0, NULL, repeat, number, min_repeat_ms, (func1_t)func, args[0]); break;
-      case 2: evaluate2_perf(results, 0, NULL, repeat, number, min_repeat_ms, (func2_t)func, args[0], args[1]); break;
-      case 3: evaluate3_perf(results, 0, NULL, repeat, number, min_repeat_ms, (func3_t)func, args[0], args[1], args[2]); break;
-      case 4: evaluate4_perf(results, 0, NULL, repeat, number, min_repeat_ms, (func4_t)func, args[0], args[1], args[2], args[3]); break;
-      case 5: evaluate5_perf(results, 0, NULL, repeat, number, min_repeat_ms, (func5_t)func, args[0], args[1], args[2], args[3], args[4]); break;
-      case 6: evaluate6_perf(results, 0, NULL, repeat, number, min_repeat_ms, (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]); break;
-      default: assert(0); break;
-    }
+    dispatch_execution(results, 0, NULL, repeat, number, min_repeat_ms, ctx);
     return;
   }
 
@@ -294,22 +330,15 @@ void evaluate_perf(double *results, int events_num, const char *events_names[],
         free(test_fds);
 
         if (all_failed) {
-          fprintf(stderr,"[DEBUG] execution bypassed all events failed for the pass %d\n",pass_events_num);
+          fprintf(stderr,"[DEBUG] execution bypassed all events failed for the pass %d\n",pass);
           // Bypass heavy kernel execution if counters failed
           for (int r = 0; r < repeat; r++) {
             for (int j = 0; j < pass_events_num; j++) pass_results[r * pass_events_num + j] = -1.0;
           }
         } else {
-            switch (nargs) {
-              case 0: evaluate0_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func0_t)func); break;
-              case 1: evaluate1_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func1_t)func, args[0]); break;
-              case 2: evaluate2_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func2_t)func, args[0], args[1]); break;
-              case 3: evaluate3_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func3_t)func, args[0], args[1], args[2]); break;
-              case 4: evaluate4_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func4_t)func, args[0], args[1], args[2], args[3]); break;
-              case 5: evaluate5_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func5_t)func, args[0], args[1], args[2], args[3], args[4]); break;
-              case 6: evaluate6_perf(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, (func6_t)func, args[0], args[1], args[2], args[3], args[4], args[5]); break;
-            }
+            dispatch_execution(pass_results, pass_events_num, pass_events_names, repeat, number, min_repeat_ms, ctx);
         }
+        
         // Gather results from passes
         for (int r = 0; r < repeat; r++) {
           for (int e = 0; e < pass_events_num; e++) {
@@ -349,6 +378,33 @@ void evaluate_perf(double *results, int events_num, const char *events_names[],
 
   free(hw_results);
   free(map);
+}
+
+void evaluate_perf(double *results, int events_num, const char *events_names[],
+                   int repeat, int number, int min_repeat_ms,
+                   void (*func)(), void **args, int nargs)
+{
+  exec_context_t ctx;
+  ctx.type = EXEC_UNPACKED;
+  ctx.unpacked.func = func;
+  ctx.unpacked.args = args;
+  ctx.unpacked.nargs = nargs;
+
+  evaluate_perf_multipass_engine(results, events_num, events_names, repeat, number, min_repeat_ms, &ctx);
+}
+
+void evaluate_packed_perf(double *results, int events_num, const char *events_names[],
+                          int repeat, int number, int min_repeat_ms,
+                          packed_func_t func, PackedArg *args, int *codes, int nargs)
+{
+  exec_context_t ctx;
+  ctx.type = EXEC_PACKED;
+  ctx.packed.func = func;
+  ctx.packed.args = args;
+  ctx.packed.codes = codes;
+  ctx.packed.nargs = nargs;
+
+  evaluate_perf_multipass_engine(results, events_num, events_names, repeat, number, min_repeat_ms, &ctx);
 }
 
 void evaluate(double *results,
