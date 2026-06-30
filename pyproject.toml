@@ -20,8 +20,10 @@ dev = [
     "pytest-xdist",
     "pyright==1.1.407",
     "types-PyYAML",
-    "marimo==0.19.6",
+    "marimo>=0.20.0",
     "ruff==0.14.10",
+    "matplotlib",
+    "plotly"
 ]
 
 [tool.setuptools]
@@ -66,7 +68,7 @@ reportMissingImports = false
 #reportMissingTypeArgument = "error"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 packages = ["xtc", "docs.marimo"]
 ignore_missing_imports = true
 check_untyped_defs = true
@@ -102,3 +104,6 @@ exclude = [
 ]
 line-length = 88
 indent-width = 4
+
+[tool.marimo.runtime]
+output_max_bytes = 11_000_000
