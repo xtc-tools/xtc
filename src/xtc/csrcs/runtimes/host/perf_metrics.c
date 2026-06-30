@@ -26,9 +26,6 @@
 #endif
 
 #if ARCH_IS_X86
-#include <cpuid.h>
-
-
 
 #define GET_METRIC(m, i) (((m) >> (i*8)) & 0xff)
 
