@@ -265,7 +265,7 @@ def _(mo):
     mo.md(r"""
     # Descript
 
-    XTC allows you to descripte target loop structures for operators using a small DSL called `descript`. Instead of manually specifying each transformation step, you declare the desired final loop structure, and XTC automatically infers the sequence of transformations needed to achieve it.
+    XTC allows you to describe target loop structures for operators using a small DSL called `descript`. Instead of manually specifying each transformation step, you declare the desired final loop structure, and XTC automatically infers the sequence of transformations needed to achieve it.
     """)
     return
 
@@ -298,34 +298,6 @@ def _(mo):
     ```
 
     The loop order follows the given structure (outer to inner), `j#16` creates a tile of size 16 on `j`, and the `vectorize` attribute marks that inner loop for vectorization. Similarly, `parallelize` and `unroll` mark their respective loops for parallelization and (full) unrolling.
-
-    `descript` also has syntax for loop spliting.
-
-    For example:
-    ```
-    for j in ...:
-      for i in ...:
-        for k in ...:
-          for i1 in range(8):
-            for j1 in range(8):
-              for i2 in range(4):
-          for i3 in range(8, 17):
-            for j2 in range(8):
-              for i4 in range(3):
-    ```
-
-    Can be described as:
-    ```python
-    j:
-    i:
-    k:
-    i[:8]:
-      j#8:
-      i#4:
-    i[8:16]:
-      j#8:
-      i#3:
-    ```
     """)
     return
 
@@ -457,7 +429,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    `descript` can also be used to describe loop structures without specifying every tile size. This allows you to easily write a set of strategies to explore.
+    `descript` can be used to describe loop structures without specifying every tile size. This allows you to easily write a set of schedules to explore.
 
     For example:
     ```python
@@ -466,8 +438,8 @@ def _(mo):
     k:
     j#16:
     k#32:
-    i#i1: unroll
-    j#j1: vectorize
+    i#i1: unroll=i_r
+    j#j1: vectorize=j_v
     ```
     leaves the sizes of the inner kernel as variables to explore.
 
@@ -481,13 +453,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    **Practice.** The code below defines several schedule configurations using our declarative scheduler. You can:
-
-    - **Add/modify configurations**: Try different tile sizes, loop orderings, or optimization combinations. The pre-built search space (variable `configurations` in function `explore` and lines above) may be poorly designed...
-    - **Change the acquisition function**: Add caching, error handling, or custom metrics
-    - **Modify the exploration loop**: Add early stopping or custom filtering
-
-    The `explore()` function must `yield` tuples of `(index, total, config_name, performance)` for real-time progress display.
+    **Practice.** The code below defines several schedule configurations using our declarative scheduler. You can try different tile sizes, loop orderings, or optimization combinations. The pre-built search space (`schedule_spec`) may be poorly designed...
     """)
     return
 
@@ -665,6 +631,20 @@ def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    # Using descript
+
+    XTC presents two methods to use a `descript` schedule.
+
+    The `descript_scheduler` function allows directly applying a specification to a schedule. Using it also requires specifying the name of the root name, and the axis names used. (See the first example.)
+
+    `Strategy_Descript` allows using a specification with parameters to define a strategy that explores the value space it describes. It works like other XTC strategies, and has two parameters: `partial_unrolls` and `partial_tiles` that, when set to True, allow exploring tile and unroll sizes that do not divide their outer tile.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ## Transformations
 
     As shown above, `descript` can be used to explore configurations for optimizations other than loop interchange and tiling. This section will show the supported transformations and the corresponding syntax and exploration parameters.
@@ -677,11 +657,68 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
+    ### Tiling
+
+    Tile sizes are given with the syntax `axis#size: arguments`. The size can be fixed with an integer, or marked as a parameter to explore with a string.
+
+    By default, tile sizes divide their outer tile sizes. This can be changed by setting `partial_tile=True` in the strategy's arguments (to do so on every tile), or by adding `partial` to the tile's arguments (to only do so on that tile).
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ### Splitting
+
+    Splitting is given by two possible syntaxes: `axis[start:end]:` and `axis[:size:]:`.
+    `start`, `end` and `size` can be integers or parameters. `start` and `end` can be ommited on the first/last split of an axis.
+
+    The loops inside of the split need to be tabulated, to indicate where the split ends.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    Using splitting and tiling to write a `descript` specification,
+    ```
+    for j in ...:
+      for i in ...:
+        for k in ...:
+          for i1 in range(8):
+            for j1 in range(8):
+              for i2 in range(4):
+          for i3 in range(8, 17):
+            for j2 in range(8):
+              for i4 in range(3):
+    ```
+
+    Can be described as:
+    ```python
+    j:
+    i:
+    k:
+    i[:8]:
+      j#8:
+      i#4:
+    i[8:16]:
+      j#8:
+      i#3:
+    ```
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
     ### Unroll, parallelize, and vectorize
 
     `unroll` by itself mean full loop unrolling. An unroll factor can also be used as seen above. That unroll factor can also be replaced by a variable, which indicates that the unroll factor is a parameter to explore.
 
-    By default, unroll factors divide their respective tile size, but this can be changed by adding `partial_unrolls=True` to the strategy's arguments.
+    By default, unroll factors divide their respective tile size. This can be changed by setting `partial_unrolls=True` in the strategy's arguments.
 
     | Unroll syntax                       | Description |
     |-------------------------------------|-------------------------------------------------------------------|
@@ -709,7 +746,7 @@ def _(mo):
 
     `pack` takes three arguments, in order: the index of the input to pack, the buffer memory type, and wether or not to pad the buffer.
 
-    The second syntax doesn't distiguish between buffer and pack. It is writen like an axis, but using the name of the tensor to buffer instead of an axis: `A: pack`. In the case of packing, `pad` can be added to enable padding.
+    The second syntax doesn't distiguish between buffer and pack. It is writen like an axis, but using the name of the tensor to buffer instead of an axis: `A: pack`. In the case of packing, `pad` can be added to enable padding. Using this syntax with `descript_scheduler` also requires specifying the same of the matrices (see the example).
 
     | Buffer syntax                       | Description |
     |-------------------------------------|-------------------------------------------------------------------|
