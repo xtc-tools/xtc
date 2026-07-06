@@ -15,16 +15,18 @@ from xtc.schedules.parameter_loop_nest import (
     ParameterSplitOrigin,
 )
 
-from .exceptions import ScheduleInterpretError
+from .exceptions import ScheduleInterpretError, ScheduleParseError
 from .parsing import (
     ScheduleParser,
     ScheduleSpec,
     SplitDecl,
     TileDecl,
     AxisDecl,
+    PRTDecl,
     Annotations,
     YAMLParser,
     literal,
+    ansor_tile,
 )
 
 
@@ -66,9 +68,19 @@ class ScheduleInterpreter:
 
     abstract_dims: list[str]
     abstract_dim_sizes: dict[str, int] = field(default_factory=dict)
+    abstract_p_dims: list[str] = field(default_factory=list)
+    abstract_r_dims: list[str] = field(default_factory=list)
     abstract_matrix: list[str] = field(default_factory=list)
     partial_tiles: bool = False
     partial_unrolls: bool = False
+    _abstract_dim_fresh: dict[str, int] = field(default_factory=dict)
+
+    def __post_init__(self):
+        self._abstract_dim_fresh = {i: -1 for i in self.abstract_dims}
+
+    def _fresh(self, axis: str):
+        self._abstract_dim_fresh[axis] += 1
+        return f"prt_{axis}_{self._abstract_dim_fresh[axis]}"
 
     def interpret(self, spec: ScheduleSpec, root: str) -> ParameterLoopNest:
         """Interpret a schedule specification into a LoopNest."""
@@ -127,6 +139,14 @@ class ScheduleInterpreter:
                 if _loop_name:
                     loop_name = _loop_name
                 self._apply_annotations(item.annotations, loop_name, sizes, node)
+            elif isinstance(item, PRTDecl):
+                self._interpret_prt(
+                    item=item,
+                    node=node,
+                    interchange=interchange,
+                    sizes=sizes,
+                    axes=axes,
+                )
 
         # Reaplace the placeholder of the last split with its size
         if len(last_split) > 0:
@@ -332,6 +352,82 @@ class ScheduleInterpreter:
         interchange.append(axis_name)
         return axis_name
 
+    def _interpret_prt(
+        self,
+        item: PRTDecl,
+        node: ParameterLoopNestNode,
+        interchange: list[str],
+        sizes: dict[str, literal],
+        axes: dict[str, list[literal]],
+    ):
+        for t in item.shape:
+            match t:
+                case "P":
+                    for a in self.abstract_p_dims:
+                        self._interpret_tile(
+                            TileDecl(a, self._fresh(a), Annotations()),
+                            node,
+                            interchange,
+                            sizes,
+                            axes,
+                        )
+                        # TODO: annotations
+                case "R":
+                    for a in self.abstract_r_dims:
+                        self._interpret_tile(
+                            TileDecl(a, self._fresh(a), Annotations()),
+                            node,
+                            interchange,
+                            sizes,
+                            axes,
+                        )
+                        # TODO: annotations
+                case "T":
+                    for a in self.abstract_dims:
+                        self._interpret_tile(
+                            TileDecl(a, self._fresh(a), Annotations()),
+                            node,
+                            interchange,
+                            sizes,
+                            axes,
+                        )
+                        # TODO: annotations
+                case "U":
+                    raise ScheduleInterpretError(
+                        "TODO: Ansor-style U tile unimplemented (random order)"
+                    )
+                case "O":
+                    a = self.abstract_p_dims[0]
+                    self._interpret_tile(
+                        TileDecl(a, self._fresh(a), Annotations()),
+                        node,
+                        interchange,
+                        sizes,
+                        axes,
+                    )
+                    for a in self.abstract_r_dims:
+                        self._interpret_tile(
+                            TileDecl(a, self._fresh(a), Annotations()),
+                            node,
+                            interchange,
+                            sizes,
+                            axes,
+                        )
+                    for a in self.abstract_p_dims[1:]:
+                        self._interpret_tile(
+                            TileDecl(a, self._fresh(a), Annotations()),
+                            node,
+                            interchange,
+                            sizes,
+                            axes,
+                        )
+                case "W":
+                    raise ScheduleInterpretError(
+                        "TODO: Write buffer in Ansor-styke unimplemented"
+                    )
+                case "F":
+                    raise ScheduleInterpretError("TODO: Fusion unimplemented")
+
     def _check_axis_existence(self, axis: str) -> None:
         """Check that an axis is defined."""
         if axis not in self.abstract_dims:
@@ -443,25 +539,33 @@ class Descript:
 
     abstract_dims: list[str]
     abstract_dim_sizes: dict[str, int] = field(default_factory=dict)
+    abstract_p_dims: list[str] = field(default_factory=list)
+    abstract_r_dims: list[str] = field(default_factory=list)
     abstract_matrix: list[str] = field(default_factory=list)
     partial_tiles: bool = False
     partial_unrolls: bool = False
+
+    def __post_init__(self):
+        for m in self.abstract_matrix:
+            if m in ansor_tile:
+                raise ScheduleParseError(f"Forbidden abstract matrix name: {m}")
 
     def loop_nest(self, node_name: str, spec: dict[str, dict[str, Any]] | str):
         if isinstance(spec, str):
             yaml_parser = YAMLParser()
             spec = yaml_parser.parse(spec)
 
-        spec_dict = cast(dict[str, dict[str, Any]], spec)
-        constraints = cast(list[str], spec_dict.pop("constraints", []))
+        constraints = cast(list[str], spec.pop("constraints", []))
         # Parse the specification into an AST
         parser = ScheduleParser()
-        ast = parser.parse(spec_dict)
+        ast = parser.parse(spec)
 
         # Interpret the AST into a LoopNest
         interpreter = ScheduleInterpreter(
             abstract_dims=self.abstract_dims,
             abstract_dim_sizes=self.abstract_dim_sizes,
+            abstract_p_dims=self.abstract_p_dims,
+            abstract_r_dims=self.abstract_r_dims,
             abstract_matrix=self.abstract_matrix,
             partial_tiles=self.partial_tiles,
             partial_unrolls=self.partial_unrolls,
