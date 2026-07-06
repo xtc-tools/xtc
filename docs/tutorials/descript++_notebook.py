@@ -474,7 +474,7 @@ def _(mo):
     rt = HostRuntime.get()
 
     # Problem setup
-    I, J, K, dtype = 16, 32, 512, "float32"
+    I, J, K, dtype = 256, 512, 512, "float32"
 
     def matmul_graph(I: int, J: int, K: int, dtype: str) -> XTCGraph:
        """Create a graph computing C = A @ B."""
@@ -537,7 +537,7 @@ def _(mo):
        """
        strategy = Strategy(graph, schedule_spec, partial_unrolls=False, partial_tiles=False)
        backend = MLIR_Backend
-       configurations = list(strategy.sample(1000))
+       configurations = list(strategy.sample(128))
        total = len(configurations)
 
        for idx, sample in enumerate(configurations):
