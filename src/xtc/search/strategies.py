@@ -1034,6 +1034,8 @@ try:
             graph: Graph,
             spec: dict[str, dict[str, Any]] | str,
             constraints: list[str] | None = None,
+            axes: list[str] | None = None,
+            tensors: list[str] | None = None,
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
@@ -1041,13 +1043,20 @@ try:
             self._graph = graph
             self._op = graph.outputs_nodes[0].operation
             self._stats: dict[str, int] = {}
-            self._axes = list(self._op.dims)
+            self._axes = axes if axes else list(self._op.dims)
             self._sizes = self._constant_sizes()
             self._sample_names: list[str] = []
+            tensors = [
+                chr(ord("A") + i)
+                for i in range(
+                    len(graph.outputs_nodes[0].inputs)
+                    + len(graph.outputs_nodes[0].outputs)
+                )
+            ]
             descript = Descript(
                 abstract_dims=self._axes,
                 abstract_dim_sizes=dict(self._sizes),
-                abstract_matrix=["A", "B", "C"],
+                abstract_matrix=tensors,
                 partial_tiles=partial_tiles,
                 partial_unrolls=partial_unrolls,
             )
@@ -1161,13 +1170,22 @@ try:
             graph: Graph,
             spec: dict[str, dict[str, Any]] | str,
             constraints: list[str] | None = None,
+            axes: list[str] | None = None,
+            tensors: list[str] | None = None,
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
         ) -> None:
             self._sample_shape: list[str] = []
             super().__init__(
-                graph, spec, constraints, partial_tiles, partial_unrolls, initialize
+                graph,
+                spec,
+                constraints,
+                axes,
+                tensors,
+                partial_tiles,
+                partial_unrolls,
+                initialize,
             )
 
         @override
