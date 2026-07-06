@@ -1033,7 +1033,7 @@ try:
             self,
             graph: Graph,
             spec: dict[str, dict[str, Any]] | str,
-            constraints: list[str] = [],
+            constraints: list[str] | None = None,
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
@@ -1056,7 +1056,9 @@ try:
             self._loop_nest = loop_nest
             input_constraints = loop_nest.collect_constraints()
             self._orders: dict[str, list] = {}
-            self._constraints = constraints + input_constraints
+            self._constraints = (
+                constraints + input_constraints if constraints else input_constraints
+            )
             self._initialized = False
             if initialize:
                 self._initialize()
@@ -1158,7 +1160,7 @@ try:
             self,
             graph: Graph,
             spec: dict[str, dict[str, Any]] | str,
-            constraints: list[str] = [],
+            constraints: list[str] | None = None,
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
@@ -1179,7 +1181,6 @@ try:
 
         @override
         def generate(self, scheduler: Scheduler, sample: Sample) -> None:
-            assert isinstance(self._sample_shape, list)
             sample = dict(zip(self._sample_shape, sample))
             super().generate(scheduler, sample)
 
