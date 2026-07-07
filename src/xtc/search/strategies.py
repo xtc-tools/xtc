@@ -1057,6 +1057,8 @@ try:
                 abstract_dims=self._axes,
                 abstract_dim_sizes=dict(self._sizes),
                 abstract_matrix=tensors,
+                abstract_p_dims=list(self._op.dims_kind("P")),
+                abstract_r_dims=list(self._op.dims_kind("R")),
                 partial_tiles=partial_tiles,
                 partial_unrolls=partial_unrolls,
             )

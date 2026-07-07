@@ -140,7 +140,7 @@ class ScheduleInterpreter:
                     loop_name = _loop_name
                 self._apply_annotations(item.annotations, loop_name, sizes, node)
             elif isinstance(item, PRTDecl):
-                self._interpret_prt(
+                loop_name = self._interpret_prt(
                     item=item,
                     node=node,
                     interchange=interchange,
@@ -359,44 +359,107 @@ class ScheduleInterpreter:
         interchange: list[str],
         sizes: dict[str, literal],
         axes: dict[str, list[literal]],
-    ):
-        for t in item.shape:
+    ) -> str:
+        loop_name = ""
+
+        parallelize = item.annotations.parallelize
+        unroll = item.annotations.unroll_specified
+
+        def _parallelize():
+            if isinstance(parallelize, str):
+                node.parallelize_parameters[loop_name] = parallelize
+                node.constraints.append(f"{parallelize} in {{0, 1}}")
+            else:
+                node.parallelize.append(loop_name)
+
+        def _unroll():
+            unroll_factor = item.annotations.unroll_factor
+            if unroll_factor is None:
+                # None means "unroll fully" - use the loop size
+                if loop_name not in sizes:
+                    raise ScheduleInterpretError(
+                        f"{loop_name}'s size being unknown, an unroll factor is needed."
+                    )
+                unroll_factor = sizes[loop_name]
+            elif isinstance(unroll_factor, int) and unroll_factor <= 0:
+                raise ScheduleInterpretError(
+                    f'`{{"unroll" = {unroll_factor}}}`: unroll parameter should be strictly positive.'
+                )
+            elif isinstance(unroll_factor, str):
+                unroll_factor += "_prt_" + loop_name
+                if self.partial_unrolls:
+                    node.constraints.append(f"{unroll_factor} <= {sizes[loop_name]}")
+                else:
+                    node.constraints.append(f"{unroll_factor} || {sizes[loop_name]}")
+            node.unroll[loop_name] = unroll_factor
+
+        for idx, t in enumerate(item.shape):
             match t:
                 case "P":
+                    if not self.abstract_p_dims:
+                        raise ScheduleInterpretError(
+                            "P scheme used, but P axes are not specified"
+                        )
                     for a in self.abstract_p_dims:
-                        self._interpret_tile(
-                            TileDecl(a, self._fresh(a), Annotations()),
+                        fresh_a = self._fresh(a)
+                        loop_name = self._interpret_tile(
+                            TileDecl(a, fresh_a, Annotations()),
                             node,
                             interchange,
                             sizes,
                             axes,
                         )
-                        # TODO: annotations
+                        if parallelize:
+                            _parallelize()
+                            parallelize = False
+                        if unroll and idx + 1 == len(item.shape):
+                            _unroll()
                 case "R":
+                    if not self.abstract_r_dims:
+                        raise ScheduleInterpretError(
+                            "R scheme used, but R axes are not specified"
+                        )
                     for a in self.abstract_r_dims:
-                        self._interpret_tile(
+                        loop_name = self._interpret_tile(
                             TileDecl(a, self._fresh(a), Annotations()),
                             node,
                             interchange,
                             sizes,
                             axes,
                         )
-                        # TODO: annotations
+                        if parallelize:
+                            raise ScheduleInterpretError(
+                                "Cannot parallelize a reduction axis"
+                            )
+                        if unroll and idx + 1 == len(item.shape):
+                            _unroll()
                 case "T":
                     for a in self.abstract_dims:
-                        self._interpret_tile(
+                        loop_name = self._interpret_tile(
                             TileDecl(a, self._fresh(a), Annotations()),
                             node,
                             interchange,
                             sizes,
                             axes,
                         )
-                        # TODO: annotations
+                        if parallelize:
+                            _parallelize()
+                            parallelize = False
+                        if unroll and idx + 1 == len(item.shape):
+                            _unroll()
                 case "U":
                     raise ScheduleInterpretError(
                         "TODO: Ansor-style U tile unimplemented (random order)"
                     )
                 case "O":
+                    if not self.abstract_p_dims:
+                        raise ScheduleInterpretError(
+                            "O scheme used, but P axes are not specified"
+                        )
+                    if not self.abstract_r_dims:
+                        raise ScheduleInterpretError(
+                            "O scheme used, but R axes are not specified"
+                        )
                     a = self.abstract_p_dims[0]
                     self._interpret_tile(
                         TileDecl(a, self._fresh(a), Annotations()),
@@ -405,6 +468,11 @@ class ScheduleInterpreter:
                         sizes,
                         axes,
                     )
+                    if parallelize:
+                        _parallelize()
+                        parallelize = False
+                    if unroll and idx + 1 == len(item.shape):
+                        _unroll()
                     for a in self.abstract_r_dims:
                         self._interpret_tile(
                             TileDecl(a, self._fresh(a), Annotations()),
@@ -413,20 +481,45 @@ class ScheduleInterpreter:
                             sizes,
                             axes,
                         )
+                        if unroll and idx + 1 == len(item.shape):
+                            _unroll()
                     for a in self.abstract_p_dims[1:]:
-                        self._interpret_tile(
+                        loop_name = self._interpret_tile(
                             TileDecl(a, self._fresh(a), Annotations()),
                             node,
                             interchange,
                             sizes,
                             axes,
                         )
+                        if unroll and idx + 1 == len(item.shape):
+                            _unroll()
                 case "W":
-                    raise ScheduleInterpretError(
-                        "TODO: Write buffer in Ansor-styke unimplemented"
-                    )
+                    node.buffer_at[loop_name] = None
                 case "F":
                     raise ScheduleInterpretError("TODO: Fusion unimplemented")
+
+        if item.annotations.vectorize:
+            if isinstance(item.annotations.vectorize, str):
+                node.vectorize_parameters[loop_name] = item.annotations.vectorize
+                node.constraints.append(f"{item.annotations.vectorize} in {{0, 1}}")
+            else:
+                node.vectorize.append(loop_name)
+
+        if item.annotations.buffer_specified:
+            node.buffer_at[loop_name] = item.annotations.buffer
+
+        if item.annotations.pack_specified and item.annotations.pack is not None:
+            input_matrix, mtype, pad = item.annotations.pack
+            if isinstance(input_matrix, str):
+                idx = self.abstract_matrix.index(input_matrix)
+                if idx == len(self.abstract_matrix) - 1:
+                    node.buffer_at[loop_name] = mtype
+                else:
+                    node.pack_at[loop_name] = (idx, mtype, pad)
+            else:
+                node.pack_at[loop_name] = (input_matrix, mtype, pad)
+
+        return loop_name
 
     def _check_axis_existence(self, axis: str) -> None:
         """Check that an axis is defined."""
