@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-from typing import Any, cast
+from typing import Any
 from dataclasses import dataclass, field
 from copy import deepcopy
 
@@ -27,6 +27,8 @@ from .parsing import (
     YAMLParser,
     literal,
     ansor_tile,
+    tup_list,
+    pre_parse,
 )
 
 
@@ -643,12 +645,17 @@ class Descript:
             if m in ansor_tile:
                 raise ScheduleParseError(f"Forbidden abstract matrix name: {m}")
 
-    def loop_nest(self, node_name: str, spec: dict[str, dict[str, Any]] | str):
+    def loop_nest(
+        self, node_name: str, spec: dict[str, dict[str, Any]] | tup_list | str
+    ):
         if isinstance(spec, str):
             yaml_parser = YAMLParser()
             spec = yaml_parser.parse(spec)
-
-        constraints = cast(list[str], spec.pop("constraints", []))
+        else:
+            spec = pre_parse(spec)
+        constraints: Any = [v for k, v in spec if k == "constraints"]
+        constraints = constraints[0] if constraints else None
+        spec = [(k, v) for k, v in spec if k != "constraints"]
         # Parse the specification into an AST
         parser = ScheduleParser()
         ast = parser.parse(spec)
