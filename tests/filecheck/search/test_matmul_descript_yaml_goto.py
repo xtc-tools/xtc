@@ -42,21 +42,20 @@ spec = f"""
         - kc * nc <= {nb_words_L3}
     j:
     k:
-    B: pack
+    B: pack=pack_B pad
     i:
-    A: pack
+    A: pack pad=pad_A
     j#nc:
     i#mc:
     k#kc: unroll=kr
     i#mr: unroll full
     j#nr: vectorize full
 """
-print(spec)
 
 strategy = Strategy(graph, spec, partial_tiles=True, partial_unrolls=True, initialize=False)
 
 print(sorted(strategy._constraints))
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: ['1 + nvr + nvr * mr <= 32', 'kc * mc <= 262144', 'kc * nc <= 9437184', 'kc * nr <= 8192', 'kc <= 1024', 'kr <= kc', 'mc <= 1024', 'mr || {1024, mc}', 'nc <= 1024', 'nr == 16 * nvr', 'nr || {1024, nc}', 'nvr * mr * kr <= 256', 'nvr * mr >= 8']
+# CHECK: ['1 + nvr + nvr * mr <= 32', 'kc * mc <= 262144', 'kc * nc <= 9437184', 'kc * nr <= 8192', 'kc <= 1024', 'kr <= kc', 'mc <= 1024', 'mr || {1024, mc}', 'nc <= 1024', 'nr == 16 * nvr', 'nr || {1024, nc}', 'nvr * mr * kr <= 256', 'nvr * mr >= 8', 'pack_B in {0, 1}', 'pad_A in {0,1}']
 #CHECK-NEXT: 100

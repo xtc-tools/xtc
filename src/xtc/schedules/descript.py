@@ -581,10 +581,27 @@ class ScheduleInterpreter:
                 idx = self.abstract_matrix.index(input_matrix)
                 if idx == len(self.abstract_matrix) - 1:
                     node.buffer_at[loop_name] = mtype
+                    if isinstance(annotations.pack_specified, str):
+                        node.buffer_parameters[loop_name] = annotations.pack_specified
+                        node.constraints.append(
+                            f"{annotations.buffer_specified} in {{0, 1}}"
+                        )
                 else:
                     node.pack_at[loop_name] = (idx, mtype, pad)
+                    if isinstance(annotations.pack_specified, str):
+                        node.pack_parameters[loop_name] = annotations.pack_specified
+                        node.constraints.append(
+                            f"{annotations.pack_specified} in {{0, 1}}"
+                        )
+                    if isinstance(pad, str):
+                        node.constraints.append(f"{pad} in {{0,1}}")
             else:
                 node.pack_at[loop_name] = (input_matrix, mtype, pad)
+                if isinstance(annotations.pack_specified, str):
+                    node.pack_parameters[loop_name] = annotations.pack_specified
+                    node.constraints.append(f"{annotations.pack_specified} in {{0, 1}}")
+                    if isinstance(pad, str):
+                        node.constraints.append(f"{pad} in {{0,1}}")
 
     def _check_splitting_intervals(
         self,

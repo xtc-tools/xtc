@@ -120,7 +120,9 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     parallelize_parameters: dict[str, str] = field(default_factory=dict)
     unroll: dict[str, literal] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
+    buffer_parameters: dict[str, str] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool | str]] = field(default_factory=dict)
+    pack_parameters: dict[str, str] = field(default_factory=dict)
     constraints: list[str] = field(default_factory=list)
 
     def apply_sample(self, sample: dict[str, int]) -> LoopNestNode:
@@ -128,6 +130,7 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
         Replaces the string parameters with the correspondings values in sample.
         And builds the corresponding LoopNestNode."""
         root = self.root
+
         tiles = {
             a: {
                 b: sample[v_b] if isinstance(v_b, str) else v_b
@@ -135,6 +138,7 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             }
             for a, v_a in self.tiles.items()
         }
+
         splits = {
             a: {
                 b: sample[v_b] if isinstance(v_b, str) else v_b
@@ -142,30 +146,45 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             }
             for a, v_a in self.splits.items()
         }
+
         interchange = self.interchange
+
         vectorize = self.vectorize
         for a, v in self.vectorize_parameters.items():
             if sample.get(v, False):
                 vectorize.append(a)
+
         parallelize = self.parallelize
         for a, v in self.parallelize_parameters.items():
             if sample.get(v, False):
                 parallelize.append(a)
+
         unroll = {
             a: sample[v_a] if isinstance(v_a, str) else v_a
             for a, v_a in self.unroll.items()
         }
-        buffer_at = self.buffer_at
+
+        buffer_at = self.buffer_at.copy()
+        for a, v in self.buffer_parameters.items():
+            if not sample.get(v, True):
+                buffer_at.pop(a)
+
         pack_at = {
             a: (a1, a2, bool(sample[a3]) if isinstance(a3, str) else a3)
             for a, (a1, a2, a3) in self.pack_at.items()
         }
+        for a, v in self.pack_parameters.items():
+            if not sample.get(v, True):
+                pack_at.pop(a)
+
         children = [child.apply_sample(sample) for child in self.children]
+
         split_origin = (
             self.split_origin.apply_sample(sample)
             if self.split_origin is not None
             else None
         )
+
         return LoopNestNode(
             root=root,
             tiles=tiles,
