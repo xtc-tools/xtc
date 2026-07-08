@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+from typing import cast
 from xdsl.dialects import func as xdslfunc
 from mlir.dialects import func
 from mlir.ir import (
@@ -69,8 +70,8 @@ class MlirProgram(RawMlirProgram):
         no_alias: bool,
     ) -> func.FuncOp:
         # Parse the function to MLIR AST
-        payload_func: func.FuncOp = func.FuncOp.parse(
-            function, context=self.mlir_context
+        payload_func = cast(
+            func.FuncOp, func.FuncOp.parse(function, context=self.mlir_context)
         )
 
         with self.mlir_context:
@@ -78,6 +79,7 @@ class MlirProgram(RawMlirProgram):
             new_arg_attrs = []
             if no_alias:
                 for arg_attrs in payload_func.arg_attrs:
+                    arg_attrs = DictAttr(arg_attrs)
                     new_dict = {}
                     for i in range(len(arg_attrs)):
                         new_dict[arg_attrs[i].name] = arg_attrs[i].attr

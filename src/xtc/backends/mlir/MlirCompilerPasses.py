@@ -186,18 +186,19 @@ class MlirProgramInsertTransformPass:
             transform.YieldOp([])
         if self._super_vectorize:
             assert self._super_vectorize_sequence is not None
+            assert self._vectors_size is not None
             with (
                 InsertionPoint.at_block_begin(self._super_vectorize_sequence.body),
                 self._mlir_program.mlir_context,
                 self._loc,
             ):
-                result = transform.ApplyRegisteredPassOp(
+                op_result = transform.ApplyRegisteredPassOp(
                     transform.AnyOpType.get(),
                     self._super_vectorize_sequence.bodyTarget,
                     pass_name="affine-super-vectorize",
                     options={"virtual-vector-size": self._vectors_size},
                 )
-                transform.YieldOp([result])
+                transform.YieldOp([op_result.result])
         with (
             InsertionPoint.at_block_begin(self._named_sequence.body),
             self._mlir_program.mlir_context,
@@ -396,10 +397,8 @@ class MlirProgramInsertTransformPass:
                 op_attrs={fuse_op_name: UnitAttr.get()},
             )
             handle, new_loop = FuseIntoContainingOp(
-                fused_op_type_or_producer_op=prod_handle,
-                new_containing_op_type_or_containing_op=sched_state.all_loops[
-                    loop_name
-                ],
+                prod_handle,
+                sched_state.all_loops[loop_name],
             ).results
             # rematch the scheduled op
             new_handle = structured_match(
@@ -696,8 +695,8 @@ def find_producer_handles(module: Module, root_handle: str) -> list[str | None]:
         producer_handles.append(None)
         if producer_op and hasattr(producer_op, "attributes"):
             for attr in producer_op.attributes:
-                if str(attr.name).startswith("__xtc_id_"):
-                    producer_handles[-1] = attr.name
+                if attr.startswith("__xtc_id_"):
+                    producer_handles[-1] = attr
     return producer_handles
 
 
