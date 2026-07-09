@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.20.0"
+__generated_with = "0.23.13"
 app = marimo.App()
 
 
@@ -609,22 +609,37 @@ def _(
 
     max_perf = _unsorted_results[0]["perf"]
     cumul = [max_perf]
+    results = [max_perf]
     for d in _unsorted_results[1:]:
         max_perf = max(max_perf, d["perf"])
         if d["perf"] > max_perf:
             raise Exception("HEIN")
         cumul.append(max_perf)
+        results.append(d["perf"])
 
 
-    plt.plot(cumul)
-    plt.xlabel('Number of samples')
-    plt.ylabel('% of peak performance')
-    plt.title('Cumulative best performance')
-    plt.grid(True)
+    fig_cumul, ax_cumul = plt.subplots()
+    ax_cumul.plot(cumul, color='r', label='cumulative')
+    ax_cumul.plot(results, color='g', label='unsorted')
+    ax_cumul.set_xlabel('Samples')
+    ax_cumul.set_ylabel('% of peak performance')
+    ax_cumul.set_title('(Cumulative best) performance')
+    ax_cumul.grid(True)
+    ax_cumul.legend()
 
-    ax = mo.ui.matplotlib(plt.gca())
+    fig_sort, ax_sort = plt.subplots()
+    ax_sort.plot(cumul, color='r', label='cumulative')
+    ax_sort.plot(sorted(results), color='g', label='sorted')
+    ax_sort.set_xlabel('Sample position')
+    ax_sort.set_ylabel('% of peak performance')
+    ax_sort.set_title('Performance of each sample')
+    ax_sort.grid(True)
+    ax_sort.legend()
 
-    mo.vstack([mo.md("\n".join(_summary_lines)), ax])
+    ui_cumul = mo.ui.matplotlib(fig_cumul.gca())
+    ui_sort = mo.ui.matplotlib(fig_sort.gca())
+    ui_graphs = mo.ui.tabs({"sorted": ui_sort, "unsorted": ui_cumul})
+    mo.vstack([mo.md("\n".join(_summary_lines)), ui_graphs])
     return
 
 
