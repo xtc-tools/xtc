@@ -3,6 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from __future__ import annotations
+import itertools
 
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar, Any
@@ -114,6 +115,7 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     tiles: dict[str, dict[str, literal]]
     splits: dict[str, dict[str, literal]] = field(default_factory=dict)
     interchange: list[str] = field(default_factory=list)
+    interchange_groups: dict[str, dict[int, str]] = field(default_factory=dict)
     vectorize: list[str] = field(default_factory=list)
     vectorize_parameters: dict[str, str] = field(default_factory=dict)
     parallelize: list[str] = field(default_factory=list)
@@ -147,7 +149,12 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             for a, v_a in self.splits.items()
         }
 
-        interchange = self.interchange
+        interchange = self.interchange.copy()
+        for a, v_d in self.interchange_groups.items():
+            if a in sample:
+                v_ = iter(list(itertools.permutations(v_d.values()))[sample[a] - 1])
+                for i in v_d.keys():
+                    interchange[i] = next(v_)
 
         vectorize = self.vectorize
         for a, v in self.vectorize_parameters.items():

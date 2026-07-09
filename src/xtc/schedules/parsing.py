@@ -72,6 +72,7 @@ class Annotations:
     buffer_specified: bool | str = False
     pack: tuple[literal, str | None, bool | str] | None = None
     pack_specified: bool | str = False
+    interchange: str = ""
     partial: bool = False
     full: bool = False
 
@@ -224,6 +225,7 @@ class ScheduleParser:
         buffer_specified: bool | str = False
         pack: tuple[literal, str | None, bool | str] | None = None
         pack_specified: bool | str = False
+        interchange: str = ""
         partial = False
         full = False
 
@@ -279,6 +281,11 @@ class ScheduleParser:
                         )
                     declaration_, mtype_, pad_ = pack
                     pack = (declaration_, mtype_, param)
+                case "interchange":
+                    if param is None:
+                        interchange = "interchange"
+                    else:
+                        interchange = param
                 case "partial":
                     partial = True
                 case "full":
@@ -302,6 +309,7 @@ class ScheduleParser:
             buffer_specified=buffer_specified,
             pack=pack,
             pack_specified=pack_specified,
+            interchange=interchange,
             partial=partial,
             full=full,
         )

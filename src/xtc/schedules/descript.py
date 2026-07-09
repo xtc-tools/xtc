@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+from math import factorial
 from typing import Any
 from dataclasses import dataclass, field
 from copy import deepcopy
@@ -79,6 +80,7 @@ class ScheduleInterpreter:
 
     def __post_init__(self):
         self._abstract_dim_fresh = {i: -1 for i in self.abstract_dims}
+        self._abstract_dim_fresh["interchange"] = -1
 
     def _fresh(self, axis: str):
         self._abstract_dim_fresh[axis] += 1
@@ -102,7 +104,7 @@ class ScheduleInterpreter:
         """Interpret a schedule spec into an existing node (mutates node)."""
         # Track state during interpretation
         previous_cut: dict[str, literal | None] = {a: 0 for a in self.abstract_dims}
-        interchange: list[str] = list(head)
+        node.interchange = list(head)
         last_split: list[tuple[literal, literal | None]] = []
         sizes: dict[str, literal] = {}
         loop_name: str = ""
@@ -122,7 +124,6 @@ class ScheduleInterpreter:
                     item=item,
                     node=node,
                     root=root,
-                    interchange=interchange,
                     previous_cut=previous_cut,
                     axes=axes,
                     last_split=last_split,
@@ -131,13 +132,12 @@ class ScheduleInterpreter:
                 loop_name = self._interpret_tile(
                     item=item,
                     node=node,
-                    interchange=interchange,
                     sizes=sizes,
                     axes=axes,
                 )
                 self._apply_annotations(item.annotations, loop_name, sizes, node)
             elif isinstance(item, AxisDecl):
-                _loop_name = self._interpret_axis(item, interchange)
+                _loop_name = self._interpret_axis(item, node)
                 if _loop_name:
                     loop_name = _loop_name
                 self._apply_annotations(item.annotations, loop_name, sizes, node)
@@ -145,10 +145,12 @@ class ScheduleInterpreter:
                 loop_name = self._interpret_prt(
                     item=item,
                     node=node,
-                    interchange=interchange,
                     sizes=sizes,
                     axes=axes,
                 )
+
+        for k, v_d in node.interchange_groups.items():
+            node.constraints.append(f"1 <= {k} <= {factorial(len(v_d))}")
 
         # Reaplace the placeholder of the last split with its size
         if len(last_split) > 0:
@@ -170,14 +172,11 @@ class ScheduleInterpreter:
                     f"Splitting of {axis} unachieved (stops at {cut})."
                 )
 
-        node.interchange = interchange
-
     def _interpret_split(
         self,
         item: SplitDecl,
         node: ParameterLoopNestNode,
         root: str,
-        interchange: list[str],
         previous_cut: dict[str, literal | None],
         axes: dict[str, list[literal]],
         last_split: list[tuple[literal, literal | None]],
@@ -215,7 +214,7 @@ class ScheduleInterpreter:
 
             # Save the cutting points of the new dimensions
             node.splits[axis_name][new_dim_name] = x
-            interchange.append(new_dim_name)
+            node.interchange.append(new_dim_name)
 
             inner_size = None
             if y is None:
@@ -243,7 +242,7 @@ class ScheduleInterpreter:
             assert x is not None
             # Save the cutting points of the new dimensions
             node.splits[axis_name][new_dim_name] = x
-            interchange.append(new_dim_name)
+            node.interchange.append(new_dim_name)
             if isinstance(z, int) and isinstance(x, int):
                 previous_cut[axis_name] = x + z
                 if not isinstance(y, int):
@@ -287,7 +286,6 @@ class ScheduleInterpreter:
         self,
         item: TileDecl,
         node: ParameterLoopNestNode,
-        interchange: list[str],
         sizes: dict[str, literal],
         axes: dict[str, list[literal]],
     ) -> str:
@@ -301,7 +299,18 @@ class ScheduleInterpreter:
             )
         node.tiles[item.axis][loop_name] = item.size
         sizes[loop_name] = item.size
-        interchange.append(loop_name)
+
+        inter_group = item.annotations.interchange
+        if inter_group:
+            if inter_group in node.interchange_groups:
+                node.interchange_groups[inter_group][len(node.interchange)] = loop_name
+            else:
+                node.interchange_groups[inter_group] = {
+                    len(node.interchange): loop_name
+                }
+        node.interchange.append(loop_name)
+
+        list_axis: list[int | str]
         if item.axis in axes:
             list_axis = axes[item.axis]
         else:
@@ -336,10 +345,11 @@ class ScheduleInterpreter:
     def _interpret_axis(
         self,
         item: AxisDecl,
-        interchange: list[str],
+        node: ParameterLoopNestNode,
     ) -> str:
         """Interpret a direct axis reference. Returns the loop name."""
         axis_name = item.axis
+        interchange = node.interchange
         if axis_name in self.abstract_matrix:
             return ""
         self._check_axis_existence(axis_name)
@@ -351,14 +361,22 @@ class ScheduleInterpreter:
                 f"Axis {axis_name} is scheduled twice (or more)."
             )
 
-        interchange.append(axis_name)
+        inter_group = item.annotations.interchange
+        if inter_group:
+            if inter_group in node.interchange_groups:
+                node.interchange_groups[inter_group][len(node.interchange)] = axis_name
+            else:
+                node.interchange_groups[inter_group] = {
+                    len(node.interchange): axis_name
+                }
+        node.interchange.append(axis_name)
+
         return axis_name
 
     def _interpret_prt(
         self,
         item: PRTDecl,
         node: ParameterLoopNestNode,
-        interchange: list[str],
         sizes: dict[str, literal],
         axes: dict[str, list[literal]],
     ) -> str:
@@ -367,8 +385,13 @@ class ScheduleInterpreter:
         parallelize = item.annotations.parallelize
         unroll = item.annotations.unroll_specified
 
+        interchange = item.annotations.interchange
+        if interchange == "interchange":
+            interchange = self._fresh("interchange")
         annotations = Annotations(
-            partial=item.annotations.partial, full=item.annotations.full
+            partial=item.annotations.partial,
+            full=item.annotations.full,
+            interchange=interchange,
         )
 
         def _parallelize():
@@ -411,7 +434,6 @@ class ScheduleInterpreter:
                         loop_name = self._interpret_tile(
                             TileDecl(a, fresh_a, annotations),
                             node,
-                            interchange,
                             sizes,
                             axes,
                         )
@@ -429,7 +451,6 @@ class ScheduleInterpreter:
                         loop_name = self._interpret_tile(
                             TileDecl(a, self._fresh(a), annotations),
                             node,
-                            interchange,
                             sizes,
                             axes,
                         )
@@ -444,7 +465,6 @@ class ScheduleInterpreter:
                         loop_name = self._interpret_tile(
                             TileDecl(a, self._fresh(a), annotations),
                             node,
-                            interchange,
                             sizes,
                             axes,
                         )
@@ -470,7 +490,6 @@ class ScheduleInterpreter:
                     self._interpret_tile(
                         TileDecl(a, self._fresh(a), annotations),
                         node,
-                        interchange,
                         sizes,
                         axes,
                     )
@@ -483,7 +502,6 @@ class ScheduleInterpreter:
                         self._interpret_tile(
                             TileDecl(a, self._fresh(a), annotations),
                             node,
-                            interchange,
                             sizes,
                             axes,
                         )
@@ -493,7 +511,6 @@ class ScheduleInterpreter:
                         loop_name = self._interpret_tile(
                             TileDecl(a, self._fresh(a), annotations),
                             node,
-                            interchange,
                             sizes,
                             axes,
                         )
