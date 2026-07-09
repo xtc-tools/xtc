@@ -367,6 +367,10 @@ class ScheduleInterpreter:
         parallelize = item.annotations.parallelize
         unroll = item.annotations.unroll_specified
 
+        annotations = Annotations(
+            partial=item.annotations.partial, full=item.annotations.full
+        )
+
         def _parallelize():
             if isinstance(parallelize, str):
                 node.parallelize_parameters[loop_name] = parallelize
@@ -405,7 +409,7 @@ class ScheduleInterpreter:
                     for a in self.abstract_p_dims:
                         fresh_a = self._fresh(a)
                         loop_name = self._interpret_tile(
-                            TileDecl(a, fresh_a, Annotations()),
+                            TileDecl(a, fresh_a, annotations),
                             node,
                             interchange,
                             sizes,
@@ -423,7 +427,7 @@ class ScheduleInterpreter:
                         )
                     for a in self.abstract_r_dims:
                         loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), Annotations()),
+                            TileDecl(a, self._fresh(a), annotations),
                             node,
                             interchange,
                             sizes,
@@ -438,7 +442,7 @@ class ScheduleInterpreter:
                 case "T":
                     for a in self.abstract_dims:
                         loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), Annotations()),
+                            TileDecl(a, self._fresh(a), annotations),
                             node,
                             interchange,
                             sizes,
@@ -464,7 +468,7 @@ class ScheduleInterpreter:
                         )
                     a = self.abstract_p_dims[0]
                     self._interpret_tile(
-                        TileDecl(a, self._fresh(a), Annotations()),
+                        TileDecl(a, self._fresh(a), annotations),
                         node,
                         interchange,
                         sizes,
@@ -477,7 +481,7 @@ class ScheduleInterpreter:
                         _unroll()
                     for a in self.abstract_r_dims:
                         self._interpret_tile(
-                            TileDecl(a, self._fresh(a), Annotations()),
+                            TileDecl(a, self._fresh(a), annotations),
                             node,
                             interchange,
                             sizes,
@@ -487,7 +491,7 @@ class ScheduleInterpreter:
                             _unroll()
                     for a in self.abstract_p_dims[1:]:
                         loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), Annotations()),
+                            TileDecl(a, self._fresh(a), annotations),
                             node,
                             interchange,
                             sizes,
