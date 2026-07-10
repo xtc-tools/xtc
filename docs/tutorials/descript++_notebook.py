@@ -574,7 +574,7 @@ def _(
     except Exception:
         mo.stop(True, mo.md(f"**Code error:**\n```\n{traceback.format_exc()}\n```"))
 
-    _results, _captured_info, _unsorted_results = _namespace.get("results", ([], {}))
+    _results, _captured_info, unsorted_results = _namespace.get("results", ([], {}))
 
     # Build results summary
     if not _results:
@@ -607,16 +607,18 @@ def _(
         f"#### Best configuration: **{_best['sample']}** ({_best['perf']:.2f}% of peak)",
     ])
 
-    max_perf = _unsorted_results[0]["perf"]
-    cumul = [max_perf]
-    results = [max_perf]
-    for d in _unsorted_results[1:]:
-        max_perf = max(max_perf, d["perf"])
-        if d["perf"] > max_perf:
-            raise Exception("HEIN")
-        cumul.append(max_perf)
-        results.append(d["perf"])
+    d_max_perf = unsorted_results[0]
+    cumul_d = [unsorted_results[0]]
 
+    for d in unsorted_results[1:]:
+        max_perf = max(d_max_perf["perf"], d["perf"])
+        if d["perf"] > d_max_perf["perf"]:
+            d_max_perf = d
+        cumul_d.append(d_max_perf)
+
+    cumul = [d["perf"] for d in cumul_d]
+    results = [d["perf"] for d in unsorted_results]
+    sorted_results = sorted(unsorted_results, key=lambda d: d["perf"])
 
     fig_cumul, ax_cumul = plt.subplots()
     ax_cumul.plot(cumul, color='r', label='cumulative')
@@ -628,8 +630,9 @@ def _(
     ax_cumul.legend()
 
     fig_sort, ax_sort = plt.subplots()
+    s_results = sorted(results)
     ax_sort.plot(cumul, color='r', label='cumulative')
-    ax_sort.plot(sorted(results), color='g', label='sorted')
+    ax_sort.plot(s_results, color='g', label='sorted')
     ax_sort.set_xlabel('Sample position')
     ax_sort.set_ylabel('% of peak performance')
     ax_sort.set_title('Performance of each sample')
@@ -640,6 +643,38 @@ def _(
     ui_sort = mo.ui.matplotlib(fig_sort.gca())
     ui_graphs = mo.ui.tabs({"sorted": ui_sort, "unsorted": ui_cumul})
     mo.vstack([mo.md("\n".join(_summary_lines)), ui_graphs])
+    return (
+        cumul,
+        cumul_d,
+        results,
+        s_results,
+        sorted_results,
+        ui_cumul,
+        ui_sort,
+        unsorted_results,
+    )
+
+
+@app.cell
+def _(
+    cumul,
+    cumul_d,
+    mo,
+    results,
+    s_results,
+    sorted_results,
+    ui_cumul,
+    ui_sort,
+    unsorted_results,
+):
+    mask_s = ui_sort.value.get_mask(range(len(s_results)), s_results)
+    mask_u = ui_cumul.value.get_mask(range(len(results)), results)
+    mask_c = ui_sort.value.get_mask(range(len(cumul)), cumul)
+
+    masked_sorted = [sorted_results[i] for (i, m) in enumerate(mask_s) if m]
+    masked_unsorted = [unsorted_results[i] for (i, m) in enumerate(mask_u) if m]
+    masked_cumul = [cumul_d[i] for (i, m) in enumerate(mask_s) if m]
+    mo.ui.tabs({"sorted": masked_sorted, "unsorted": masked_unsorted, "cumulative": masked_cumul})
     return
 
 
