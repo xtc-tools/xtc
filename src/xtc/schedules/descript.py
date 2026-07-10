@@ -78,12 +78,11 @@ class ScheduleInterpreter:
     partial_unrolls: bool = False
     _abstract_dim_fresh: dict[str, int] = field(default_factory=dict)
 
-    def __post_init__(self):
-        self._abstract_dim_fresh = {i: -1 for i in self.abstract_dims}
-        self._abstract_dim_fresh["interchange"] = -1
-
     def _fresh(self, axis: str):
-        self._abstract_dim_fresh[axis] += 1
+        if axis not in self._abstract_dim_fresh:
+            self._abstract_dim_fresh[axis] = 0
+        else:
+            self._abstract_dim_fresh[axis] += 1
         return f"prt_{axis}_{self._abstract_dim_fresh[axis]}"
 
     def interpret(self, spec: ScheduleSpec, root: str) -> ParameterLoopNest:
@@ -474,9 +473,22 @@ class ScheduleInterpreter:
                         if unroll and idx + 1 == len(item.shape):
                             _unroll()
                 case "U":
-                    raise ScheduleInterpretError(
-                        "TODO: Ansor-style U tile unimplemented (random order)"
+                    annotations_u = Annotations(
+                        partial=item.annotations.partial,
+                        full=item.annotations.full,
+                        interchange=self._fresh("interchange_u"),
                     )
+                    for a in self.abstract_dims:
+                        loop_name = self._interpret_tile(
+                            TileDecl(a, self._fresh(a), annotations_u),
+                            node,
+                            sizes,
+                            axes,
+                        )
+                        if parallelize:
+                            raise ScheduleInterpretError("Cannot parallelize a U tile.")
+                        if unroll and idx + 1 == len(item.shape):
+                            _unroll()
                 case "O":
                     if not self.abstract_p_dims:
                         raise ScheduleInterpretError(
