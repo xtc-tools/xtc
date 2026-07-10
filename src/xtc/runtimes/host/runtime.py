@@ -156,6 +156,7 @@ def _compile_runtime(out_dll: str, tdir: str, runtime_type: RuntimeType):
     debug_opts = "-DRUNTIME_DEBUG=1" if RUNTIME_DEBUG else ""
     files = [
         "evaluate_perf.c",
+        "perf_metrics.c",
         "cndarray.c",
         "alloc.c",
         "fclock.c",
@@ -175,7 +176,7 @@ def _compile_runtime(out_dll: str, tdir: str, runtime_type: RuntimeType):
     obj_files = [f"{tdir}/{Path(file).stem}.o" for file in src_files]
     for i, file in enumerate(src_files):
         cmd = (
-            "cc -c -O2 -march=native -fPIC "
+            "cc -c -O2 -g -march=native -fPIC "
             f"-I{src_dir} {debug_opts} {pfm_opts} {gpu_opts} -I{src_dir}/../accelerator/gpu "
             f"-o {obj_files[i]} {file}"
         )

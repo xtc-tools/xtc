@@ -656,6 +656,7 @@ class MppaDevice(AcceleratorDevice):
     @override
     def evaluate_perf(
         self,
+        results: Any,
         pmu_events: list[str],
         repeat: int,
         number: int,
@@ -663,7 +664,7 @@ class MppaDevice(AcceleratorDevice):
         cfunc: CFunc,
         args: Any,
         nargs: int,
-    ) -> list[float]:
+    ) -> None:
         if not self.mppa_initialized:
             self.init_device()
         assert self.lib_loader is not None
@@ -688,6 +689,7 @@ class MppaDevice(AcceleratorDevice):
             ctypes.c_int,
             ctypes.CFUNCTYPE(ctypes.c_voidp),
             ctypes.POINTER(ctypes.c_voidp),
+            ctypes.c_int,
         ]
         evaluate_perf_fn.restype = None
         evaluate_perf_fn(
@@ -707,15 +709,13 @@ class MppaDevice(AcceleratorDevice):
             mppa_pmu_events, repeat
         )
         # Interleave the results of host and mppa events to match the requested pmu_events order
-        out = []
         host_iter = iter(host_results)
         mppa_iter = iter(mppa_pmu_events_results)
-        for ev in pmu_events:
+        for i, ev in enumerate(pmu_events):
             if ev.startswith("mppa."):
-                out.append(next(mppa_iter))
+                results[i] = next(mppa_iter)
             else:
-                out.append(next(host_iter))
-        return out
+                results[i] = next(host_iter)
 
     @override
     def evaluate_packed(
