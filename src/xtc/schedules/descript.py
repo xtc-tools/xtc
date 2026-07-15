@@ -149,6 +149,13 @@ class ScheduleInterpreter:
                 )
 
         for k, v_d in node.interchange_groups.items():
+            read: set[str] = set()
+            for k_, v_d_ in v_d.items():
+                for a in self.abstract_dims:
+                    if a in v_d_:
+                        if a in read:
+                            raise ScheduleInterpretError(f"Axis {a} is used twice in interchange {k}.")
+                        read.add(a)
             node.constraints.append(f"1 <= {k} <= {factorial(len(v_d))}")
 
         # Reaplace the placeholder of the last split with its size
