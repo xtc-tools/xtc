@@ -77,6 +77,7 @@ class ScheduleInterpreter:
     partial_tiles: bool = False
     partial_unrolls: bool = False
     _abstract_dim_fresh: dict[str, int] = field(default_factory=dict)
+    _levels: dict[str, dict[str, literal | None]] = field(default_factory=dict)
 
     def _fresh(self, axis: str):
         if axis not in self._abstract_dim_fresh:
@@ -90,6 +91,11 @@ class ScheduleInterpreter:
         loop_nest = ParameterLoopNest(abstract_dims=self.abstract_dims)
         root_node = loop_nest.build_root_node(root)
         self._interpret_spec_into_node(spec, root_node, root, head=[])
+        levels = {
+            k: {k_: v_ if v_ is not None else 1 for k_, v_ in level.items()}
+            for k, level in self._levels.items()
+        }
+        root_node._levels = levels
         return loop_nest
 
     def _interpret_spec_into_node(
@@ -154,7 +160,9 @@ class ScheduleInterpreter:
                 for a in self.abstract_dims:
                     if a in v_d_:
                         if a in read:
-                            raise ScheduleInterpretError(f"Axis {a} is used twice in interchange {k}.")
+                            raise ScheduleInterpretError(
+                                f"Axis {a} is used twice in interchange {k}."
+                            )
                         read.add(a)
             node.constraints.append(f"1 <= {k} <= {factorial(len(v_d))}")
 
@@ -279,6 +287,9 @@ class ScheduleInterpreter:
         )
         node.add_child(child_node)
 
+        if current_size is not None:
+            self._update_levels(item.axis, current_size)
+
         # Recursively interpret the nested schedule into the child node
         self._interpret_spec_into_node(
             spec=item.body,
@@ -346,6 +357,7 @@ class ScheduleInterpreter:
                 node.constraints.append(s)
         list_axis.append(item.size)
 
+        self._update_levels(item.axis, axes[item.axis][-1])
         return loop_name
 
     def _interpret_axis(
@@ -377,6 +389,8 @@ class ScheduleInterpreter:
                 }
         node.interchange.append(axis_name)
 
+        if self.abstract_dim_sizes:
+            self._update_levels(axis_name, self.abstract_dim_sizes[axis_name])
         return axis_name
 
     def _interpret_prt(
@@ -390,15 +404,25 @@ class ScheduleInterpreter:
 
         parallelize = item.annotations.parallelize
         unroll = item.annotations.unroll_specified
+        level = item.annotations.level
 
         interchange = item.annotations.interchange
         if interchange == "interchange":
             interchange = self._fresh("interchange")
-        annotations = Annotations(
-            partial=item.annotations.partial,
-            full=item.annotations.full,
-            interchange=interchange,
-        )
+
+        def _annotations(axis: str):
+            if not level:
+                return Annotations(
+                    partial=item.annotations.partial,
+                    full=item.annotations.full,
+                    interchange=interchange,
+                )
+            return Annotations(
+                partial=item.annotations.partial,
+                full=item.annotations.full,
+                interchange=interchange,
+                level=level + axis,
+            )
 
         def _parallelize():
             if isinstance(parallelize, str):
@@ -428,6 +452,10 @@ class ScheduleInterpreter:
                     node.constraints.append(f"{unroll_factor} || {sizes[loop_name]}")
             node.unroll[loop_name] = unroll_factor
 
+        if level and len(item.shape) > 1:
+            raise ScheduleInterpretError(
+                "Cannot use the same level on mulitple PRT tiles."
+            )
         for idx, t in enumerate(item.shape):
             match t:
                 case "P":
@@ -438,7 +466,7 @@ class ScheduleInterpreter:
                     for a in self.abstract_p_dims:
                         fresh_a = self._fresh(a)
                         loop_name = self._interpret_tile(
-                            TileDecl(a, fresh_a, annotations),
+                            TileDecl(a, fresh_a, _annotations(a)),
                             node,
                             sizes,
                             axes,
@@ -455,7 +483,7 @@ class ScheduleInterpreter:
                         )
                     for a in self.abstract_r_dims:
                         loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), annotations),
+                            TileDecl(a, self._fresh(a), _annotations(a)),
                             node,
                             sizes,
                             axes,
@@ -469,7 +497,7 @@ class ScheduleInterpreter:
                 case "T":
                     for a in self.abstract_dims:
                         loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), annotations),
+                            TileDecl(a, self._fresh(a), _annotations(a)),
                             node,
                             sizes,
                             axes,
@@ -480,6 +508,8 @@ class ScheduleInterpreter:
                         if unroll and idx + 1 == len(item.shape):
                             _unroll()
                 case "U":
+                    if level:
+                        raise ScheduleInterpretError("Cannot use level on a U tile.")
                     annotations_u = Annotations(
                         partial=item.annotations.partial,
                         full=item.annotations.full,
@@ -507,7 +537,7 @@ class ScheduleInterpreter:
                         )
                     a = self.abstract_p_dims[0]
                     self._interpret_tile(
-                        TileDecl(a, self._fresh(a), annotations),
+                        TileDecl(a, self._fresh(a), _annotations(a)),
                         node,
                         sizes,
                         axes,
@@ -519,7 +549,7 @@ class ScheduleInterpreter:
                         _unroll()
                     for a in self.abstract_r_dims:
                         self._interpret_tile(
-                            TileDecl(a, self._fresh(a), annotations),
+                            TileDecl(a, self._fresh(a), _annotations(a)),
                             node,
                             sizes,
                             axes,
@@ -528,7 +558,7 @@ class ScheduleInterpreter:
                             _unroll()
                     for a in self.abstract_p_dims[1:]:
                         loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), annotations),
+                            TileDecl(a, self._fresh(a), _annotations(a)),
                             node,
                             sizes,
                             axes,
@@ -612,6 +642,12 @@ class ScheduleInterpreter:
             else:
                 node.parallelize.append(loop_name)
 
+        if annotations.level:
+            level = annotations.level
+            if level in self._levels:
+                raise ScheduleInterpretError(f"Level {level} used multiple times.")
+            self._levels[level] = {k: None for k in self.abstract_dims}
+
         if annotations.buffer_specified:
             node.buffer_at[loop_name] = annotations.buffer
 
@@ -642,6 +678,11 @@ class ScheduleInterpreter:
                     node.constraints.append(f"{annotations.pack_specified} in {{0, 1}}")
                     if isinstance(pad, str):
                         node.constraints.append(f"{pad} in {{0,1}}")
+
+    def _update_levels(self, axis: str, size: literal):
+        for name, level in self._levels.items():
+            if level[axis] is None:
+                level[axis] = size
 
     def _check_splitting_intervals(
         self,

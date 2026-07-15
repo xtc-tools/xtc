@@ -126,6 +126,7 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     pack_at: dict[str, tuple[int, str | None, bool | str]] = field(default_factory=dict)
     pack_parameters: dict[str, str] = field(default_factory=dict)
     constraints: list[str] = field(default_factory=list)
+    _levels: dict[str, dict[str, literal]] = field(default_factory=dict)
 
     def apply_sample(self, sample: dict[str, int]) -> LoopNestNode:
         """

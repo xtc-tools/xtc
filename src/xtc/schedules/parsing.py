@@ -73,6 +73,7 @@ class Annotations:
     pack: tuple[literal, str | None, bool | str] | None = None
     pack_specified: bool | str = False
     interchange: str = ""
+    level: str = ""
     partial: bool = False
     full: bool = False
 
@@ -226,6 +227,7 @@ class ScheduleParser:
         pack: tuple[literal, str | None, bool | str] | None = None
         pack_specified: bool | str = False
         interchange: str = ""
+        level: str = ""
         partial = False
         full = False
 
@@ -286,6 +288,12 @@ class ScheduleParser:
                         interchange = "interchange"
                     else:
                         interchange = param
+                case "level":
+                    if param is None:
+                        raise ScheduleParseError(
+                            f"Level annotation without name on {declaration}: {key}"
+                        )
+                    level = param
                 case "partial":
                     partial = True
                 case "full":
@@ -310,6 +318,7 @@ class ScheduleParser:
             pack=pack,
             pack_specified=pack_specified,
             interchange=interchange,
+            level=level,
             partial=partial,
             full=full,
         )

@@ -37,16 +37,16 @@ spec = f"""
         - nr == {vector_size} * nvr
         - nvr * mr >= {ilp}
         - nvr * mr * kr <= {reorder_buffer}
-        - kc * nr <= {nb_words_L1}
-        - kc * mc <= {nb_words_L2}
-        - kc * nc <= {nb_words_L3}
+        - footprint(B, L1) <= {nb_words_L1}
+        - footprint(A, L2) <= {nb_words_L2}
+        - footprint(B, L3) <= {nb_words_L3}
     j:
     k:
     B: pack=pack_B pad
-    i:
+    i: level=L3
     A: pack pad=pad_A
-    j#nc:
-    i#mc:
+    j#nc: level=L2
+    i#mc: level=L1
     k#kc: unroll=kr
     i#mr: unroll full
     j#nr: vectorize full
@@ -57,5 +57,5 @@ strategy = Strategy(graph, spec, partial_tiles=True, partial_unrolls=True, initi
 print(sorted(strategy._constraints))
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: ['1 + nvr + nvr * mr <= 32', 'kc * mc <= 262144', 'kc * nc <= 9437184', 'kc * nr <= 8192', 'kc <= 1024', 'kr <= kc', 'mc <= 1024', 'mr || {1024, mc}', 'nc <= 1024', 'nr == 16 * nvr', 'nr || {1024, nc}', 'nvr * mr * kr <= 256', 'nvr * mr >= 8', 'pack_B in {0, 1}', 'pad_A in {0,1}']
+# CHECK: ['1 + nvr + nvr * mr <= 32', 'kc * nc <= 9437184', 'kc * nr <= 8192', 'kc <= 1024', 'kr <= kc', 'mc * kc <= 262144', 'mc <= 1024', 'mr || {1024, mc}', 'nc <= 1024', 'nr == 16 * nvr', 'nr || {1024, nc}', 'nvr * mr * kr <= 256', 'nvr * mr >= 8', 'pack_B in {0, 1}', 'pad_A in {0,1}']
 #CHECK-NEXT: 100
