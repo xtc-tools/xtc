@@ -18,5 +18,5 @@ strategy = Strategy(graph, spec, initialize=False, partial_tiles=True, partial_u
 print(sorted(strategy._constraints))
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: ['prt_i_0 <= 21', 'prt_i_1 <= prt_i_0', 'prt_i_2 <= prt_i_1', 'prt_i_3 || {21, prt_i_0, prt_i_1, prt_i_2}', 'prt_j_0 <= 32', 'prt_j_1 <= prt_j_0', 'prt_j_2 <= prt_j_1', 'prt_j_3 || {32, prt_j_0, prt_j_1, prt_j_2}', 'prt_k_0 <= 12', 'prt_k_1 <= prt_k_0', 'u_k_prt_k1 <= prt_k_1']
+# CHECK: ['prt_i_0 <= 21', 'prt_i_1 <= prt_i_0', 'prt_i_2 || {21, prt_i_0, prt_i_1}', 'prt_j_0 <= 32', 'prt_j_1 <= prt_j_0', 'prt_j_2 || {32, prt_j_0, prt_j_1}', 'prt_k_0 <= 12', 'u_k_prt_k0 <= prt_k_0']
 # CHECK-NEXT: 100

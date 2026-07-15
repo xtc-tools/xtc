@@ -410,7 +410,7 @@ class ScheduleInterpreter:
         if interchange == "interchange":
             interchange = self._fresh("interchange")
 
-        def _annotations(axis: str):
+        def _annotations(axis: str) -> Annotations:
             if not level:
                 return Annotations(
                     partial=item.annotations.partial,
@@ -452,6 +452,18 @@ class ScheduleInterpreter:
                     node.constraints.append(f"{unroll_factor} || {sizes[loop_name]}")
             node.unroll[loop_name] = unroll_factor
 
+        def _interpret(axis: str, annotations: Annotations | None = None):
+            if axis not in node.interchange:
+                if not annotations:
+                    annotations = Annotations()
+                return self._interpret_axis(AxisDecl(axis, annotations), node)
+            else:
+                if not annotations:
+                    annotations = _annotations(a)
+                return self._interpret_tile(
+                    TileDecl(a, self._fresh(a), annotations), node, sizes, axes
+                )
+
         if level and len(item.shape) > 1:
             raise ScheduleInterpretError(
                 "Cannot use the same level on mulitple PRT tiles."
@@ -464,13 +476,7 @@ class ScheduleInterpreter:
                             "P scheme used, but P axes are not specified"
                         )
                     for a in self.abstract_p_dims:
-                        fresh_a = self._fresh(a)
-                        loop_name = self._interpret_tile(
-                            TileDecl(a, fresh_a, _annotations(a)),
-                            node,
-                            sizes,
-                            axes,
-                        )
+                        loop_name = _interpret(a)
                         if parallelize:
                             _parallelize()
                             parallelize = False
@@ -482,12 +488,7 @@ class ScheduleInterpreter:
                             "R scheme used, but R axes are not specified"
                         )
                     for a in self.abstract_r_dims:
-                        loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), _annotations(a)),
-                            node,
-                            sizes,
-                            axes,
-                        )
+                        loop_name = _interpret(a)
                         if parallelize:
                             raise ScheduleInterpretError(
                                 "Cannot parallelize a reduction axis"
@@ -496,12 +497,7 @@ class ScheduleInterpreter:
                             _unroll()
                 case "T":
                     for a in self.abstract_dims:
-                        loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), _annotations(a)),
-                            node,
-                            sizes,
-                            axes,
-                        )
+                        loop_name = _interpret(a)
                         if parallelize:
                             _parallelize()
                             parallelize = False
@@ -516,12 +512,7 @@ class ScheduleInterpreter:
                         interchange=self._fresh("interchange_u"),
                     )
                     for a in self.abstract_dims:
-                        loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), annotations_u),
-                            node,
-                            sizes,
-                            axes,
-                        )
+                        loop_name = _interpret(a, annotations_u)
                         if parallelize:
                             raise ScheduleInterpretError("Cannot parallelize a U tile.")
                         if unroll and idx + 1 == len(item.shape):
@@ -536,33 +527,18 @@ class ScheduleInterpreter:
                             "O scheme used, but R axes are not specified"
                         )
                     a = self.abstract_p_dims[0]
-                    self._interpret_tile(
-                        TileDecl(a, self._fresh(a), _annotations(a)),
-                        node,
-                        sizes,
-                        axes,
-                    )
+                    _interpret(a)
                     if parallelize:
                         _parallelize()
                         parallelize = False
                     if unroll and idx + 1 == len(item.shape):
                         _unroll()
                     for a in self.abstract_r_dims:
-                        self._interpret_tile(
-                            TileDecl(a, self._fresh(a), _annotations(a)),
-                            node,
-                            sizes,
-                            axes,
-                        )
+                        _interpret(a)
                         if unroll and idx + 1 == len(item.shape):
                             _unroll()
                     for a in self.abstract_p_dims[1:]:
-                        loop_name = self._interpret_tile(
-                            TileDecl(a, self._fresh(a), _annotations(a)),
-                            node,
-                            sizes,
-                            axes,
-                        )
+                        loop_name = _interpret(a)
                         if unroll and idx + 1 == len(item.shape):
                             _unroll()
                 case "W":
