@@ -79,13 +79,6 @@ class ScheduleInterpreter:
     _abstract_dim_fresh: dict[str, int] = field(default_factory=dict)
     _levels: dict[str, dict[str, literal | None]] = field(default_factory=dict)
 
-    def _fresh(self, axis: str):
-        if axis not in self._abstract_dim_fresh:
-            self._abstract_dim_fresh[axis] = 0
-        else:
-            self._abstract_dim_fresh[axis] += 1
-        return f"prt_{axis}_{self._abstract_dim_fresh[axis]}"
-
     def interpret(self, spec: ScheduleSpec, root: str) -> ParameterLoopNest:
         """Interpret a schedule specification into a LoopNest."""
         loop_nest = ParameterLoopNest(abstract_dims=self.abstract_dims)
@@ -109,9 +102,11 @@ class ScheduleInterpreter:
         """Interpret a schedule spec into an existing node (mutates node)."""
         # Track state during interpretation
         previous_cut: dict[str, literal | None] = {a: 0 for a in self.abstract_dims}
-        node.interchange = list(head)
         last_split: list[tuple[literal, literal | None]] = []
         loop_name: str = ""
+
+        node.interchange = list(head)
+
         if not axes:
             axes = dict()
         if self.abstract_dim_sizes:
@@ -222,15 +217,10 @@ class ScheduleInterpreter:
             node.splits[axis_name][new_dim_name] = x
             node.interchange.append(new_dim_name)
 
-            inner_size = None
             if y is None:
                 y = current_size
-            if isinstance(x, int):
-                if x == 0:
-                    inner_size = y
-                elif isinstance(y, int):
-                    inner_size = y - x
-            if inner_size is None:
+
+            if isinstance(x, str) or (x != 0 and isinstance(y, str)):
                 inner_size = root[1:] + new_dim_name
                 inner_size = (
                     inner_size.replace(_SPLIT_LEFT, "_")
@@ -242,10 +232,8 @@ class ScheduleInterpreter:
                     node.constraints.append(f"{x} <= {y}")
                 node.constraints.append(f"{inner_size} + {x} == {y}")
         else:
-            inner_size = z
-            x = cut
             y = current_size
-            assert x is not None
+
             # Save the cutting points of the new dimensions
             node.splits[axis_name][new_dim_name] = x
             node.interchange.append(new_dim_name)
@@ -299,12 +287,13 @@ class ScheduleInterpreter:
     ) -> str:
         """Interpret a tile declaration. Returns the loop name."""
         self._check_axis_existence(item.axis)
-        tile_num = len(node.tiles[item.axis])
-        loop_name = f"{item.axis}{tile_num}"
         if isinstance(item.size, int) and item.size <= 0:
             raise ScheduleInterpretError(
                 f"`{item}`: tile sizes should be strictly positive."
             )
+
+        tile_num = len(node.tiles[item.axis])
+        loop_name = f"{item.axis}{tile_num}"
         node.tiles[item.axis][loop_name] = item.size
 
         inter_group = item.annotations.interchange
@@ -315,8 +304,10 @@ class ScheduleInterpreter:
                 node.interchange_groups[inter_group] = {
                     len(node.interchange): loop_name
                 }
+
         node.interchange.append(loop_name)
 
+        # Alias for axes[item.axis]
         list_axis: list[int | str]
         if item.axis in axes:
             list_axis = axes[item.axis]
@@ -338,11 +329,7 @@ class ScheduleInterpreter:
                     raise ScheduleInterpretError(
                         f"`{item}` is a full tile, but the axis sizes are unknown."
                     )
-                s = (
-                    ", ".join(map(str, list_axis))
-                    if len(list_axis) > 1
-                    else str(list_axis[0])
-                )
+                s = ", ".join(map(str, list_axis))
                 s = f"{item.size} || {{{s}}}"
                 node.constraints.append(s)
         list_axis.append(item.size)
@@ -369,6 +356,7 @@ class ScheduleInterpreter:
                 f"Axis {axis_name} is scheduled twice (or more)."
             )
 
+        # If the axis is in an interchange group, update that group
         inter_group = item.annotations.interchange
         if inter_group:
             if inter_group in node.interchange_groups:
@@ -377,11 +365,19 @@ class ScheduleInterpreter:
                 node.interchange_groups[inter_group] = {
                     len(node.interchange): axis_name
                 }
+
         node.interchange.append(axis_name)
 
         if self.abstract_dim_sizes:
             self._update_levels(axis_name, self.abstract_dim_sizes[axis_name])
         return axis_name
+
+    def _fresh(self, axis: str):
+        if axis not in self._abstract_dim_fresh:
+            self._abstract_dim_fresh[axis] = 0
+        else:
+            self._abstract_dim_fresh[axis] += 1
+        return f"prt_{axis}_{self._abstract_dim_fresh[axis]}"
 
     def _interpret_prt(
         self,
@@ -389,7 +385,6 @@ class ScheduleInterpreter:
         node: ParameterLoopNestNode,
         axes: dict[str, list[literal]],
     ) -> str:
-        loop_name = ""
 
         parallelize = item.annotations.parallelize
         unroll = item.annotations.unroll_specified
@@ -399,18 +394,25 @@ class ScheduleInterpreter:
         if interchange == "interchange":
             interchange = self._fresh("interchange")
 
+        loop_name: str = ""
+
+        if level and len(item.shape) > 1:
+            raise ScheduleInterpretError(
+                "Cannot use the same level on mulitple PRT tiles."
+            )
+
         def _annotations(axis: str) -> Annotations:
-            if not level:
+            if level:
                 return Annotations(
                     partial=item.annotations.partial,
                     full=item.annotations.full,
                     interchange=interchange,
+                    level=level + axis,
                 )
             return Annotations(
                 partial=item.annotations.partial,
                 full=item.annotations.full,
                 interchange=interchange,
-                level=level + axis,
             )
 
         def _parallelize():
@@ -444,21 +446,16 @@ class ScheduleInterpreter:
             node.unroll[loop_name] = unroll_factor
 
         def _interpret(axis: str, annotations: Annotations | None = None):
+            if not annotations:
+                annotations = _annotations(axis)
+
             if axis not in node.interchange:
-                if not annotations:
-                    annotations = Annotations()
                 return self._interpret_axis(AxisDecl(axis, annotations), node)
             else:
-                if not annotations:
-                    annotations = _annotations(a)
                 return self._interpret_tile(
-                    TileDecl(a, self._fresh(a), annotations), node, axes
+                    TileDecl(axis, self._fresh(axis), annotations), node, axes
                 )
 
-        if level and len(item.shape) > 1:
-            raise ScheduleInterpretError(
-                "Cannot use the same level on mulitple PRT tiles."
-            )
         for idx, t in enumerate(item.shape):
             match t:
                 case "P":
@@ -517,19 +514,16 @@ class ScheduleInterpreter:
                         raise ScheduleInterpretError(
                             "O scheme used, but R axes are not specified"
                         )
-                    a = self.abstract_p_dims[0]
-                    _interpret(a)
-                    if parallelize:
-                        _parallelize()
-                        parallelize = False
-                    if unroll and idx + 1 == len(item.shape):
-                        _unroll(a)
-                    for a in self.abstract_r_dims:
+                    dims = (
+                        [self.abstract_p_dims[0]]
+                        + self.abstract_r_dims
+                        + self.abstract_p_dims[1:]
+                    )
+                    for a in dims:
                         _interpret(a)
-                        if unroll and idx + 1 == len(item.shape):
-                            _unroll(a)
-                    for a in self.abstract_p_dims[1:]:
-                        loop_name = _interpret(a)
+                        if parallelize:
+                            _parallelize()
+                            parallelize = False
                         if unroll and idx + 1 == len(item.shape):
                             _unroll(a)
                 case "W":
