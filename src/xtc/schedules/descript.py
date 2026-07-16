@@ -100,9 +100,11 @@ class ScheduleInterpreter:
         axes: dict[str, list[literal]] | None = None,
     ) -> None:
         """Interpret a schedule spec into an existing node (mutates node)."""
-        # Track state during interpretation
+        # Track previous split for each axis
         previous_cut: dict[str, literal | None] = {a: 0 for a in self.abstract_dims}
+        # Track finak split and corresponding missing size
         last_split: list[tuple[literal, literal | None]] = []
+        # Name of the last loop nest (declared here for typing/liveness)
         loop_name: str = ""
 
         node.interchange = list(head)
@@ -145,6 +147,8 @@ class ScheduleInterpreter:
                     axes=axes,
                 )
 
+        # Check interchange groups only use each axis at most once
+        # And create the sampling constraint
         for k, v_d in node.interchange_groups.items():
             read: set[str] = set()
             for k_, v_d_ in v_d.items():
@@ -157,7 +161,7 @@ class ScheduleInterpreter:
                         read.add(a)
             node.constraints.append(f"1 <= {k} <= {factorial(len(v_d))}")
 
-        # Reaplace the placeholder of the last split with its size
+        # Replace the placeholder of the last split with its size
         if len(last_split) > 0:
             a0, b0 = last_split[0]
             if isinstance(a0, int) and not isinstance(b0, int):
@@ -209,7 +213,10 @@ class ScheduleInterpreter:
         new_dim_name = f"{axis_name}{_SPLIT_LEFT}{new_dim_index}{_SPLIT_RIGHT}"
         new_root_name = f"{root}{_NODE_SEP}{new_dim_name}"
 
+        # i[x:y]
         if z is None:
+            # Split from x to y
+
             # Update the previous cut
             previous_cut[axis_name] = y
 
@@ -217,9 +224,11 @@ class ScheduleInterpreter:
             node.splits[axis_name][new_dim_name] = x
             node.interchange.append(new_dim_name)
 
+            # i[x:] => i[x:end]
             if y is None:
                 y = current_size
 
+            # Add constraints if the size of the split, or the size of the tile being split, is unknown
             if isinstance(x, str) or (x != 0 and isinstance(y, str)):
                 inner_size = root[1:] + new_dim_name
                 inner_size = (
@@ -231,12 +240,17 @@ class ScheduleInterpreter:
                 if isinstance(x, str):
                     node.constraints.append(f"{x} <= {y}")
                 node.constraints.append(f"{inner_size} + {x} == {y}")
+
+        # i[:z:]
         else:
+            # Split from x, of size z, that fits in y
             y = current_size
 
             # Save the cutting points of the new dimensions
             node.splits[axis_name][new_dim_name] = x
             node.interchange.append(new_dim_name)
+
+            # Update the previous cut, and add constraints if needed
             if isinstance(z, int) and isinstance(x, int):
                 previous_cut[axis_name] = x + z
                 if not isinstance(y, int):
@@ -267,6 +281,7 @@ class ScheduleInterpreter:
         )
         node.add_child(child_node)
 
+        # TODO: is this the correct footprint?
         if current_size is not None:
             self._update_levels(item.axis, current_size)
 
@@ -296,6 +311,7 @@ class ScheduleInterpreter:
         loop_name = f"{item.axis}{tile_num}"
         node.tiles[item.axis][loop_name] = item.size
 
+        # If the tile is in an interchange group, update that group
         inter_group = item.annotations.interchange
         if inter_group:
             if inter_group in node.interchange_groups:
@@ -314,9 +330,12 @@ class ScheduleInterpreter:
         else:
             list_axis = []
             axes[item.axis] = list_axis
+
+        # Add the contraints
         if isinstance(item.size, str):
             partial = item.annotations.partial
             full = item.annotations.full
+            # Partial tile
             if partial or (not full and self.partial_tiles):
                 if not list_axis:
                     raise ScheduleInterpretError(
@@ -324,6 +343,7 @@ class ScheduleInterpreter:
                     )
                 old_size = list_axis[-1]
                 node.constraints.append(f"{item.size} <= {old_size}")
+            # Full tile
             else:
                 if not self.abstract_dim_sizes:
                     raise ScheduleInterpretError(
@@ -332,6 +352,8 @@ class ScheduleInterpreter:
                 s = ", ".join(map(str, list_axis))
                 s = f"{item.size} || {{{s}}}"
                 node.constraints.append(s)
+
+        # Update axes
         list_axis.append(item.size)
 
         self._update_levels(item.axis, axes[item.axis][-1])
@@ -345,8 +367,11 @@ class ScheduleInterpreter:
         """Interpret a direct axis reference. Returns the loop name."""
         axis_name = item.axis
         interchange = node.interchange
+
+        # AxisDecl is actually a bufferization line
         if axis_name in self.abstract_matrix:
             return ""
+
         self._check_axis_existence(axis_name)
 
         # Unreachable when built from a Python dict (because keys
@@ -385,11 +410,18 @@ class ScheduleInterpreter:
         node: ParameterLoopNestNode,
         axes: dict[str, list[literal]],
     ) -> str:
+        """Interpret a sequence of PRT tiles. Returns the last loop name.
+        The comportement of annotations is derived from BaseStrategyPRTScheme.
+        Parallelize is applied on the first tile only.
+        Unroll is applied on the last tile only.
+        Vectorize is applied on the last axis only.
+        Pack/Buffer are applied after the last axis.
+        """
 
+        # Collect annotations
         parallelize = item.annotations.parallelize
         unroll = item.annotations.unroll_specified
         level = item.annotations.level
-
         interchange = item.annotations.interchange
         if interchange == "interchange":
             interchange = self._fresh("interchange")
@@ -459,6 +491,7 @@ class ScheduleInterpreter:
         for idx, t in enumerate(item.shape):
             match t:
                 case "P":
+                    # All P-axes in order
                     if not self.abstract_p_dims:
                         raise ScheduleInterpretError(
                             "P scheme used, but P axes are not specified"
@@ -471,6 +504,7 @@ class ScheduleInterpreter:
                         if unroll and idx + 1 == len(item.shape):
                             _unroll(a)
                 case "R":
+                    # All R-axes in order
                     if not self.abstract_r_dims:
                         raise ScheduleInterpretError(
                             "R scheme used, but R axes are not specified"
@@ -484,6 +518,7 @@ class ScheduleInterpreter:
                         if unroll and idx + 1 == len(item.shape):
                             _unroll(a)
                 case "T":
+                    # All axes in order
                     for a in self.abstract_dims:
                         loop_name = _interpret(a)
                         if parallelize:
@@ -492,6 +527,7 @@ class ScheduleInterpreter:
                         if unroll and idx + 1 == len(item.shape):
                             _unroll(a)
                 case "U":
+                    # All axes in a random order (creates an interchange group)
                     if level:
                         raise ScheduleInterpretError("Cannot use level on a U tile.")
                     annotations_u = Annotations(
@@ -506,6 +542,7 @@ class ScheduleInterpreter:
                         if unroll and idx + 1 == len(item.shape):
                             _unroll(a)
                 case "O":
+                    # first P-axis then R-axes, then remaining P-axis
                     if not self.abstract_p_dims:
                         raise ScheduleInterpretError(
                             "O scheme used, but P axes are not specified"
@@ -527,10 +564,13 @@ class ScheduleInterpreter:
                         if unroll and idx + 1 == len(item.shape):
                             _unroll(a)
                 case "W":
+                    # Add an output write buffer at this level
                     node.buffer_at[loop_name] = None
                 case "F":
+                    # Fuse producer at this level
                     raise ScheduleInterpretError("TODO: Fusion unimplemented")
 
+        # Vectorize the last axis
         if item.annotations.vectorize:
             if isinstance(item.annotations.vectorize, str):
                 node.vectorize_parameters[loop_name] = item.annotations.vectorize
@@ -538,9 +578,11 @@ class ScheduleInterpreter:
             else:
                 node.vectorize.append(loop_name)
 
+        # Write buffer after the last axis
         if item.annotations.buffer_specified:
             node.buffer_at[loop_name] = item.annotations.buffer
 
+        # Read buffer after the last axis
         if item.annotations.pack_specified and item.annotations.pack is not None:
             input_matrix, mtype, pad = item.annotations.pack
             if isinstance(input_matrix, str):
@@ -620,6 +662,7 @@ class ScheduleInterpreter:
             input_matrix, mtype, pad = annotations.pack
             if isinstance(input_matrix, str):
                 idx = self.abstract_matrix.index(input_matrix)
+                # Write buffer
                 if idx == len(self.abstract_matrix) - 1:
                     node.buffer_at[loop_name] = mtype
                     if isinstance(annotations.pack_specified, str):
@@ -627,6 +670,7 @@ class ScheduleInterpreter:
                         node.constraints.append(
                             f"{annotations.buffer_specified} in {{0, 1}}"
                         )
+                # Read buffer
                 else:
                     node.pack_at[loop_name] = (idx, mtype, pad)
                     if isinstance(annotations.pack_specified, str):
