@@ -12,8 +12,6 @@ from xtc.schedules.loop_nest import LoopNest, LoopNestNode, SplitOrigin
 
 NodeT = TypeVar("NodeT", bound="Node[Any]")
 
-from .exceptions import ScheduleValidationError
-
 literal = int | str
 
 
@@ -453,14 +451,6 @@ class ParameterLoopNest:
         self.root_node = node
         return node
 
-    def check(self):
-        assert self.root_node is not None
-        info = ParameterLoopInfo.build_from_node(self.root_node)
-        self._check_use_defined_dims(info)
-        self._check_vectorization_consistency()
-        self._check_tiling_consistency(info)
-        self._check_sizes(info)
-
     def apply_sample(self, sample: dict[str, int]) -> LoopNest:
         """
         Replaces the string parameters with the correspondings values in sample.
@@ -475,121 +465,3 @@ class ParameterLoopNest:
         for node in self.nodes:
             constraints += node.constraints
         return constraints
-
-    def _check_use_defined_dims(self, info: ParameterLoopInfo):
-        for dim in self.abstract_dims:
-            if dim not in info.dims:
-                raise ScheduleValidationError(f"{dim} defined but never used")
-
-    def _check_vectorization_consistency(self):
-        for sched in self.nodes:
-            vect_above = False
-            for loop_name in sched.interchange:
-                if loop_name in sched.vectorize:
-                    vect_above = True
-                elif vect_above:
-                    raise ScheduleValidationError(
-                        f"Inner loop {loop_name} isn't vectorized but an outer one is."
-                    )
-
-    def _check_tiling_consistency(self, info: ParameterLoopInfo) -> None:
-        seen_axes: dict[str, literal | None] = {}
-        for sched in self.nodes:
-            for loop_name in sched.interchange:
-                if loop_name in info.dims:
-                    seen_axes[loop_name] = None
-                elif loop_name in info.splits_to_axis:
-                    axis = info.splits_to_axis[loop_name]
-                    seen_axes[axis] = sched.splits[axis][loop_name]
-                elif loop_name in info.tiles_to_axis:
-                    axis = info.tiles_to_axis[loop_name]
-                    size = sched.tiles[axis][loop_name]
-                    if axis not in seen_axes:
-                        raise ScheduleValidationError(
-                            f"""
-                            `{axis}#{size}`: {axis} has not been materialized yet.
-                            """
-                        )
-                    seen_axes[axis] = size
-
-    def _check_sizes(self, info: ParameterLoopInfo):
-        current_size_of_split: dict[str, literal | None] = {}
-        for sched in self.nodes:
-            current_size_of_tile: dict[str, literal] = {}
-            if sched.split_origin is not None:
-                axis = sched.split_origin.axis
-                start = sched.split_origin.start
-                end = sched.split_origin.end
-                if end is not None and start is not None:
-                    current_size_of_split[axis] = (
-                        end - start
-                        if isinstance(end, int) and isinstance(start, int)
-                        else f"{end} - {start}"
-                    )
-                else:
-                    current_size_of_split[axis] = None
-
-            for loop_name in sched.interchange:
-                axis = info.loops_to_axis[loop_name]
-                current_sizes = (
-                    {d: None for d in info.dims}
-                    | current_size_of_split
-                    | current_size_of_tile
-                )
-                loop_size = None
-                if loop_name in info.dims:
-                    if loop_name not in current_size_of_split:
-                        current_size_of_split[loop_name] = None
-                elif loop_name in info.tiles_to_axis:
-                    loop_size = sched.tiles[axis][loop_name]
-                    ParameterLoopNest._must_be_smaller_routine(
-                        new_size=loop_size,
-                        current_sizes=current_sizes,
-                        loop_name=loop_name,
-                        axis=axis,
-                    )
-                    current_size_of_tile[axis] = loop_size
-                elif (
-                    loop_name in info.splits_to_axis
-                    and loop_name in info.splits_to_sizes
-                ):
-                    loop_size = info.splits_to_sizes[loop_name]
-                    ParameterLoopNest._must_be_smaller_routine(
-                        new_size=loop_size,
-                        current_sizes=current_sizes,
-                        loop_name=loop_name,
-                        axis=axis,
-                    )
-                    current_size_of_split[axis] = loop_size
-
-                if loop_name in sched.unroll:
-                    unroll_factor = sched.unroll[loop_name]
-                    if (
-                        loop_size
-                        and isinstance(loop_size, int)
-                        and isinstance(unroll_factor, int)
-                        and loop_size < unroll_factor
-                    ):
-                        raise ScheduleValidationError(
-                            f'`{{"unroll" = {unroll_factor}}}`: unroll factor should be smaller than {loop_size}.'
-                        )
-
-    @staticmethod
-    def _must_be_smaller_routine(
-        new_size: literal,
-        current_sizes: dict[str, literal | None],
-        loop_name: str,
-        axis: str,
-    ):
-        old_size = current_sizes[axis]
-        if (
-            old_size is not None
-            and isinstance(new_size, int)
-            and isinstance(old_size, int)
-            and new_size > old_size
-        ):
-            raise ScheduleValidationError(
-                f"""
-                Inner loop {loop_name} on axis {axis} must be smaller than outer loop.
-                """
-            )
