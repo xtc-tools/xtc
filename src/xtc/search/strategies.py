@@ -4,7 +4,7 @@
 #
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import TypeAlias, Any
+from typing import TypeAlias, Any, Callable
 from typing_extensions import override
 from collections.abc import Sequence, Mapping, Iterator, Generator
 import itertools
@@ -1039,11 +1039,13 @@ try:
             constraints: list[str] | None = None,
             axes: list[str] | None = None,
             tensors: list[str] | None = None,
+            functions: dict[str, Callable] | None = None,
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
         ) -> None:
             self._graph = graph
+            self._functions = functions
             self._op = graph.outputs_nodes[0].operation
             self._stats: dict[str, int] = {}
             self._axes = axes if axes else list(self._op.dims)
@@ -1123,7 +1125,7 @@ try:
                 self._initialized = True
                 return
             max_enum = int(1 + np.log2(max(self._sizes.values())))
-            context = Context()
+            context = Context(functions=self._functions)
             constraints, self.constants = constraints_from_str(
                 list(self._constraints), context=context
             )
@@ -1212,6 +1214,7 @@ try:
             constraints: list[str] | None = None,
             axes: list[str] | None = None,
             tensors: list[str] | None = None,
+            functions: dict[str, Callable] | None = None,
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
@@ -1223,6 +1226,7 @@ try:
                 constraints,
                 axes,
                 tensors,
+                functions,
                 partial_tiles,
                 partial_unrolls,
                 initialize,
