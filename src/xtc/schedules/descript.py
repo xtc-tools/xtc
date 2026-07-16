@@ -111,13 +111,11 @@ class ScheduleInterpreter:
         previous_cut: dict[str, literal | None] = {a: 0 for a in self.abstract_dims}
         node.interchange = list(head)
         last_split: list[tuple[literal, literal | None]] = []
-        sizes: dict[str, literal] = {}
         loop_name: str = ""
         if not axes:
             axes = dict()
         if self.abstract_dim_sizes:
             for a, v in self.abstract_dim_sizes.items():
-                sizes[a] = v
                 if a not in axes:
                     axes[a] = [v]
         if not axes:
@@ -137,20 +135,18 @@ class ScheduleInterpreter:
                 loop_name = self._interpret_tile(
                     item=item,
                     node=node,
-                    sizes=sizes,
                     axes=axes,
                 )
-                self._apply_annotations(item.annotations, loop_name, sizes, node)
+                self._apply_annotations(item, loop_name, axes, node)
             elif isinstance(item, AxisDecl):
                 _loop_name = self._interpret_axis(item, node)
                 if _loop_name:
                     loop_name = _loop_name
-                self._apply_annotations(item.annotations, loop_name, sizes, node)
+                self._apply_annotations(item, loop_name, axes, node)
             elif isinstance(item, PRTDecl):
                 loop_name = self._interpret_prt(
                     item=item,
                     node=node,
-                    sizes=sizes,
                     axes=axes,
                 )
 
@@ -177,11 +173,7 @@ class ScheduleInterpreter:
 
         # Check that all splits are complete
         for axis, cut in previous_cut.items():
-            if (
-                cut is not None
-                and isinstance(cut, int)
-                and cut not in [0, sizes.get(axis, 0)]
-            ):
+            if cut is not None and isinstance(cut, int) and cut not in [0] + axes[axis]:
                 raise ScheduleInterpretError(
                     f"Splitting of {axis} unachieved (stops at {cut})."
                 )
@@ -303,7 +295,6 @@ class ScheduleInterpreter:
         self,
         item: TileDecl,
         node: ParameterLoopNestNode,
-        sizes: dict[str, literal],
         axes: dict[str, list[literal]],
     ) -> str:
         """Interpret a tile declaration. Returns the loop name."""
@@ -315,7 +306,6 @@ class ScheduleInterpreter:
                 f"`{item}`: tile sizes should be strictly positive."
             )
         node.tiles[item.axis][loop_name] = item.size
-        sizes[loop_name] = item.size
 
         inter_group = item.annotations.interchange
         if inter_group:
@@ -397,7 +387,6 @@ class ScheduleInterpreter:
         self,
         item: PRTDecl,
         node: ParameterLoopNestNode,
-        sizes: dict[str, literal],
         axes: dict[str, list[literal]],
     ) -> str:
         loop_name = ""
@@ -431,25 +420,27 @@ class ScheduleInterpreter:
             else:
                 node.parallelize.append(loop_name)
 
-        def _unroll():
+        def _unroll(axis: str):
             unroll_factor = item.annotations.unroll_factor
-            if unroll_factor is None:
-                # None means "unroll fully" - use the loop size
-                if loop_name not in sizes:
-                    raise ScheduleInterpretError(
-                        f"{loop_name}'s size being unknown, an unroll factor is needed."
-                    )
-                unroll_factor = sizes[loop_name]
-            elif isinstance(unroll_factor, int) and unroll_factor <= 0:
+            if isinstance(unroll_factor, int) and unroll_factor <= 0:
                 raise ScheduleInterpretError(
                     f'`{{"unroll" = {unroll_factor}}}`: unroll parameter should be strictly positive.'
                 )
-            elif isinstance(unroll_factor, str):
-                unroll_factor += "_prt_" + loop_name
-                if self.partial_unrolls:
-                    node.constraints.append(f"{unroll_factor} <= {sizes[loop_name]}")
-                else:
-                    node.constraints.append(f"{unroll_factor} || {sizes[loop_name]}")
+            if unroll_factor is None or isinstance(unroll_factor, str):
+                if not axes[axis]:
+                    raise ScheduleInterpretError(
+                        f"{loop_name}'s size being unknown, an unroll factor is needed."
+                    )
+                axis_size = axes[axis][-1]
+                if unroll_factor is None:
+                    # None means "unroll fully" - use the loop size
+                    unroll_factor = axis_size
+                elif isinstance(unroll_factor, str):
+                    unroll_factor += "_prt_" + loop_name
+                    if self.partial_unrolls:
+                        node.constraints.append(f"{unroll_factor} <= {axis_size}")
+                    else:
+                        node.constraints.append(f"{unroll_factor} || {axis_size}")
             node.unroll[loop_name] = unroll_factor
 
         def _interpret(axis: str, annotations: Annotations | None = None):
@@ -461,7 +452,7 @@ class ScheduleInterpreter:
                 if not annotations:
                     annotations = _annotations(a)
                 return self._interpret_tile(
-                    TileDecl(a, self._fresh(a), annotations), node, sizes, axes
+                    TileDecl(a, self._fresh(a), annotations), node, axes
                 )
 
         if level and len(item.shape) > 1:
@@ -481,7 +472,7 @@ class ScheduleInterpreter:
                             _parallelize()
                             parallelize = False
                         if unroll and idx + 1 == len(item.shape):
-                            _unroll()
+                            _unroll(a)
                 case "R":
                     if not self.abstract_r_dims:
                         raise ScheduleInterpretError(
@@ -494,7 +485,7 @@ class ScheduleInterpreter:
                                 "Cannot parallelize a reduction axis"
                             )
                         if unroll and idx + 1 == len(item.shape):
-                            _unroll()
+                            _unroll(a)
                 case "T":
                     for a in self.abstract_dims:
                         loop_name = _interpret(a)
@@ -502,7 +493,7 @@ class ScheduleInterpreter:
                             _parallelize()
                             parallelize = False
                         if unroll and idx + 1 == len(item.shape):
-                            _unroll()
+                            _unroll(a)
                 case "U":
                     if level:
                         raise ScheduleInterpretError("Cannot use level on a U tile.")
@@ -516,7 +507,7 @@ class ScheduleInterpreter:
                         if parallelize:
                             raise ScheduleInterpretError("Cannot parallelize a U tile.")
                         if unroll and idx + 1 == len(item.shape):
-                            _unroll()
+                            _unroll(a)
                 case "O":
                     if not self.abstract_p_dims:
                         raise ScheduleInterpretError(
@@ -532,15 +523,15 @@ class ScheduleInterpreter:
                         _parallelize()
                         parallelize = False
                     if unroll and idx + 1 == len(item.shape):
-                        _unroll()
+                        _unroll(a)
                     for a in self.abstract_r_dims:
                         _interpret(a)
                         if unroll and idx + 1 == len(item.shape):
-                            _unroll()
+                            _unroll(a)
                     for a in self.abstract_p_dims[1:]:
                         loop_name = _interpret(a)
                         if unroll and idx + 1 == len(item.shape):
-                            _unroll()
+                            _unroll(a)
                 case "W":
                     node.buffer_at[loop_name] = None
                 case "F":
@@ -578,30 +569,34 @@ class ScheduleInterpreter:
 
     def _apply_annotations(
         self,
-        annotations: Annotations,
+        item: TileDecl | AxisDecl,
         loop_name: str,
-        sizes: dict[str, literal],
+        axes: dict[str, list[literal]],
         node: ParameterLoopNestNode,
     ) -> None:
         """Apply annotations to a loop in the node."""
+        annotations = item.annotations
+
         if annotations.unroll_specified:
             unroll_factor = annotations.unroll_factor
-            if unroll_factor is None:
-                # None means "unroll fully" - use the loop size
-                if loop_name not in sizes:
-                    raise ScheduleInterpretError(
-                        f"{loop_name}'s size being unknown, an unroll factor is needed."
-                    )
-                unroll_factor = sizes[loop_name]
-            elif isinstance(unroll_factor, int) and unroll_factor <= 0:
+            if isinstance(unroll_factor, int) and unroll_factor <= 0:
                 raise ScheduleInterpretError(
                     f'`{{"unroll" = {unroll_factor}}}`: unroll parameter should be strictly positive.'
                 )
-            elif isinstance(unroll_factor, str):
-                if self.partial_unrolls:
-                    node.constraints.append(f"{unroll_factor} <= {sizes[loop_name]}")
+            if unroll_factor is None or isinstance(unroll_factor, str):
+                if not axes[item.axis]:
+                    raise ScheduleInterpretError(
+                        f"{loop_name}'s size being unknown, an unroll factor is needed."
+                    )
+                axis_size = axes[item.axis][-1]
+                if unroll_factor is None:
+                    # None means "unroll fully" - use the loop size
+                    unroll_factor = axis_size
                 else:
-                    node.constraints.append(f"{unroll_factor} || {sizes[loop_name]}")
+                    if self.partial_unrolls:
+                        node.constraints.append(f"{unroll_factor} <= {axis_size}")
+                    else:
+                        node.constraints.append(f"{unroll_factor} || {axis_size}")
             node.unroll[loop_name] = unroll_factor
 
         if annotations.vectorize:
