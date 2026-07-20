@@ -15,6 +15,8 @@ from .exceptions import ScheduleParseError
 literal = int | str
 ansor_tile = "PRTUOWF"
 tup_list = list[tuple[str, Any]]
+CONSTRAINTS = "constraints"
+SCHEDULE = "schedule"
 
 
 def toliteral(s: str) -> literal:
@@ -25,9 +27,17 @@ def toliteral(s: str) -> literal:
 
 
 def pre_parse(s: dict[str, Any] | tup_list | list[dict[str, Any]]) -> tup_list:
-    if isinstance(s, dict):
-        return [(k, _pre_parse(v)) for k, v in s.items()]
     out: tup_list = []
+    if isinstance(s, dict):
+        if SCHEDULE in s:
+            if CONSTRAINTS in s:
+                out = [(CONSTRAINTS, s[CONSTRAINTS])]
+            if not set(s.keys()) <= {CONSTRAINTS, SCHEDULE}:
+                raise ScheduleParseError(
+                    f"Parsed entries other than schedule and constraints in spec:\n{s}"
+                )
+            return out + pre_parse(s[SCHEDULE])
+        return [(k, _pre_parse(v)) for k, v in s.items()]
     for s_ in s:
         if isinstance(s_, dict):
             out += [(k, _pre_parse(v)) for k, v in s_.items()]
@@ -397,10 +407,9 @@ class YAMLParser:
 
     def _parse(self, spec: tup_list) -> tup_list:
         """Parses a dict YAML specification into a schedule specification."""
-        # constraints = spec.pop("constraints", [])
         descript_spec: tup_list = []
         for a, v in spec:
-            if a == "constraints":
+            if a == CONSTRAINTS:
                 descript_spec.append((a, v))
                 continue
             if isinstance(v, str):

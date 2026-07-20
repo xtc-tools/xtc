@@ -33,14 +33,15 @@ nb_words_L3 = 36 * 1024 * 1024 // elt_size
 RoB = 200
 
 spec = f"""
-    constraints: 
-        - 1 + nvr + nvr * mr <= {nb_registers}
-        - nr == {vector_size} * nvr
-        - ilp(nvr, mr, mc, nc, kc) >= {ilp}
-        - nvr * mr * kr <= {reorder_buffer}
-        - footprint(B, L1) <= {nb_words_L1}
-        - footprint(A, L2) <= {nb_words_L2}
-        - footprint(B, L3) <= {nb_words_L3}
+constraints: 
+    - 1 + nvr + nvr * mr <= {nb_registers}
+    - nr == {vector_size} * nvr
+    - ilp(nvr, mr, mc, nc, kc) >= {ilp}
+    - nvr * mr * kr <= {reorder_buffer}
+    - footprint(B, L1) <= {nb_words_L1}
+    - footprint(A, L2) <= {nb_words_L2}
+    - footprint(B, L3) <= {nb_words_L3}
+schedule:
     j:
     k:
     B: pack=pack_B pad
