@@ -10,7 +10,11 @@ from xtc.search.strategies import Strategy_Descript as Strategy
 graph = utils.get_graph_matmul()
 backend = utils.get_backend(graph)
 spec = """
-TWUOP: parallelize unroll vectorize
+T: parallelize
+W:
+U:
+O:
+P: unroll vectorize
 """
 strategy = Strategy(graph, spec, initialize=False, partial_tiles=True, partial_unrolls=True)
 

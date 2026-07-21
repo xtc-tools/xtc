@@ -137,10 +137,9 @@ class PRTDecl:
     annotations: Annotations
 
     def __post__init__(self):
-        for s in self.shape:
-            if s not in ansor_tile:
-                # Should be unreachable
-                raise ScheduleParseError(f"Invalid tile declaration {s}")
+        if self.shape not in ansor_tile:
+            # Should be unreachable
+            raise ScheduleParseError(f"Invalid tile declaration {self.shape}")
 
 
 ScheduleItem = SplitDecl | TileDecl | AxisDecl | PRTDecl
@@ -183,7 +182,7 @@ class ScheduleParser:
         if "#" in declaration:
             return self._parse_tile(declaration, value)
 
-        if declaration[0] in ansor_tile:
+        if len(declaration) == 1 and declaration in ansor_tile:
             return self._parse_ansor_tile(declaration, value)
 
         # Must be a direct axis reference
