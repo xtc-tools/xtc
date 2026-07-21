@@ -73,5 +73,5 @@ strategy = Strategy(
 print(sorted(strategy._constraints))
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: ['1 + nvr + nvr * mr <= 32', 'ilp(nvr, mr, mc, nc, kc) >= 8', 'kc * nc <= 9437184', 'kc * nr <= 8192', 'kc <= 1024', 'kr <= kc', 'mc * kc <= 262144', 'mc <= 1024', 'mr || {1024, mc}', 'nc <= 1024', 'nr == 16 * nvr', 'nr || {1024, nc}', 'nvr * mr * kr <= 256', 'pack_B in {0, 1}', 'pad_A in {0,1}']
+# CHECK: ['1 + nvr + nvr * mr <= 32', 'ilp(nvr, mr, mc, nc, kc) >= 8', 'kc <= 1024', 'kc*nc <= 9437184', 'kc*nr <= 8192', 'kr <= kc', 'mc <= 1024', 'mc*kc <= 262144', 'mr || {1024, mc}', 'nc <= 1024', 'nr == 16 * nvr', 'nr || {1024, nc}', 'nvr * mr * kr <= 256', 'pack_B in {0, 1}', 'pad_A in {0,1}']
 # CHECK-NEXT: 100

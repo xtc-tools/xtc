@@ -1111,7 +1111,17 @@ try:
                     if level not in levels:
                         raise ValueError(f"Level {level} is not defined in the spec.")
                     level = levels[level]
-                    footprint = " * ".join(str(level[x]) for x in accesses[tensor])
+                    level_accesses = []
+                    for access in accesses[tensor]:
+                        if access in level:
+                            level_accesses.append(str(level[access]))
+                        else:
+                            for k, v in level.items():
+                                access = re.sub(rf"\b{k}\b", f"({v}-1)", access)
+                            access += "+1"
+                            level_accesses.append(access)
+
+                    footprint = "*".join(level_accesses)
                     self._constraints[i] = self._FP_PATTERN.sub(footprint, constraint)
 
         def _constant_sizes(self) -> Mapping[str, int]:
