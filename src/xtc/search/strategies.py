@@ -1103,9 +1103,10 @@ try:
             if not self._loop_nest.root_node:
                 return
             levels = self._loop_nest.root_node._levels
-            for i, constraint in enumerate(self._constraints):
-                match = self._FP_PATTERN.match(constraint)
-                if match:
+            for i in range(len(self._constraints)):
+                constraint = self._constraints[i]
+                match = self._FP_PATTERN.search(constraint)
+                while match:
                     tensor, level = match.groups()
                     tensor = tensors.index(tensor)
                     if level not in levels:
@@ -1122,7 +1123,11 @@ try:
                             level_accesses.append(access)
 
                     footprint = "*".join(level_accesses)
-                    self._constraints[i] = self._FP_PATTERN.sub(footprint, constraint)
+                    self._constraints[i] = self._FP_PATTERN.sub(
+                        footprint, constraint, count=1
+                    )
+                    constraint = self._constraints[i]
+                    match = self._FP_PATTERN.search(constraint)
 
         def _constant_sizes(self) -> Mapping[str, int]:
             sizes = {a: v for a, v in self._op.dims.items() if isinstance(v, int)}
