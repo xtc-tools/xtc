@@ -70,8 +70,23 @@ strategy = Strategy(
     initialize=False,
 )
 
-print(sorted(strategy._constraints))
+for x in sorted(strategy._constraints):
+    print(x)
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: ['1 + nvr + nvr * mr <= 32', 'ilp(nvr, mr, mc, nc, kc) >= 8', 'kc <= 1024', 'kc*nc <= 9437184', 'kc*nr + mr*kc <= 8192', 'kr <= kc', 'mc <= 1024', 'mc*kc <= 262144', 'mr || {1024, mc}', 'nc <= 1024', 'nr == 16 * nvr', 'nr || {1024, nc}', 'nvr * mr * kr <= 256', 'pack_B in {0, 1}', 'pad_A in {0,1}']
+# CHECK: 1 + nvr + nvr * mr <= 32
+# CHECK-NEXT: ilp(nvr, mr, mc, nc, kc) >= 8
+# CHECK-NEXT: kc <= 1024
+# CHECK-NEXT: kc*nc <= 9437184
+# CHECK-NEXT: kc*nr + mr*kc <= 8192
+# CHECK-NEXT: kr <= kc
+# CHECK-NEXT: mc <= 1024
+# CHECK-NEXT: mc*kc <= 262144
+# CHECK-NEXT: mr || {1024, mc}
+# CHECK-NEXT: nc <= 1024
+# CHECK-NEXT: nr == 16 * nvr
+# CHECK-NEXT: nr || {1024, nc}
+# CHECK-NEXT: nvr * mr * kr <= 256
+# CHECK-NEXT: pack_B in {0, 1}
+# CHECK-NEXT: pad_A in {0,1}
 # CHECK-NEXT: 100

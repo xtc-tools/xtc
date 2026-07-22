@@ -19,8 +19,11 @@ spec = {
 }
 strategy = Strategy(graph, spec, initialize=False)
 
-print(sorted(strategy._constraints))
+for x in sorted(strategy._constraints):
+    print(x)
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK:['iR || {21}', 'jR || {32}', 'kR || {12}']
+# CHECK: iR || {21}
+# CHECK-NEXT: jR || {32}
+# CHECK-NEXT: kR || {12}
 # CHECK-NEXT:100

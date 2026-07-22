@@ -20,8 +20,12 @@ spec = {
 
 strategy = Strategy(graph, spec, initialize=False)
 
-print(sorted(strategy._constraints))
+for x in sorted(strategy._constraints):
+    print(x)
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: ['1 <= int <= 2', 'i1 || {21}', 'j1 || {32}', 'j2 || {32, j1}']
+# CHECK: 1 <= int <= 2
+# CHECK-NEXT: i1 || {21}
+# CHECK-NEXT: j1 || {32}
+# CHECK-NEXT: j2 || {32, j1}
 # CHECK-NEXT: 100

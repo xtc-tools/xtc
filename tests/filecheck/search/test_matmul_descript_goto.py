@@ -21,8 +21,17 @@ spec = {
 constraint = ["iR * jR <= 56"]
 strategy = Strategy(graph, spec, constraints=constraint, initialize=False)
 
-print(sorted(strategy._constraints))
+for x in sorted(strategy._constraints):
+    print(x)
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: ['iL2 || {21}', 'iR * jR <= 56', 'iR || {21, iL2}', 'jL3 || {32}', 'jR || {32, jL3}', 'j_parallel in {0, 1}', 'j_vectorise in {0, 1}', 'kL1 || {12}', 'k_unroll || kL1']
+# CHECK: iL2 || {21}
+# CHECK-NEXT: iR * jR <= 56
+# CHECK-NEXT: iR || {21, iL2}
+# CHECK-NEXT: jL3 || {32}
+# CHECK-NEXT: jR || {32, jL3}
+# CHECK-NEXT: j_parallel in {0, 1}
+# CHECK-NEXT: j_vectorise in {0, 1}
+# CHECK-NEXT: kL1 || {12}
+# CHECK-NEXT: k_unroll || kL1
 # CHECK-NEXT: 100

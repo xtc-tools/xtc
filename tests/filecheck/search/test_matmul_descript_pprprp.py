@@ -18,8 +18,16 @@ spec = """
 - P: unroll vectorize full"""
 strategy = Strategy(graph, spec, initialize=False, partial_tiles=True, partial_unrolls=True)
 
-print(sorted(strategy._constraints))
+for x in sorted(strategy._constraints):
+    print(x)
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: ['prt_i_0 <= 21', 'prt_i_1 <= prt_i_0', 'prt_i_2 || {21, prt_i_0, prt_i_1}', 'prt_j_0 <= 32', 'prt_j_1 <= prt_j_0', 'prt_j_2 || {32, prt_j_0, prt_j_1}', 'prt_k_0 <= 12', 'prt_u_k_k_0 <= prt_k_0']
+# CHECK: prt_i_0 <= 21
+# CHECK-NEXT: prt_i_1 <= prt_i_0
+# CHECK-NEXT: prt_i_2 || {21, prt_i_0, prt_i_1}
+# CHECK-NEXT: prt_j_0 <= 32
+# CHECK-NEXT: prt_j_1 <= prt_j_0
+# CHECK-NEXT: prt_j_2 || {32, prt_j_0, prt_j_1}
+# CHECK-NEXT: prt_k_0 <= 12
+# CHECK-NEXT: prt_u_k_k_0 <= prt_k_0
 # CHECK-NEXT: 100
