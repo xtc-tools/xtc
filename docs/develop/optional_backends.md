@@ -30,6 +30,7 @@ Compile MLIR/CLANG and the MLIR python bindings, for instance:
 Add the tools to your `PATH` and the python bindings to your `PYTHONPATH`:
 
     export PATH=$HOME/install/llvm/bin:$PATH
+    export LD_LIBRARY_PATH=$HOME/install/llvm/lib:$PATH
     export PYTHONPATH=$HOME/install/llvm/python_packages/mlir_core:$PYTHONPATH
 
 Some features of XTC also require an out-of-tree project named XTC-MLIR.

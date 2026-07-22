@@ -44,11 +44,12 @@ def get_mlir_prefix(prefix: Path | str | None = None) -> Path:
     if not mlir_opt.exists():
         if how == "mlir package":
             # Try to find prefix from MLIR standard python package install
-            prefix2 = prefix.parents[2].resolve()
-            mlir_opt2 = prefix2 / "bin" / "mlir-opt"
-            raise RuntimeError(
-                f"could not find mlir-opt at: {mlir_opt}, nor: {mlir_opt2}, method: {how}"
-            )
+            prefix = prefix.parents[2].resolve()
+            mlir_opt2 = prefix / "bin" / "mlir-opt"
+            if not mlir_opt2.exists():
+                raise RuntimeError(
+                    f"could not find mlir-opt at: {mlir_opt}, nor: {mlir_opt2}, method: {how}"
+                )
         else:
             raise RuntimeError(f"could not find mlir-opt at: {mlir_opt}, method: {how}")
     return prefix
