@@ -3,16 +3,18 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 import sys
+from abc import ABC, abstractmethod
 from typing_extensions import override
 from typing import TextIO, TypeAlias
 from io import StringIO
 import numpy as np
 from dataclasses import dataclass
 from copy import deepcopy
+import functools
 
 from xtc.utils.math import pow2divisor
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
-from xtc.schedules.loop_nest import LoopNest
+from xtc.schedules.loop_nest import LoopNest, LoopNestNode
 import xtc.backends.tvm as backend
 import xtc.itf as itf
 
@@ -36,7 +38,12 @@ class TVMPlainSchedule:
     fused: list[tuple[str, int]]
 
 
-class TVMScheduleEmitter:
+class TVMScheduleEmitter(ABC):
+    @abstractmethod
+    def emit(self, scheduler: "TVMScheduler"): ...
+
+
+class TVMScheduleEmitterTE(TVMScheduleEmitter):
     def __init__(
         self,
         op: TVMOperation,
@@ -303,9 +310,103 @@ class TVMScheduleEmitter:
                         file=outf,
                     )
 
-    def emit(self, sched: TVMPlainSchedule):
+    @override
+    def emit(self, scheduler: "TVMScheduler"):
+        sched = scheduler._get_plain_schedule()
         # First adjust schedule to fix code gen limitations before emit
         sched = self._update_schedule_for_codegen(sched)
+        self._dump_schedule(sched)
+
+
+class TVMScheduleEmitterTIR(TVMScheduleEmitter):
+    def __init__(
+        self,
+        op: TVMOperation,
+        obj_var: str = "obj",
+        sch_var: str = "sch",
+        outf: TextIO = sys.stdout,
+    ):
+        self._op = op
+        self._obj_var = obj_var
+        self._sch_var = sch_var
+        self._outf = outf
+
+    def _dump_schedule(self, sched: LoopNest):
+        root = sched.root_node
+        if root is None:
+            return
+        self._dump_schedule_node(sched, root)
+
+    def _dump_schedule_node(self, sched: LoopNest, node: LoopNestNode):
+        assert node is not None, "unexpected undefined node"
+        assert not node.splits, "node split not implemented for this backend"
+        sch = self._sch_var
+        outf = self._outf
+        dims = sched.abstract_dims
+        block = "O"
+        print(f'{block} = {sch}.get_block("{self._op.name}")', file=outf)
+        print(f"{', '.join(dims)}, = {sch}.get_loops({block})", file=outf)
+        if node.pack_at:
+            inputs = list({inp[0]: None for inp in node.pack_at.values()})
+            for inp_idx in inputs:
+                print(
+                    f'I_R{inp_idx} = {sch}.cache_read({block}, {inp_idx}, "global")',
+                    file=outf,
+                )
+        if node.buffer_at:
+            print(f'O_W0 = {sch}.cache_write({block}, 0, "global")', file=outf)
+        # TODO: support fuse
+        # print(f"I_F{inp_idx} = sch.get_producers({block})", file=outf)
+        for t_axis, t_tiles in [(k, v) for k, v in node.tiles.items() if v]:
+            t_names = [t_axis] + list(t_tiles)
+            factors = functools.reduce(
+                lambda acc, x: acc + [x // acc[-1]], reversed(t_tiles.values()), [1]
+            )
+            t_factors = ["None"] + [str(f) for f in factors[:0:-1]]
+            print(
+                f"{', '.join(t_names)}, = {sch}.split({t_axis}, factors=[{', '.join(t_factors)}])",
+                file=outf,
+            )
+        print(f"{sch}.reorder({', '.join(node.interchange)})", file=outf)
+        if node.buffer_at:
+            for axis in node.buffer_at:
+                print(f"{sch}.reverse_compute_at(O_W0, {axis})", file=outf)
+        if node.pack_at:
+            for axis, (inp_idx, mtype, pad) in node.pack_at.items():
+                print(f"{sch}.compute_at(I_R{inp_idx}, {axis})", file=outf)
+                # TODO: handle pad
+                # print(
+                #        f"{sch}[I_R{inp_idx}].storage_align(I_R{inp_idx}.op.axis[-2], factor={factor}, offset={offset})",
+                #        file=outf,
+                #    )
+        # TODO: support fuse
+        # if tile_axis in fuses:
+        # (inp_idx,) = fuses[tile_axis]
+        # print(
+        #     f"{sch}.compute_at(I_F{inp_idx}, {tile_axis})",
+        #     file=outf,
+        # )
+        for u_axis, u_factor in node.unroll.items():
+            print(f"{sch}.unroll({u_axis})", file=outf)
+        for v_axis in node.vectorize:
+            print(f"{sch}.vectorize({v_axis})", file=outf)
+        if node.parallelize:
+            if len(node.parallelize) > 1:
+                print(
+                    f"{node.parallelize[-1]} = {sch}.fuse({', '.join(node.parallelize)})",
+                    file=outf,
+                )
+            print(
+                f"{sch}.parallel({node.parallelize[-1]})",
+                file=outf,
+            )
+
+    @override
+    def emit(self, scheduler: "TVMScheduler"):
+        sched = scheduler.get_loop_nest()
+        sched.check()
+        # TODO: First adjust schedule to fix code gen limitations before emit
+        # sched = self._update_schedule_for_codegen(sched)
         self._dump_schedule(sched)
 
 
@@ -365,9 +466,11 @@ class TVMScheduler(itf.schd.Scheduler):
     @override
     def schedule(self) -> itf.schd.Schedule:
         io = StringIO()
-        emitter = TVMScheduleEmitter(op=self._op, outf=io)
-        schedule = self._get_plain_schedule()
-        emitter.emit(schedule)
+        if self._backend._tir_schedule:
+            emitter: TVMScheduleEmitter = TVMScheduleEmitterTIR(op=self._op, outf=io)
+        else:
+            emitter = TVMScheduleEmitterTE(op=self._op, outf=io)
+        emitter.emit(self)
         sched = io.getvalue()
         assert self._op.name is not None
         schedule_impl = {self._op.name: sched}
