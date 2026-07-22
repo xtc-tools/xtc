@@ -48,7 +48,7 @@ if platform == "linux":
     ]
 evaluator = module.get_evaluator(
     validate=True,
-    pmu_counters=pmu_counters,
+    hw_counters=pmu_counters,
 )
 results, code, error = evaluator.evaluate()
 print(f"CODE: {code}")

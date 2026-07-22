@@ -72,6 +72,7 @@ class CommonRuntimeInterface(ABC):
     @abstractmethod
     def evaluate_perf(
         self,
+        results: Any,
         pmu_events: list[str],
         repeat: int,
         number: int,
@@ -79,10 +80,11 @@ class CommonRuntimeInterface(ABC):
         cfunc: CFunc,
         args: Any,
         nargs: int,
-    ) -> list[float]:
+    ) -> None:
         """Evaluate a function with performance counter measurements.
 
         Args:
+            results: Pointer to array of doubles to store performance results.
             pmu_events: List of performance events to measure.
             repeat: Number of times to repeat the measurement.
             number: Number of function calls per repeat.

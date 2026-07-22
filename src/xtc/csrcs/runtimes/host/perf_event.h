@@ -29,7 +29,7 @@
 
 typedef struct {
     int type;
-    int event;
+    uint64_t event;
 } perf_event_type_event_t;
 
 typedef enum {

@@ -1,0 +1,1085 @@
+import marimo
+
+__generated_with = "0.19.6"
+app = marimo.App(width="full")
+
+with app.setup:
+    import os
+    import sys
+    import marimo as mo
+    from sys import platform
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    # Hardware Performance Counters & Top-down Analysis
+
+    Optimizing code requires understanding exactly how the CPU executes it.
+
+    In this Marimo, we will use **XTC** to compile a Matrix Multiplication and evaluate it using hardware counters and Top-down Microarchitecture Analysis (TMA)
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo, platform):
+    _warnings = []
+
+    if platform == "darwin":
+        _warnings.append(mo.callout(mo.md("**MacOS Detected:** Hardware counters are restricted. The Marimo will run, but TMA metrics might be unavailable."), kind="danger"))
+
+    _warnings.append(mo.callout(mo.md(r"""
+    **Hardware Counters Prerequisites:**
+    To allow userspace applications (ring 3) to read CPU PMU counters on Linux, please run the following commands in your terminal:
+    ```bash
+    sudo sysctl kernel.perf_event_paranoid=-1
+    echo 0 | sudo tee /proc/sys/kernel/nmi_watchdog
+    ```
+
+    *Note : Reloading this page may be required*
+    """), kind="warn"))
+
+    prerequisites_ui = mo.vstack(_warnings)
+    prerequisites_ui
+    return prerequisites_ui,
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+        ---
+
+        ### For a better experience, it's recommended to be familiar with the XTC's `descript` syntax and the general usage of XTC.
+
+        ```bash
+        marimo run docs/tutorials/xtc_101.py
+        marimo run docs/tutorials/descript++_notebook.py
+        ```
+        ---
+    """)
+    return
+
+
+@app.cell
+def _(supported_arch_msg):
+    supported_arch_msg
+    return
+
+    
+# µpipe Sankey diagram
+@app.cell(hide_code=True)
+def _(mo):
+    def plot_upipe(l1_res, l2_res=None, l3_res=None):
+        """Generates a hierarchical Sankey diagram for TMA."""
+        if not l1_res or len(l1_res) < 4 or l1_res[0] < 0:
+            return mo.md("⚠️ **TMA Data not available.**")
+
+        try:
+            import plotly.graph_objects as go
+        except ImportError:
+            return mo.callout(mo.md(" **Please install `plotly` (`pip install plotly`) to visualize the Sankey diagram**"), kind="warn")
+
+        try:
+            # Color palettes (L1, L2, L3)
+            c_ret = "#4ade80" # Green
+            c_bad = "#f87171" # Red
+            c_fe  = "#60a5fa" # Blue
+            c_be  = "#c084fc" # Purple
+
+            desc_l1 = {
+                "Retiring": "Fraction of slots utilized by useful work.",
+                "Bad Spec": "Fraction of slots wasted due to incorrect speculations.",
+                "Frontend": "Fraction of slots where the Frontend undersupplies the Backend.",
+                "Backend": "Fraction of slots where no uops are delivered due to a lack of Backend resources."
+            }
+            desc_l2 = {
+                "Light Ops": "Retiring typical, single-uop instructions.",
+                "Heavy Ops": "Retiring complex, multi-uop or microcoded instructions.",
+                "Clears": "Wasted slots due to pipeline flushes.",
+                "Branch Misp": "Wasted slots due to incorrect branch predictions.",
+                "Fetch BW": "Frontend cannot decode or deliver enough instructions per cycle.",
+                "Fetch Lat": "Frontend is completely starved and delivering nothing.",
+                "Core Bound": "Execution stalled waiting for execution units (ALU/FPU).",
+                "Mem Bound": "Execution stalled waiting for data from the memory (L1/L2/L3/RAM)."
+            }
+            desc_l3 = [
+                "Stalls due to branch resteers.",
+                "Cycles where Divider unit was active.",
+                "Stalled on external memory (DRAM).",
+                "Limited by Decoded Stream Buffer pipeline.",
+                "Stalls due to switching from DSB to MITE.",
+                "Instructions decoded into 2 or more uops.",
+                "Floating-point (FP) operations executed.",
+                "One uop representing multiple contiguous instructions.",
+                "Stalls due to instruction cache misses.",
+                "Stalls due to ITLB misses.",
+                "Stalled without missing the L1D cache.",
+                "Stalled due to L2 cache accesses.",
+                "Stalled due to L3 cache accesses or Core contention.",
+                "Stalls due to Length Changing Prefixes.",
+                "Memory load or store uops retired.",
+                "Uops fetched by the Microcode Sequencer.",
+                "Limited by MITE pipeline (legacy decode).",
+                "Stalls due to switching uop delivery to MS unit.",
+                "Branch instructions that were not fused.",
+                "Remaining light uops not covered by sibling nodes.",
+                "Stalls due to other misprediction cases.",
+                "Machine Clears not related to memory ordering.",
+                "Stalled on accesses to Persistent Memory Modules.",
+                "Limited due to execution ports saturation.",
+                "Issue-pipeline stalled due to serializing operations.",
+                "Stalled due to store memory accesses and RFO requests."
+            ]
+
+            nodes_label = []
+            nodes_color = []
+            nodes_desc = []
+            links_source = []
+            links_target = []
+            links_value = []
+            links_color = []
+
+            def hex_to_rgba(hex_color, alpha=0.4):
+                h = hex_color.lstrip('#')
+                return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {alpha})"
+
+            def add_node(name, pct, color, desc=""):
+                nodes_label.append(f"{name} ({pct:.1f}%)")
+                nodes_color.append(color)
+                nodes_desc.append(desc)
+                return len(nodes_label) - 1
+
+            def add_link(source, target, value, color):
+                links_source.append(source)
+                links_target.append(target)
+                links_value.append(max(value, 0.1)) # 0.1 ensures 0% metrics remain visible as thin lines
+                links_color.append(hex_to_rgba(color, 0.4))
+
+            # TopdownL1
+            n_ret = add_node("Retiring", l1_res[0], c_ret, desc_l1["Retiring"])
+            n_bad = add_node("Bad Spec", l1_res[1], c_bad, desc_l1["Bad Spec"])
+            n_fe  = add_node("Frontend", l1_res[2], c_fe,  desc_l1["Frontend"])
+            n_be  = add_node("Backend",  l1_res[3], c_be,  desc_l1["Backend"])
+
+            # TopdownL2, TopdownL3
+            if l2_res and len(l2_res) >= 8 and l2_res[0] >= 0:
+                def process_l2(l2_name, l2_idx, parent_node, color, desc, l3_mappings=None):
+                    l2_val = l2_res[l2_idx]
+                    n_l2 = add_node(l2_name, l2_val, color, desc)
+                    add_link(parent_node, n_l2, l2_val, color)
+
+                    if l3_res and l3_mappings and len(l3_res) > 0 and l3_res[0] >= 0:
+                        for l3_name, l3_idx in l3_mappings:
+                            if l3_idx < len(l3_res):
+                                l3_val = l3_res[l3_idx]
+                                desc_text = desc_l3[l3_idx] if len(desc_l3) > l3_idx else ""
+                                n_l3 = add_node(l3_name, l3_val, color, desc_text)
+                                add_link(n_l2, n_l3, l3_val, color)
+
+                map_light = map_heavy = map_clears = map_misp = map_fbw = map_flat = map_core = map_mem = None
+
+                if l3_res and len(l3_res) >= 26:
+                    map_light = [("FP Arith", 6), ("Mem Ops", 14), ("Fused", 7), ("Non-Fused", 18), ("Other Light", 19)]
+                    map_heavy = [("Few Uops", 5), ("Microcode", 15)]
+                    map_clears = [("Other Nukes", 21)]
+                    map_misp = [("Branch Rest.", 0), ("Other Misp.", 20)]
+                    map_fbw = [("MITE", 16), ("DSB", 3), ("DSB Swit.", 4), ("LCP", 13)]
+                    map_flat = [("ICache Miss", 8), ("ITLB Miss", 9), ("MS Switches", 17)]
+                    map_core = [("Divider", 1), ("Ports Util.", 23), ("Serializing", 24)]
+                    map_mem = [("L1 Bound", 10), ("L2 Bound", 11), ("L3 Bound", 12), ("DRAM Bound", 2), ("Store Bound", 25), ("PMM Bound", 22)]
+                elif l3_res and len(l3_res) >= 5: # Support for TopdownL3_Mem
+                    map_mem = [("L1 Bound", 0), ("L2 Bound", 1), ("L3 Bound", 2), ("DRAM Bound", 3), ("Store Bound", 4)]
+
+                process_l2("Light Ops", 0, n_ret, c_ret, desc_l2["Light Ops"], map_light)
+                process_l2("Heavy Ops", 1, n_ret, c_ret, desc_l2["Heavy Ops"], map_heavy)
+                process_l2("Clears", 2, n_bad, c_bad, desc_l2["Clears"], map_clears)
+                process_l2("Branch Misp", 3, n_bad, c_bad, desc_l2["Branch Misp"], map_misp)
+                process_l2("Fetch BW", 4, n_fe, c_fe, desc_l2["Fetch BW"], map_fbw)
+                process_l2("Fetch Lat", 5, n_fe, c_fe, desc_l2["Fetch Lat"], map_flat)
+                process_l2("Core Bound", 6, n_be, c_be, desc_l2["Core Bound"], map_core)
+                process_l2("Mem Bound", 7, n_be, c_be, desc_l2["Mem Bound"], map_mem)
+
+            fig = go.Figure(data=[go.Sankey(
+                node = dict(
+                  pad = 15,
+                  thickness = 20,
+                  line = dict(color = "black", width = 0.5),
+                  label = nodes_label,
+                  color = nodes_color,
+                  customdata = nodes_desc,
+                  hovertemplate = "<b>%{label}</b><br>%{customdata}<extra></extra>"
+                ),
+                link = dict(
+                  source = links_source,
+                  target = links_target,
+                  value = links_value,
+                  color = links_color,
+                  hovertemplate = "%{source.label} → %{target.label}<br>Value: %{value:.1f}%<extra></extra>"
+                )
+            )])
+
+            fig.update_layout(
+                title_text="Top-down Microarchitecture Pipeline µpipe",
+                font_size=12,
+                height=650 if (l3_res and len(l3_res) > 5) else 450,
+                margin=dict(t=40, l=20, r=20, b=20)
+            )
+
+            return fig
+
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            return mo.md(f"**Error generating Sankey diagram:**\n```python\n{error_trace}\n```")
+
+    return plot_upipe,
+
+
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    btn_all = mo.ui.run_button(label="Run All Experiments", kind="success")
+
+    run_all_ui = mo.vstack([
+        mo.md("---"),
+        mo.md("## Evaluate All Steps"),
+        mo.md("Click the button below to compile and evaluate all steps at once."),
+        btn_all
+    ])
+
+    run_all_ui
+    return btn_all, run_all_ui
+
+
+
+@app.cell(hide_code=True)
+def _(mo, platform, plot_upipe):
+    def run_experiment(schedule_spec):
+        import xtc.graphs.xtc.op as O
+        from xtc.backends.mlir import Backend
+        from xtc.schedules.descript import descript_scheduler
+        from xtc.runtimes.host import HostRuntime
+        import subprocess
+
+        # Fixed matrix size for all tests
+        I, J, K, dtype = 512, 512, 512, "float32"
+
+        a = O.tensor((I, K), dtype, name="A")
+        b = O.tensor((K, J), dtype, name="B")
+        with O.graph(name="matmul") as gb:
+            O.matmul(a, b, name="C")
+
+        backend = Backend(gb.graph)
+        scheduler = backend.get_scheduler()
+
+        descript_scheduler(
+            scheduler=scheduler,
+            node_name="C",
+            abstract_dims=["i", "j", "k"],
+            abstract_matrix=["A", "B", "C"],
+            spec=schedule_spec
+        )
+
+        compiler = backend.get_compiler(
+            dump_file="matmul_mlir",
+            shared_lib=True,
+            print_assembly=True
+        )
+        module = compiler.compile(scheduler.schedule())
+
+        rt = HostRuntime.get()
+        peak_flops = rt.evaluate_flops(dtype)
+
+        # Evaluate pure execution time
+        eval_time = module.get_evaluator(validate=False)
+        time_results, _, _ = eval_time.evaluate()
+        exec_time = min(time_results)
+
+        # Calculate percentage of theoretical peak (MACs / Time / Peak_MACs)
+        peak_perf_pct = (I * J * K) / exec_time / peak_flops * 100
+
+        # Visual progress bar for Peak Perf
+        bar_color = "#ef4444" if peak_perf_pct < 10 else ("#f59e0b" if peak_perf_pct < 50 else "#22c55e")
+        fill_width = max(min(peak_perf_pct, 100), 2) # Ensure at least 2% so the text is visible
+
+        perf_ui = mo.Html(f'''
+        <div style="margin-bottom: 15px; width: 100%; max-width: 600px;">
+            <strong>Computational Efficiency (Theoretical Peak):</strong>
+            <div style="width: 100%; background-color: #f3f4f6; border-radius: 6px; margin-top: 6px; overflow: hidden; border: 1px solid #d1d5db; display: flex;">
+                <div style="width: {fill_width}%; background-color: {bar_color}; color: #000; padding: 4px 0; text-align: center; font-size: 12px; font-family: monospace; font-weight: bold; white-space: nowrap; transition: width 0.5s ease-in-out;">
+                    {peak_perf_pct:.1f}%
+                </div>
+            </div>
+        </div>
+        ''')
+
+
+
+        tma_counters = ["TopdownL1", "TopdownL2", "TopdownL3"] if platform == "linux" else []
+        evaluator = module.get_evaluator(validate=False, hw_counters=tma_counters)
+        res, code, err = evaluator.evaluate()
+
+
+        if err: return mo.md(f"**Error:**\n```text\n{err}\n```")
+
+        l1_res = res[0:4] if len(res) >= 4 else None
+        l2_res = res[4:12] if len(res) >= 12 else None
+        l3_res = res[12:38] if len(res) >= 38 else None
+
+
+        so_path = getattr(module, "file_name", None)
+        if so_path:
+            try:
+                # Silently dump the assembly to a Python string
+                asm_code = subprocess.check_output(["objdump", "--disassemble=matmul", so_path], universal_newlines=True)
+            except Exception as e:
+                asm_code = f"Failed to extract assembly: {e}"
+
+        return mo.vstack([
+            perf_ui,
+            plot_upipe(l1_res, l2_res, l3_res),
+
+            mo.accordion({
+                "View XTC Schedule Source": mo.md(f"```yaml\n{schedule_spec}\n```"),
+                "View Generated Assembly": mo.md(f"```x86asm\n{asm_code}\n```")
+            })
+
+        ])
+    return run_experiment,
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    btn_ex1 = mo.ui.run_button(label="Run Step 1", kind="neutral")
+
+    mo.md(f"""
+    ---
+    ## Step 1: Naive Implementation
+    A standard, unoptimized Matrix Multiplication. The CPU executes instructions sequentially.
+
+    ```python
+    for i in 512:
+      for j in 512:
+        for k in 512:
+          C[i, j] += A[i, k] * B[k, j]
+    ```
+    *Expectation: High Backend Bound (Memory latency).*
+
+    {btn_ex1}
+    """)
+    return btn_ex1,
+
+
+@app.cell(hide_code=True)
+def _(btn_ex1, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex1.value or btn_all.value))
+
+    spec_1 = '''
+i:
+j:
+k:
+'''
+    run_experiment(spec_1)
+    return spec_1,
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    btn_ex2 = mo.ui.run_button(label="Run Step 2", kind="neutral")
+
+    mo.md(f"""
+    ---
+    ## Step 2: Vectorization
+    Processing multiple elements per instruction using SIMD (Single Instruction, Multiple Data).
+    The inner loop disappears completely: the CPU computes 16 elements at once in a single clock cycle.
+
+    ```python
+    for i in range(512):
+        for j in range(0, 512, 16): # Steps of 16
+            for k in range(512):
+
+                # Vectorized execution (e.g., AVX-512)
+                # A single SIMD instruction computes 16 elements
+                C[i, j : j+16] += A[i, k] * B[k, j : j+16]
+    ```
+
+    *Expectation: Higher Retiring, but still heavily bottlenecked by memory loads since `C` is read and written 512 times for nothing.*
+
+    {btn_ex2}
+    """)
+    return btn_ex2,
+
+
+@app.cell(hide_code=True)
+def _(btn_ex2, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex2.value or btn_all.value))
+
+    spec_2 = '''
+i:
+j:
+k:
+j#16: vectorize
+'''
+    run_experiment(spec_2)
+    return spec_2,
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    btn_ex3 = mo.ui.run_button(label="Run Step 3", kind="neutral")
+
+    mo.md(f"""
+    ---
+    ## Step 3: Register Tiling (2x16)
+    Unrolling the outer loop allows the CPU to process multiple vectors simultaneously. The compiler duplicates the instructions, breaking data dependency chains and keeping accumulators inside physical registers.
+
+    ```python
+    for i in range(0, 512, 2):      # Steps of 2
+        for j in range(0, 512, 16): # Steps of 16
+            for k in range(512):
+
+                # Unrolled & Vectorized (2x16)
+                # Two independent FMAs are exposed to the CPU per k-iteration
+                C[i,     j : j+16] += A[i,     k] * B[k, j : j+16]
+                C[i + 1, j : j+16] += A[i + 1, k] * B[k, j : j+16]
+    ```
+
+    *Expectation: Retiring improves (Instruction-Level Parallelism), but the CPU still re-loads the accumulator `C` at every `k` iteration.*
+
+    {btn_ex3}
+    """)
+    return btn_ex3,
+
+
+@app.cell(hide_code=True)
+def _(btn_ex3, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex3.value or btn_all.value))
+
+    spec_3 = '''
+i:
+j:
+k:
+i#2: unroll
+j#16: vectorize
+'''
+    run_experiment(spec_3)
+    return spec_3,
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    btn_ex4 = mo.ui.run_button(label="Run Step 4", kind="neutral")
+
+    mo.md(f"""
+    ---
+    ## Step 4: Load/Store Hoisting
+    By interchanging the `k` loop *outside* of the unrolled micro-kernel, we prevent the compiler from loading and storing the `C` matrix to L1 cache repeatedly. `C` stays in the vector registers during the entire `k` accumulation.
+
+    ```python
+    I = 512
+    J = 512
+    K = 512
+    # Global navigation (RAM)
+    for i_out in range(I / 2):       # Steps of 2
+        for j_out in range(J / 16):  # Steps of 16
+
+            # Load hosting
+            C_vec_0 = C[i,     j : j+16]
+            C_vec_1 = C[i + 1, j : j+16]
+
+            # Accumulation loop
+            for k in range(K)
+
+                # Vector Load (16 floats loaded at once)
+                B_vec = B[k, j : j+16]
+
+                # Unrolled & Vectorized Micro-kernel
+                C_vec_0 += A[i, k]     * B_vec
+                C_vec_1 += A[i + 1, k] * B_vec
+
+            # Store hoisting
+            C[i,     j : j+16] = C_vec_0
+            C[i + 1, j : j+16] = C_vec_1
+    ```
+
+    *Expectation: Massive drop in L1 Bound since C is no longer repeatedly spilled to the cache.*
+
+    {btn_ex4}
+    """)
+    return btn_ex4,
+
+
+@app.cell(hide_code=True)
+def _(btn_ex4, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex4.value or btn_all.value))
+
+    spec_4 = '''
+        i:
+        j:
+        i#2: unroll
+        j#16: vectorize
+        k: vectorize
+        '''
+    run_experiment(spec_4)
+    return spec_4,
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    btn_ex5 = mo.ui.run_button(label="Run Step 5", kind="neutral")
+
+    mo.md(f"""
+    ---
+    ## Step 5: Cache Tiling
+
+    Large matrices evict each other from L1/L2 caches. We tile the problem into 64x64 blocks to ensure data perfectly fits in the fast cache hierarchy.
+
+
+    ```python
+    # Global navigation (RAM / L3 Cache)
+    I = 512
+    J = 512
+    K = 512
+    for i_out in range(I / 64):
+        for j_out in range(J / 64):
+            for k_out in range(K / 64):
+
+                # Block navigation (L2 / L1 Cache)
+                for i_in in range(64 / 2):       # Steps of 2
+                    for j_in in range(64 / 16):  # Steps of 16
+
+                        # Load hoisting
+                        C_reg_0 = C[i,     j : j+16]
+                        C_reg_1 = C[i + 1, j : j+16]
+
+                        # Accumulation loop
+                        for k_in in range(64):
+                            B_vec = B[k, j : j+16] # Broadcasted or Vector loaded
+
+                            # Unrolled micro-kernel
+                            C_reg_0 += A[i, k]     * B_vec
+                            C_reg_1 += A[i + 1, k] * B_vec
+
+                        # Store hoisting
+                        # C[i_out...i_in, j_out...j_in] = C_reg
+                        C[i,     j : j+16] = C_reg_0
+                        C[i + 1, j : j+16] = C_reg_1
+    ```
+
+    *Expectation: Memory Bound drops significantly. Computation is now purely limited by execution units.*
+
+    {btn_ex5}
+    """)
+    return btn_ex5,
+
+
+@app.cell(hide_code=True)
+def _(btn_ex5, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex5.value or btn_all.value))
+
+    spec_5 = '''
+        i:
+        j:
+        k:
+        i#64:
+        j#64:
+        k#64:
+        i#2: unroll
+        j#16: vectorize
+        '''
+    run_experiment(spec_5)
+    return spec_5,
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    btn_ex6 = mo.ui.run_button(label="Run Step 6", kind="neutral")
+
+    mo.md(f"""
+    ---
+    ## Step 6: Peak Optimization (3x16)
+    We maximize physical register usage. A 3x16 tile uses 3 AVX-512 registers for `C`, maximizing Instruction-Level Parallelism without spilling to the L1 cache.
+
+    ```python
+    # Global navigation (RAM / L3 Cache)
+    for i_out in range(I / 64):
+        for j_out in range(J / 64):
+            for k_out in range(K / 64):
+
+                # Block navigation (L2 / L1 Cache)
+                for i_in in range(64 / 3):       # Steps of 3
+                    for j_in in range(64 / 16):  # Steps of 16
+
+                        # Load hoisting
+                        C_reg_0 = C[i,     j : j+16]
+                        C_reg_1 = C[i + 1, j : j+16]
+                        C_reg_2 = C[i + 2, j : j+16]
+
+                        # Accumulation loop
+                        for k_in in range(64):
+                            B_vec = B[k, j : j+16] # Broadcasted or Vector loaded
+
+                            # Micro-kernel (Physical Registers)
+                            #for i_unroll in range(3):        # Unrolled 3x
+                            #    for j_vec in range(16):      # Vectorized 16x
+                            #       C_reg[...] += A[...] * B[...]
+
+                            # Unrolled micro-kernel
+                            C_reg_0 += A[i, k]     * B_vec
+                            C_reg_1 += A[i + 1, k] * B_vec
+                            C_reg_2 += A[i + 2, k] * B_vec
+
+                        # Store hoisting
+                        # C[i_out...i_in, j_out...j_in] = C_reg
+                        C[i,     j : j+16] = C_reg_0
+                        C[i + 1, j : j+16] = C_reg_1
+                        C[i + 2, j : j+16] = C_reg_2
+    ```
+
+    {btn_ex6}
+    """)
+    return btn_ex6,
+
+
+@app.cell(hide_code=True)
+def _(btn_ex6, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex6.value or btn_all.value))
+
+    spec_6 = '''
+        i:
+        j:
+        k:
+        i#64:
+        j#64:
+        k#64:
+        i#3: unroll
+        j#16: vectorize
+        '''
+    run_experiment(spec_6)
+    return spec_6,
+
+
+
+@app.cell(hide_code=True)
+def _():
+    btn_ex7 = mo.ui.run_button(label="Run Step 7", kind="neutral")
+
+    mo.md(f"""
+    ---
+    ## Step 7: Data Packing (Memory Layout Optimization)
+    Even with cache tiling, reading original matrices `A` and `B` with large memory strides causes cache line fragmentation and TLB (Translation Lookaside Buffer) misses.
+    By **packing** the data, the compiler copies the required blocks into contiguous temporary buffers before the inner loops, ensuring perfect linear memory access for the micro-kernel.
+
+    ```python
+    # Global navigation (RAM / L3 Cache)
+    for i_out in range(I / 64):
+        for j_out in range(J / 64):
+            for k_out in range(K / 64):
+
+                # Data packing
+                # Copy non-contiguous tiles into contiguous L2/L1 buffers
+                A_pack = contiguous_copy(A[i_out*64 : i_out*64+64, k_out*64 : k_out*64+64])
+                B_pack = contiguous_copy(B[k_out*64 : k_out*64+64, j_out*64 : j_out*64+64])
+
+                # Block navigation (L2 / L1 Cache)
+                for i_in in range(64 / 3):
+                    for j_in in range(64 / 16):
+
+                        # Load hoisting
+                        C_vec_0 = C[i,     j : j+16]
+                        C_vec_1 = C[i + 1, j : j+16]
+                        C_vec_2 = C[i + 2, j : j+16]
+
+                        # Accumulation loop
+                        for k_in in range(64):
+                            # Reading from contiguous packed buffer
+                            B_vec = B_pack[k_in, j_in : j_in+16]
+
+                            # Unrolled Micro-kernel
+                            C_vec_0 += A_pack[i_in,     k_in] * B_vec
+                            C_vec_1 += A_pack[i_in + 1, k_in] * B_vec
+                            C_vec_2 += A_pack[i_in + 2, k_in] * B_vec
+
+                        # Store hoisting
+                        C[i,     j : j+16] = C_vec_0
+                        C[i + 1, j : j+16] = C_vec_1
+                        C[i + 2, j : j+16] = C_vec_2
+    ```
+    *Expectation: TLB misses drop significantly. Memory Bound achieves its lowest possible value.*
+
+    {btn_ex7}
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(btn_ex7, btn_all, mo, run_experiment):
+    mo.stop(not (btn_ex7.value or btn_all.value))
+
+    spec_7 = '''
+        i:
+        j:
+        k:
+        A: pack
+        B: pack
+        i#64:
+        j#64:
+        k#64:
+        i#3: unroll
+        j#16: vectorize
+    '''
+    run_experiment(spec_7)
+    return
+
+
+
+@app.cell(hide_code=True)
+def _():
+    _sandbox_code = """import xtc.graphs.xtc.op as O
+    from xtc.backends.mlir import Backend
+    from xtc.schedules.descript import descript_scheduler
+
+    # 1. Problem setup
+    I, J, K, dtype = 256, 256, 256, "float32"
+    a = O.tensor((I, K), dtype, name="A")
+    b = O.tensor((K, J), dtype, name="B")
+
+    with O.graph(name="matmul") as gb:
+        O.matmul(a, b, name="C")
+
+    # 2. Scheduling
+    backend = Backend(gb.graph)
+    scheduler = backend.get_scheduler()
+
+    schedule_spec = '''
+        i:
+        j:
+        k:
+        A: pack
+        B: pack
+        i#64:
+        j#64:
+        k#64:
+        i#3: unroll
+        j#16: vectorize
+    '''
+
+    descript_scheduler(
+        scheduler=scheduler, 
+        node_name="C", 
+        abstract_dims=["i", "j", "k"], 
+        abstract_matrix=["A", "B", "C"],
+        spec=schedule_spec
+    )
+    sched = scheduler.schedule()
+
+    # 3. Compilation
+    compiler = backend.get_compiler(
+        dump_file="sandbox_mlir", 
+        shared_lib=True,
+        print_assembly=False
+    )
+    module = compiler.compile(sched)
+
+    # 4. Evaluation
+    import sys
+    hw_counters = ["Cycles","TopdownL1", "TopdownL2","TopdownL3_Mem"] if sys.platform == "linux" else []
+    evaluator = module.get_evaluator(validate=True, hw_counters=hw_counters)
+
+    print("Evaluating Schedule...")
+    results, code, err = evaluator.evaluate()
+
+    if err:
+        print(f"Error:\\n{err}")
+    else:
+        print(f"Raw Results Array: {[round(x, 2) for x in results]}")
+    """
+    api_sandbox_editor = mo.ui.code_editor(
+        value=_sandbox_code,
+        language="python",
+        label="XTC Full API Sandbox"
+    )
+    btn_api_sandbox = mo.ui.run_button(kind="neutral", label="Run Sandbox")
+
+    sandbox_ui = mo.vstack([
+        mo.md(r"""
+        ---
+        ## Complete API Sandbox
+
+        Below is a fully editable XTC script. It demonstrates the complete API workflow: defining the computational graph, applying a schedule, compiling to MLIR, and running the hardware evaluation. 
+
+        Feel free to modify the tensor sizes, the schedule specification, or the list of hardware counters. If `Topdown` metrics are requested, the microarchitecture pipeline diagram will automatically be rendered below the output.
+        """),
+        api_sandbox_editor,
+        btn_api_sandbox
+    ])
+    return api_sandbox_editor, btn_api_sandbox, sandbox_ui
+
+
+@app.cell
+def _(sandbox_ui):
+    sandbox_ui
+    return
+
+
+@app.cell
+def _(mo):
+    tma_support_content = mo.md(
+        """
+        | Microarchitecture | Supported TMA Levels | Execution Mode |
+        |---|---|---|
+        | **Intel Skylake / Cascade Lake** | `TopdownL1`, `TopdownL2`, `TopdownL3_Mem`, `TopdownL3` | Native API |
+        | **Intel Modern (Ice Lake+)**     | `TopdownL1`, `TopdownL2`, `TopdownL3_Mem`, `TopdownL3` | Native API |
+        | **AMD Zen 4**                    | `TopdownL1`, `TopdownL2` | Native API |
+        | **ARM**                          | `TopdownL1 ?`, `TopdownL2 ?` | Native API (untested) |
+        | **Generic Linux (`perf` tool)**  | `TopdownL1` to `TopdownL6` | System Fallback *(Multiplexed)* |
+
+        *Note 1: TopdownL3_Mem returns [L1 Bound, L2 Bound, L3 Bound, DRAM Bound, Store Bound].*
+
+        *Note 2: AMD architectures do not have native Topdown metrics. They are rebuilt using AMD-specific hardware events and pipeline width formulas.*
+        """
+    )
+
+    amd_zen4_formulas = mo.md(
+        """
+        **Zen 4 Pipeline Width:** 6 slots per cycle.
+        `Total Slots = Cycles * 6`
+
+        **Level 1 Formulas:**
+        *   **Frontend Bound:** `Frontend Stalls / Total Slots`
+        *   **Retiring:** `Ops Retired / Total Slots`
+        *   **Bad Speculation:** `(Ops Dispatched - Ops Retired) / Total Slots`
+        *   **Backend Bound:** `100% - (Frontend Bound + Retiring + Bad Speculation)`
+
+        **Level 2 Formulas:**
+        *   **Fetch Latency:** `Fetch Latency Stalls / Total Slots`
+        *   **Fetch Bandwidth:** `Frontend Bound - Fetch Latency`
+        *   **Memory Bound:** `Backend Memory Stalls / Total Slots`
+        *   **Core Bound:** `Backend CPU Stalls / Total Slots`
+        *   **Branch Mispredicts:** `Branch Mispredict Stalls / Total Slots`
+        *   **Machine Clears:** `Pipeline Restarts / Total Slots`
+        *   **Heavy Ops:** `Microcode Ops Retired / Total Slots`
+        *   **Light Ops:** `Total Retiring - Heavy Ops`
+        """
+    )
+
+    zen4_accordion = mo.accordion({
+        "Show AMD Zen 4 TMA reconstruction formulas": amd_zen4_formulas
+    })
+
+    fallback_note = mo.md("*Unsupported metrics will automatically use the `perf` fallback.*")
+
+    supported_arch_msg = mo.accordion({
+        "View supported TMA architectures": mo.vstack([
+            tma_support_content,
+            zen4_accordion,
+            fallback_note
+        ])
+    })
+
+    return (supported_arch_msg,)
+
+@app.cell
+def _(mo):
+    l1_md = mo.md(
+        """
+        **Array Order:** `[Retiring, Bad Speculation, Frontend Bound, Backend Bound]`
+
+        | Index | Metric | Description |
+        |---|---|---|
+        | `[0]` | **Retiring** | Fraction of slots utilized by useful work (issued uops that get retired). |
+        | `[1]` | **Bad Speculation** | Fraction of slots wasted due to incorrect speculations. |
+        | `[2]` | **Frontend Bound** | Fraction of slots where the Frontend undersupplies the Backend. |
+        | `[3]` | **Backend Bound** | Fraction of slots where no uops are delivered due to a lack of Backend resources. |
+        """
+    )
+
+    l2_md = mo.md(
+        """
+        **Array Order:** `[Light Ops, Heavy Ops, Machine Clears, Branch Mispredicts, Fetch Bandwidth, Fetch Latency, Core Bound, Memory Bound]`
+
+        | Index | Category | Sub-Metric | Description |
+        |---|---|---|---|
+        | `[0]` | `Retiring` | `light_operations` | Retiring typical, single-uop instructions. |
+        | `[1]` | `Retiring` | `heavy_operations` | Retiring complex, multi-uop or microcoded instructions. |
+        | `[2]` | `Bad Speculation` | `machine_clears` | Wasted slots due to pipeline flushes (e.g., memory ordering issues, exceptions). |
+        | `[3]` | `Bad Speculation` | `branch_mispredicts` | Wasted slots due to incorrect branch predictions. |
+        | `[4]` | `Frontend Bound` | `fetch_bandwidth` | Frontend cannot decode or deliver enough instructions per cycle. |
+        | `[5]` | `Frontend Bound` | `fetch_latency` | Frontend is completely starved and delivering nothing (e.g., Instruction Cache miss). |
+        | `[6]` | `Backend Bound` | `core_bound` | Execution stalled waiting for execution units (ALU/FPU) or due to data dependencies. |
+        | `[7]` | `Backend Bound` | `memory_bound` | Execution stalled waiting for data from the memory (L1/L2/L3/RAM). |
+        """
+    )
+
+    l3_md = mo.md(
+        """
+        | Index | Category | Metric | Description |
+        |---|---|---|---|
+        | `[0]` | `Bad Speculation` | `branch_resteers` | Stalls due to branch resteers at execution stage. |
+        | `[1]` | `Backend Bound` | `divider` | Cycles where the Divider unit was active. |
+        | `[2]` | `Backend Bound` | `dram_bound` | Stalled on external memory (DRAM) accesses. |
+        | `[3]` | `Frontend Bound` | `dsb` | Limited by Decoded Stream Buffer (uop cache) pipeline. |
+        | `[4]` | `Frontend Bound` | `dsb_switches` | Stalls due to switching from DSB to MITE pipelines. |
+        | `[5]` | `Retiring` | `few_uops_instructions` | Instructions decoded into 2 or more uops. |
+        | `[6]` | `Retiring` | `fp_arith` | Floating-point (FP) operations executed. |
+        | `[7]` | `Retiring` | `fused_instructions` | One uop representing multiple contiguous instructions. |
+        | `[8]` | `Frontend Bound` | `icache_misses` | Stalls due to instruction cache misses. |
+        | `[9]` | `Frontend Bound` | `itlb_misses` | Stalls due to Instruction TLB (ITLB) misses. |
+        | `[10]` | `Backend Bound` | `l1_bound` | Stalled without missing the L1 Data (L1D) cache. |
+        | `[11]` | `Backend Bound` | `l2_bound` | Stalled due to L2 cache accesses. |
+        | `[12]` | `Backend Bound` | `l3_bound` | Stalled due to L3 cache accesses or sibling Core contention. |
+        | `[13]` | `Frontend Bound` | `lcp` | Stalls due to Length Changing Prefixes. |
+        | `[14]` | `Retiring` | `memory_operations` | Memory load or store uops retired. |
+        | `[15]` | `Retiring` | `microcode_sequencer` | Uops fetched by the Microcode Sequencer (MS) unit. |
+        | `[16]` | `Frontend Bound` | `mite` | Limited by MITE pipeline (legacy decode pipeline). |
+        | `[17]` | `Frontend Bound` | `ms_switches` | Stalls due to switching uop delivery to the MS unit. |
+        | `[18]` | `Retiring` | `non_fused_branches` | Branch instructions that were not fused. |
+        | `[19]` | `Retiring` | `other_light_ops` | Remaining light uops not covered by other sibling nodes. |
+        | `[20]` | `Bad Speculation` | `other_mispredicts` | Stalls due to other misprediction cases (non-retired branches). |
+        | `[21]` | `Bad Speculation` | `other_nukes` | Machine Clears not related to memory ordering. |
+        | `[22]` | `Backend Bound` | `pmm_bound` | Stalled on accesses to Persistent Memory Modules (Optane). |
+        | `[23]` | `Backend Bound` | `ports_utilization` | Limited due to execution ports saturation (FPU/ALU contention). |
+        | `[24]` | `Backend Bound` | `serializing_operation` | Issue-pipeline stalled due to serializing operations. |
+        | `[25]` | `Backend Bound` | `store_bound` | Stalled due to store memory accesses and Read For Ownership(RFO) requests. |
+        """
+    )
+
+    l4_md = mo.md(
+        """
+
+        | Metric | Description |
+        |---|---|
+        | `4k_aliasing` | Load accesses aliased by preceding stores with a 4K address offset. |
+        | `assists` | Uops delivered by Microcode Sequencer as a result of Assists. |
+        | `cisc` | Uops originated from CISC instructions. |
+        | `clears_resteers` | Branch Resteers as a result of Machine Clears. |
+        | `code_stlb_hit` / `miss` | ITLB missed, hitting or missing Second-level TLB (STLB). |
+        | `contested_accesses` | Memory handling synchronizations due to contested accesses. |
+        | `data_sharing` | Memory handling synchronizations due to data-sharing. |
+        | `decoder0_alone` | Decoder-0 was the only active decoder. |
+        | `dtlb_load` / `store` | DTLB missed by load or store accesses. |
+        | `false_sharing` | CPU handling synchronizations due to False Sharing. |
+        | `fb_full` | L1D Fill Buffer unavailability limited memory accesses. |
+        | `fp_scalar` / `vector` | Arithmetic FP scalar or vector uops retired. |
+        | `l1_latency_dependency` | Demand load accesses that hit the L1D cache. |
+        | `l2_hit_latency` / `l3` | Demand load accesses that hit L2 or L3 under unloaded scenarios. |
+        | `lock_latency` | Cache misses due to lock operations. |
+        | `mem_bandwidth` | Approaching bandwidth limits of external memory (DRAM/HBM). |
+        | `mem_latency` | Latency from external memory (DRAM/HBM). |
+        | `mispredicts_resteers` | Branch Resteers due to Branch Misprediction. |
+        | `nop_instructions` | NOP (no op) instructions retired. |
+        | `ports_utilized_0/1/2/3m` | CPU executed 0, 1, 2, or 3+ uops per cycle on all execution ports. |
+        | `split_loads` / `stores` | Handling memory split accesses crossing 64-byte boundaries. |
+        | `sq_full` | Super Queue (SQ) was full. |
+        | `store_fwd_blk` | Loads blocked unable to forward data from earlier overlapping stores. |
+        | `store_latency` | CPU handling L1D store misses. |
+        | `unknown_branches` | Stalls due to new branch address clears. |
+        | `x87_use` | Approximation of legacy x87 usage. |
+        """
+    )
+
+    l5_md = mo.md(
+        """
+
+        | Metric | Description |
+        |---|---|
+        | `alu/load/store_op_utilization` | Cycles CPU dispatched uops on execution ports for ALU, Load, or Store. |
+        | `fp_assists` | Uops retired as a result of handing Floating Point (FP) Assists. |
+        | `fp_vector_128b/256b/512b` | FP vector uops retired for 128, 256, or 512-bit wide vectors. |
+        | `load/store_stlb_hit/miss` | DTLB/TLB missed by load/store accesses, hitting or missing STLB. |
+        | `local/remote_mem` | Memory access constrained by local or remote NUMA nodes. |
+        | `mixing_vectors` | Penalty for injected blend uops. |
+        """
+    )
+
+    l6_md = mo.md(
+        """
+
+        | Metric | Description |
+        |---|---|
+        | `port_0` to `port_7` | Fraction of cycles the CPU dispatched uops on specific hardware execution ports (e.g., ALU, Loads, Stores). |
+        | `load/store_stlb_miss_X` | Cycles to walk memory paging structures for 4K, 2M or 1G pages. |
+        """
+    )
+
+    reminder_output_msg = mo.vstack([
+        mo.md("**TMA Metrics Dictionary:**"),
+        mo.accordion({
+            "Level 1 (4 metrics)": l1_md,
+            "Level 2 (8 metrics)": l2_md,
+            "Level 3 (26 metrics)": l3_md,
+            "Level 4 (32 metrics)": l4_md,
+            "Level 5 (15 metrics)": l5_md,
+            "Level 6 (8 metrics)": l6_md
+        })
+    ])
+
+    return reminder_output_msg,
+
+@app.cell
+def _(reminder_output_msg):
+    reminder_output_msg
+    return
+
+
+@app.cell
+def _(api_sandbox_editor, btn_api_sandbox):
+    mo.stop(not btn_api_sandbox.value, mo.md("*Click 'Run Sandbox' to see the output.*"))
+
+    import io
+    from contextlib import redirect_stdout, redirect_stderr
+    import traceback
+
+    out = io.StringIO()
+    err = io.StringIO()
+    local_vars = {}
+
+    with redirect_stdout(out), redirect_stderr(err):
+        try:
+            exec(api_sandbox_editor.value, globals().copy(), local_vars)
+        except Exception as e:
+            traceback.print_exc()
+
+    stdout_val = out.getvalue()
+    stderr_val = err.getvalue()
+
+    output_blocks = []
+    if stdout_val:
+        output_blocks.append(mo.md(f"**Standard Output:**\n```text\n{stdout_val}\n```"))
+    if stderr_val:
+        output_blocks.append(mo.md(f"**Standard Error / Exceptions:**\n```text\n{stderr_val}\n```"))
+
+    if not stdout_val and not stderr_val:
+        output_blocks.append(mo.md("*Script executed successfully with no output.*"))
+
+    hw_counters = local_vars.get("hw_counters", [])
+    results = local_vars.get("results", [])
+    code = local_vars.get("code", -1)
+
+    if code == 0 and hw_counters and results:
+        sizes = {"TopdownL1": 4, "TopdownL2": 8, "TopdownL3": 26, "TopdownL3_Mem": 5}
+        l1_res, l2_res, l3_res = None, None, None
+        curr_idx = 0
+
+        for c in hw_counters:
+            s = sizes.get(c, 1)
+            chunk = results[curr_idx : curr_idx + s]
+
+            if c == "TopdownL1": l1_res = chunk
+            if c == "TopdownL2": l2_res = chunk
+            if c in ["TopdownL3", "TopdownL3_Mem"]: l3_res = chunk
+
+            curr_idx += s
+
+        if l1_res and len(l1_res) >= 4 and l1_res[0] >= 0:
+            output_blocks.append(mo.md("**Generated Top-down Diagram:**"))
+            output_blocks.append(plot_upipe(l1_res, l2_res, l3_res))
+
+    mo.vstack(output_blocks),
+    return mo.vstack(output_blocks),
+
+
+if __name__ == "__main__":
+    app.run()

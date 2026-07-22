@@ -236,6 +236,7 @@ class GPUDevice(AcceleratorDevice):
     @override
     def evaluate_perf(
         self,
+        results: Any,
         pmu_events: list[str],
         repeat: int,
         number: int,
@@ -243,14 +244,9 @@ class GPUDevice(AcceleratorDevice):
         cfunc: CFunc,
         args: Any,
         nargs: int,
-    ) -> list[float]:
-        values_num = 1
-        if len(pmu_events) > 0:
-            values_num = len(pmu_events)
-            # FIXME check if the PMU events are supported by the target
-        results_array = (ctypes.c_double * (repeat * values_num))()
+    ) -> None:
         self.__get_runtime_func("evaluate_perf")(
-            ctypes.cast(results_array, ctypes.POINTER(ctypes.c_double)),
+            ctypes.cast(results, ctypes.POINTER(ctypes.c_double)),
             ctypes.c_int(len(pmu_events)),
             _str_list_to_c(pmu_events),
             ctypes.c_int(repeat),
@@ -260,7 +256,6 @@ class GPUDevice(AcceleratorDevice):
             ctypes.cast(args, ctypes.POINTER(ctypes.c_voidp)),
             ctypes.c_int(nargs),
         )
-        return [float(x) for x in results_array]
 
     @override
     def evaluate_packed(
