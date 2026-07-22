@@ -10,17 +10,17 @@ from xtc.itf.graph import Graph
 from xtc.graphs.xtc.graph import XTCGraph
 from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend
 
+from .IREEScheduler import IREEScheduler
+
 __all__ = [
     "IREEBackend",
 ]
 
 
 class IREEBackend(itf.back.Backend):
-
     def __init__(self, source: Graph, **kwargs: Any) -> None:
         assert isinstance(source, XTCGraph), "IREE backend only supports graphs"
         self._graph: Graph = source
-        self.payload_name = source.name
         # Reuse the MLIR backend to obtain linalg-on-tensors MLIR.
         self._mlir_backend = MlirGraphBackend(source, use_tensor_dialect=True)
         self.nodes_info = self._build_nodes_info(source)
@@ -46,7 +46,7 @@ class IREEBackend(itf.back.Backend):
 
     @override
     def get_scheduler(self, **kwargs: Any) -> itf.schd.Scheduler:
-        raise NotImplementedError("IREE scheduler is added in a later patch")
+        return IREEScheduler(self, **kwargs)
 
     @override
     def get_compiler(self, **kwargs: Any) -> itf.comp.Compiler:

@@ -3,11 +3,14 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from .IREEConfig import IREEConfig
+from .IREEScheduler import IREEScheduler, IREESchedule
 from .IREEBackend import IREEBackend
 from .IREEBackend import IREEBackend as Backend
 
 __all__ = [
     "Backend",
     "IREEBackend",
+    "IREEScheduler",
+    "IREESchedule",
     "IREEConfig",
 ]
