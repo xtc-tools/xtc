@@ -30,8 +30,19 @@ spec = {
 }
 strategy = Strategy(graph, spec, initialize=False)
 
-print(sorted(strategy._constraints))
+for x in sorted(strategy._constraints):
+    print(x)
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: ['iL2 || {21}', 'iR1 || {21, iL2, 3}', 'iR2 || {21, iL2}', 'iR3 || {21, iL2, 3}', 'iS + 2 == 3', 'i_1_ + 6 == iL2', 'i_1_ <= iL2', 'jDDR || {32}', 'jR1 || {32, jDDR}', 'jR2 || {32, jDDR}', 'jR3 || {32, jDDR}']
+# CHECK: iL2 || {21}
+# CHECK-NEXT: iR1 || {21, iL2, 3}
+# CHECK-NEXT: iR2 || {21, iL2}
+# CHECK-NEXT: iR3 || {21, iL2, 3}
+# CHECK-NEXT: iS + 2 == 3
+# CHECK-NEXT: i_1_ + 6 == iL2
+# CHECK-NEXT: i_1_ <= iL2
+# CHECK-NEXT: jDDR || {32}
+# CHECK-NEXT: jR1 || {32, jDDR}
+# CHECK-NEXT: jR2 || {32, jDDR}
+# CHECK-NEXT: jR3 || {32, jDDR}
 # CHECK-NEXT: 100

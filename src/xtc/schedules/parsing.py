@@ -7,12 +7,16 @@ from __future__ import annotations
 from typing import Any
 from dataclasses import dataclass
 import re
-import strictyaml
+import yaml
 from typing_extensions import override
 
 from .exceptions import ScheduleParseError
 
 literal = int | str
+ansor_tile = "PRTUOWF"
+tup_list = list[tuple[str, Any]]
+CONSTRAINTS = "constraints"
+SCHEDULE = "schedule"
 
 
 def toliteral(s: str) -> literal:
@@ -20,6 +24,36 @@ def toliteral(s: str) -> literal:
     if s.lstrip("-").isdigit():
         return int(s)
     return s
+
+
+def pre_parse(s: dict[str, Any] | tup_list | list[dict[str, Any]]) -> tup_list:
+    out: tup_list = []
+    if isinstance(s, dict):
+        if SCHEDULE in s:
+            if CONSTRAINTS in s:
+                out = [(CONSTRAINTS, s[CONSTRAINTS])]
+            if not set(s.keys()) <= {CONSTRAINTS, SCHEDULE}:
+                raise ScheduleParseError(
+                    f"Parsed entries other than schedule and constraints in spec:\n{s}"
+                )
+            return out + pre_parse(s[SCHEDULE])
+        return [(k, _pre_parse(v)) for k, v in s.items()]
+    for s_ in s:
+        if isinstance(s_, dict):
+            out += [(k, _pre_parse(v)) for k, v in s_.items()]
+        else:
+            k, v = s_
+            out.append((k, _pre_parse(v)))
+    return out
+
+
+def _pre_parse(v: Any) -> Any:
+    if isinstance(v, dict):
+        return pre_parse(v)
+    elif isinstance(v, list) and isinstance(v[0], dict | list):
+        return pre_parse(v)
+    else:
+        return v
 
 
 @dataclass(frozen=True)
@@ -45,9 +79,11 @@ class Annotations:
     vectorize: bool | str = False
     parallelize: bool | str = False
     buffer: str | None = None
-    buffer_specified: bool = False
+    buffer_specified: bool | str = False
     pack: tuple[literal, str | None, bool | str] | None = None
-    pack_specified: bool = False
+    pack_specified: bool | str = False
+    interchange: str = ""
+    level: str = ""
     partial: bool = False
     full: bool = False
 
@@ -93,7 +129,20 @@ class AxisDecl:
     annotations: Annotations
 
 
-ScheduleItem = SplitDecl | TileDecl | AxisDecl
+@dataclass(frozen=True)
+class PRTDecl:
+    """AST Type: Ansor-style tile declarations"""
+
+    shape: str
+    annotations: Annotations
+
+    def __post__init__(self):
+        if self.shape not in ansor_tile:
+            # Should be unreachable
+            raise ScheduleParseError(f"Invalid tile declaration {self.shape}")
+
+
+ScheduleItem = SplitDecl | TileDecl | AxisDecl | PRTDecl
 
 
 @dataclass(frozen=True)
@@ -110,19 +159,21 @@ class ScheduleParser:
     _SPLIT_PATTERN = re.compile(r"^(.*)\[(-\w+|\w*)?:(-\w+|\w*)?\]$")
     _SPLIT_MIDDLE_PATTERN = re.compile(r"^(.*)\[:(\w*):\]$")
 
-    def parse(self, spec: dict[str, Any]) -> ScheduleSpec:
+    def parse(self, spec: list[tuple[str, list]] | dict[str, Any]) -> ScheduleSpec:
         """Parse a schedule specification dict into an AST."""
+        if isinstance(spec, dict):
+            spec = pre_parse(spec)
+
         items: list[ScheduleItem] = []
 
-        for declaration, value in spec.items():
+        for declaration, value in spec:
             item = self._parse_declaration(declaration, value)
             items.append(item)
 
         return ScheduleSpec(items=tuple(items))
 
-    def _parse_declaration(self, declaration: str, value: Any) -> ScheduleItem:
+    def _parse_declaration(self, declaration: str, value: list) -> ScheduleItem:
         """Parse a single declaration into a ScheduleItem."""
-        assert isinstance(value, dict)
         # Try split declaration first (e.g., "axis[0:10]")
         if ":" in declaration:
             return self._parse_split(declaration, value)
@@ -131,17 +182,20 @@ class ScheduleParser:
         if "#" in declaration:
             return self._parse_tile(declaration, value)
 
+        if len(declaration) == 1 and declaration in ansor_tile:
+            return self._parse_ansor_tile(declaration, value)
+
         # Must be a direct axis reference
         return self._parse_axis_ref(declaration, value)
 
-    def _parse_split(self, declaration: str, value: dict) -> SplitDecl:
+    def _parse_split(self, declaration: str, value: list) -> SplitDecl:
         """Parse a split declaration like 'axis[start:end]' or 'axis[:size:]'."""
         axis_name, start, end, size = self._parse_split_syntax(declaration)
 
         body = self.parse(value)
         return SplitDecl(axis=axis_name, start=start, end=end, body=body, size=size)
 
-    def _parse_tile(self, declaration: str, value: dict) -> TileDecl:
+    def _parse_tile(self, declaration: str, value: list) -> TileDecl:
         """Parse a tile declaration like 'axis#size'."""
         parts = declaration.split("#")
         if len(parts) != 2:
@@ -156,13 +210,21 @@ class ScheduleParser:
         annotations = self._parse_annotations(value, declaration)
         return TileDecl(axis=axis_name, size=size, annotations=annotations)
 
-    def _parse_axis_ref(self, declaration: str, value: dict) -> AxisDecl:
+    def _parse_ansor_tile(self, declaration: str, value: list) -> PRTDecl:
+        """Parse an ansor-style tile reference."""
+
+        annotations = self._parse_annotations(value, declaration)
+        return PRTDecl(shape=declaration, annotations=annotations)
+
+    def _parse_axis_ref(self, declaration: str, value: list) -> AxisDecl:
         """Parse a direct axis reference."""
 
         annotations = self._parse_annotations(value, declaration)
         return AxisDecl(axis=declaration, annotations=annotations)
 
-    def _parse_annotations(self, value: dict[str, Any], context: str) -> Annotations:
+    def _parse_annotations(
+        self, value: list[tuple[str, Any]], declaration: str
+    ) -> Annotations:
         """Parse annotation dict into Annotations object."""
 
         unroll_factor: literal | None = None
@@ -170,13 +232,15 @@ class ScheduleParser:
         vectorize: bool | str = False
         parallelize: bool | str = False
         buffer: str | None = None
-        buffer_specified = False
+        buffer_specified: bool | str = False
         pack: tuple[literal, str | None, bool | str] | None = None
-        pack_specified = False
+        pack_specified: bool | str = False
+        interchange: str = ""
+        level: str = ""
         partial = False
         full = False
 
-        for key, param in value.items():
+        for key, param in value:
             match key:
                 case "unroll":
                     if param is True or param is None:
@@ -215,17 +279,43 @@ class ScheduleParser:
                     buffer = None if param == "default" else param
                     buffer_specified = True
                 case "pack":
-                    pack = self._parse_pack_param(param, context)
-                    pack_specified = True
+                    if isinstance(param, str):
+                        pack = (declaration, None, False)
+                        pack_specified = param
+                    else:
+                        pack = self._parse_pack_param(param, declaration)
+                        pack_specified = True
+                case "pad":
+                    if pack is None:
+                        raise ScheduleParseError(
+                            f"pad annotation before/without pack on {declaration}: {key}"
+                        )
+                    declaration_, mtype_, pad_ = pack
+                    pack = (declaration_, mtype_, param)
+                case "interchange":
+                    if param is None:
+                        interchange = "interchange"
+                    else:
+                        interchange = param
+                case "level":
+                    if param is None:
+                        raise ScheduleParseError(
+                            f"Level annotation without name on {declaration}: {key}"
+                        )
+                    level = param
                 case "partial":
                     partial = True
                 case "full":
                     full = True
                 case _:
-                    raise ScheduleParseError(f"Unknown annotation on {context}: {key}")
+                    raise ScheduleParseError(
+                        f"Unknown annotation on {declaration}: {key}"
+                    )
 
         if partial and full:
-            raise ScheduleParseError(f"{context} has both annotations full and partial")
+            raise ScheduleParseError(
+                f"{declaration} has both annotations full and partial"
+            )
 
         return Annotations(
             unroll_factor=unroll_factor,
@@ -236,38 +326,40 @@ class ScheduleParser:
             buffer_specified=buffer_specified,
             pack=pack,
             pack_specified=pack_specified,
+            interchange=interchange,
+            level=level,
             partial=partial,
             full=full,
         )
 
     def _parse_pack_param(
-        self, param: Any, context: str
+        self, param: Any, declaration: str
     ) -> tuple[literal, str | None, bool | str] | None:
         """Parse pack parameter into (input_idx, mtype, pad) tuple."""
 
         if param is None:
-            return (context, None, False)
+            return (declaration, None, False)
 
         if not isinstance(param, (list, tuple)) or len(param) != 3:
             raise ScheduleParseError(
-                f'`{{"pack" = {param}}}` on {context}: pack parameter should be a tuple (input_idx, mtype, pad).'
+                f'`{{"pack" = {param}}}` on {declaration}: pack parameter should be a tuple (input_idx, mtype, pad).'
             )
 
         input_idx, mtype, pad = param
 
         if not isinstance(input_idx, literal):
             raise ScheduleParseError(
-                f'`{{"pack" = {param}}}` on {context}: input_idx should be an integer.'
+                f'`{{"pack" = {param}}}` on {declaration}: input_idx should be an integer.'
             )
 
         if not isinstance(mtype, str | None):
             raise ScheduleParseError(
-                f'`{{"pack" = {param}}}` on {context}: mtype should be a string or None.'
+                f'`{{"pack" = {param}}}` on {declaration}: mtype should be a string or None.'
             )
 
         if not isinstance(pad, bool | str):
             raise ScheduleParseError(
-                f'`{{"pack" = {param}}}` on {context}: pad should be a boolean.'
+                f'`{{"pack" = {param}}}` on {declaration}: pad should be a boolean.'
             )
 
         # Convert "default" to None for mtype
@@ -302,51 +394,54 @@ class ScheduleParser:
 class YAMLParser:
     """Parses a YAML specification into a dict-based schedule specification."""
 
-    def parse(self, spec: str):
+    def parse(self, spec: str) -> tup_list:
         """Parses a YAML specification into a dict-based schedule specification."""
-        descript_spec = strictyaml.load(spec).data
-        if not isinstance(descript_spec, dict):
+        descript_spec = yaml.safe_load(spec)
+        if not isinstance(descript_spec, dict | list):
             raise ScheduleParseError(
                 f"Wrong format: YAML input parses to {type(descript_spec)}."
             )
+        descript_spec = pre_parse(descript_spec)
         return self._parse(descript_spec)
 
-    def _parse(self, spec: dict[str, Any]) -> dict[str, dict]:
+    def _parse(self, spec: tup_list) -> tup_list:
         """Parses a dict YAML specification into a schedule specification."""
-        constraints = spec.pop("constraints", [])
-        descript_spec: dict[str, dict] = {}
-        for a, v in spec.items():
+        descript_spec: tup_list = []
+        for a, v in spec:
+            if a == CONSTRAINTS:
+                descript_spec.append((a, v))
+                continue
             if isinstance(v, str):
                 d = self._split(v)
-            elif isinstance(v, dict):
+            elif isinstance(v, list):
                 d = v
+            elif v is None:
+                d = []
             else:
                 raise ScheduleParseError(
                     f"Value {v} of key {a} is neither a string nor a dict."
                 )
-            size = d.get("size", None)
+            size = [v for k, v in d if k == "size"]
             if size:
-                d.pop("size")
-                a = f"{a}#{size}"
+                d = [(k, v) for k, v in d if k != "size"]
+                a = f"{a}#{size[0]}"
             if ":" in a:
-                descript_spec[a] = self._parse(d)
+                descript_spec.append((a, self._parse(d)))
             else:
-                descript_spec[a] = d
-        if constraints:
-            descript_spec["constraints"] = constraints
+                descript_spec.append((a, d))
         return descript_spec
 
-    def _split(self, s: str) -> dict[str, Any]:
+    def _split(self, s: str) -> tup_list:
         """Splits a string of 'keyword's and 'keyword=value's separated by spaces into a dict."""
-        d: dict[str, Any] = {}
+        d: tup_list = []
         for s in s.split():
             if "=" not in s:
-                d[s] = None
+                d.append((s, None))
             else:
                 x, y = s.split("=")
                 try:
                     tmp = eval(y)
                 except (NameError, SyntaxError):
                     tmp = y
-                d[x] = tmp
+                d.append((x, tmp))
         return d
