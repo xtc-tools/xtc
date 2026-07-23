@@ -4,6 +4,7 @@
 #
 from .IREEConfig import IREEConfig
 from .IREEScheduler import IREEScheduler, IREESchedule
+from .IREECompiler import IREECompiler
 from .IREEBackend import IREEBackend
 from .IREEBackend import IREEBackend as Backend
 
@@ -12,5 +13,6 @@ __all__ = [
     "IREEBackend",
     "IREEScheduler",
     "IREESchedule",
+    "IREECompiler",
     "IREEConfig",
 ]

@@ -1,5 +1,3 @@
-import pytest
-
 from iree_utils import matmul_impl
 
 
@@ -27,10 +25,9 @@ def test_backend_nodes_info():
     assert info["kinds"] == ["P", "P", "R"]
 
 
-def test_scheduler_available_compiler_not_yet():
+def test_scheduler_and_compiler_available():
     impl = matmul_impl(64, 64, 64, "float32", "matmul")
-    from xtc.backends.iree import IREEScheduler
+    from xtc.backends.iree import IREEScheduler, IREECompiler
 
     assert isinstance(impl.get_scheduler(), IREEScheduler)
-    with pytest.raises(NotImplementedError):
-        impl.get_compiler()
+    assert isinstance(impl.get_compiler(), IREECompiler)

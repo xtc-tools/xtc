@@ -11,6 +11,7 @@ from xtc.graphs.xtc.graph import XTCGraph
 from xtc.backends.mlir.MlirGraphBackend import MlirGraphBackend
 
 from .IREEScheduler import IREEScheduler
+from .IREECompiler import IREECompiler
 
 __all__ = [
     "IREEBackend",
@@ -50,7 +51,7 @@ class IREEBackend(itf.back.Backend):
 
     @override
     def get_compiler(self, **kwargs: Any) -> itf.comp.Compiler:
-        raise NotImplementedError("IREE compiler is added in a later patch")
+        return IREECompiler(self, **kwargs)
 
     @property
     @override
