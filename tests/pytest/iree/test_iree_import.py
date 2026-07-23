@@ -10,4 +10,4 @@ def test_iree_packages_importable():
 
     assert "Backend" in backend.__all__
     assert backend.Backend is backend.IREEBackend
-    assert target.__all__ == []
+    assert "IREEModule" in target.__all__

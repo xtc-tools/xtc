@@ -296,6 +296,11 @@ class IREESchedule(itf.schd.Schedule):
                 configs[node.op_id] = info
         return configs
 
+    @property
+    def parallelized(self) -> bool:
+        """Whether the schedule distributes any dimension across threads."""
+        return any(node._parallelized_dims() for node in self._nodes)
+
     @override
     def __str__(self) -> str:
         return str(self.lowering_configs())

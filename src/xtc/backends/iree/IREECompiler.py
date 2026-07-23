@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+import os
+import sys
+import tempfile
 from typing import Any, TYPE_CHECKING, cast
 from typing_extensions import override
 
@@ -13,6 +16,7 @@ from xdsl.ir import Block
 from xdsl.parser import Parser
 
 import xtc.itf as itf
+from xtc.targets.iree import IREEModule
 
 from .IREEConfig import IREEConfig
 from .IREEScheduler import IREESchedule
@@ -96,4 +100,35 @@ class IREECompiler(itf.comp.Compiler):
 
     @override
     def compile(self, schedule: itf.schd.Schedule) -> itf.comp.Module:
-        raise NotImplementedError("IREE compile() is added in a later patch")
+        """Compile the annotated MLIR to an IREE ``.vmfb`` and wrap it."""
+        from iree.compiler import tools as ireec
+
+        assert isinstance(schedule, IREESchedule)
+        mlir_text = self.generate_mlir(schedule)
+        if self._config.print_source_ir:
+            print("// -----// IREE input MLIR //----- //", file=sys.stderr)
+            print(mlir_text, file=sys.stderr)
+
+        name = self._backend.graph.name
+        dump_file = self._config.dump_file
+        if dump_file is None:
+            fd, dump_file = tempfile.mkstemp(prefix=f"{name}_")
+            os.close(fd)
+        vmfb_path = f"{dump_file}.vmfb"
+
+        vmfb = ireec.compile_str(
+            mlir_text,
+            target_backends=[self._config.target_backend],
+            extra_args=self._config.iree_compile_args(),
+        )
+        assert vmfb is not None, "iree-compile produced no output"
+        with open(vmfb_path, "wb") as f:
+            f.write(vmfb)
+
+        return IREEModule(
+            name=name,
+            payload_name=name,
+            file_name=vmfb_path,
+            graph=self._backend.graph,
+            parallelized=schedule.parallelized,
+        )
