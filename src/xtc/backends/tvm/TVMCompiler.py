@@ -4,7 +4,6 @@
 #
 from typing import Any, cast
 from typing_extensions import override
-from collections.abc import Sequence
 import tempfile
 from pathlib import Path
 import shutil
@@ -12,6 +11,7 @@ import subprocess
 import shlex
 import sys
 from functools import partial
+from packaging.version import Version
 
 from xtc.targets.host import HostModule
 
@@ -22,7 +22,15 @@ from xtc.utils.tarfile import TarFile
 
 from xtc.utils.host_tools import disassemble, target_triple
 
-from .TVMOps import TVMBaseExpr, TESchedule, TETensor
+from .TVMOpsCompiler import (
+    TVMExprCompiler,
+    TVMScheduledExpr,
+    TVMScheduledExprTE,
+    TVMScheduledExprTIR,
+)
+from .TVMOps import (
+    TVMBaseExpr,
+)
 
 import tvm
 
@@ -30,6 +38,8 @@ import tvm
 __all__ = [
     "TVMCompiler",
 ]
+
+TVM_VERSION = Version(tvm.__version__.split("+", 1)[0])
 
 
 class TVMCompiler(itf.comp.Compiler):
@@ -110,10 +120,10 @@ class TVMCompiler(itf.comp.Compiler):
         else:
             packed_lib_path = lib_path
             emit_c_packed_base = emit_c_base
-        operation = op.generate()
+        expr_compiler = TVMExprCompiler(op, tir_schedule=self._backend._tir_schedule)
+        schedulable = expr_compiler.generate()
         if self.print_source_ir or self.save_temps:
-            sch = op.schedule(operation)
-            lowered = str(op.lower(operation, sch))
+            lowered = schedulable.schedule().dumps()
             if self.print_source_ir:
                 self._print(lowered)
             save_temp(f"{dump_base}.initial.txt", lowered)
@@ -121,18 +131,20 @@ class TVMCompiler(itf.comp.Compiler):
         save_temp(f"{dump_base}.sched.txt", str(schedule))
         if self.print_transformed_ir:
             self._print(schedule)
-        sch = op.schedule(operation, schedule)
+        sch = schedulable.schedule(schedule)
         if self.print_transformed_ir or self.save_temps:
-            lowered = str(op.lower(operation, sch))
+            lowered = sch.dumps()
             if self.print_transformed_ir:
                 self._print(lowered)
             save_temp(f"{dump_base}.scheduled.txt", lowered)
         if self.emit_c:
-            self._build_te_c(
-                op, operation, sch, func_name=packed_func_name, fname=emit_c_packed_base
+            self._build_c(
+                sch,
+                func_name=packed_func_name,
+                fname=emit_c_packed_base,
             )
         if type in ["shlib", "arlib"]:
-            built = self._build_te(op, operation, sch, func_name=packed_func_name)
+            built = self._build(sch, func_name=packed_func_name)
             if self.save_temps:
                 for idx, mod in enumerate(built._collect_dso_modules()):
                     llvm_ir = str(mod.get_source("ll"))
@@ -213,35 +225,31 @@ class TVMCompiler(itf.comp.Compiler):
     def _print(self, *content: Any) -> None:
         print(*content, flush=True, file=self.print_file)
 
-    def _build_te(
+    def _build(
         self,
-        op: TVMBaseExpr,
-        tensors: Sequence[TETensor],
-        sch: TESchedule,
+        sch: TVMScheduledExpr,
         func_name: str | None = None,
     ) -> Any:
+        op = sch.schedulable.expr
         if func_name is None:
             func_name = op.name
         return self._tvm_build_crt(
             sch,
-            tensors,
             cname=func_name,
             target=self.tvm_tgt,
         )
 
-    def _build_te_c(
+    def _build_c(
         self,
-        op: TVMBaseExpr,
-        tensors: Sequence[TETensor],
-        sch: TESchedule,
+        sch: TVMScheduledExpr,
         func_name: str | None = None,
         fname: str | None = None,
     ) -> None:
         if func_name is None:
-            func_name = op.name
+            func_name = sch.schedulable.expr.name
         if fname is None:
             fname = func_name
-        self._tvm_emit_c(sch, tensors, self.tvm_tgt, func_name, fname)
+        self._tvm_emit_c(sch, self.tvm_tgt, func_name, fname)
 
     @classmethod
     def _get_tvm_target_options(cls, target: str, arch: str) -> str:
@@ -320,16 +328,16 @@ class TVMCompiler(itf.comp.Compiler):
             }
         except:
             runtime_kwargs = {}
-            target = f"{target} --system-lib --runtime=c"
+            if TVM_VERSION < Version("0.21"):
+                target = f"{target} --system-lib --runtime=c"
+
         return {
             "target": target,
             **runtime_kwargs,
         }
 
     @classmethod
-    def _tvm_build_crt(
-        cls, sch: Any, tensors: Sequence[TETensor], target: str, cname: str
-    ) -> Any:
+    def _tvm_build_crt(cls, sch: TVMScheduledExpr, target: str, cname: str) -> Any:
         build_kwargs = cls._tvm_build_crt_args(target)
         config = {}
         if target.startswith("c "):
@@ -339,20 +347,28 @@ class TVMCompiler(itf.comp.Compiler):
                 }
             )
         with tvm.transform.PassContext(opt_level=3, config=config):
-            return tvm.build(sch, list(tensors), name=cname, **build_kwargs)
+            if isinstance(sch, TVMScheduledExprTE):
+                tensors = sch.schedulable._params
+                built = tvm.build(sch._schedule, tensors, name=cname, **build_kwargs)  # type: ignore
+            else:
+                assert isinstance(sch, TVMScheduledExprTIR)
+                func = sch._schedule.mod[sch.schedulable.expr.name]
+                func = func.with_attr("global_symbol", cname)
+                mod = tvm.IRModule({cname: func})
+                built = tvm.build(mod, **build_kwargs)
+        return built
 
     @classmethod
     def _tvm_emit_c(
         cls,
-        sch: TESchedule,
-        tensors: Sequence[TETensor],
+        sch: TVMScheduledExpr,
         target: str,
         cname: str,
         fname: str,
     ) -> Any:
         # Ignore initial target as of now and generate target agnostic C
         target = "c -keys=arch -march=generic -mcpu=generic"
-        built = cls._tvm_build_crt(sch, tensors, target, cname)
+        built = cls._tvm_build_crt(sch, target, cname)
         out_dir = Path(fname).parent
         out_base = Path(fname).stem
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -363,7 +379,10 @@ class TVMCompiler(itf.comp.Compiler):
                 members = [info for info in tf.getmembers() if info.name.endswith(".c")]
                 tf.extractall(tmp_dir, members=members, filter="data")
             out_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy(tmp_dir_path / "lib1.c", out_dir / f"{out_base}.c")
+            cfile = tmp_dir_path / "lib1.c"
+            if not cfile.exists():
+                cfile = tmp_dir_path / "lib0.c"
+            shutil.copy(cfile, out_dir / f"{out_base}.c")
 
     def _cc_prefix(self) -> str:
         map = {

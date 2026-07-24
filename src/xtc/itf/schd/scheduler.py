@@ -233,6 +233,19 @@ class Scheduler(ABC):
         ...
 
     @abstractmethod
+    def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
+        """Fuse the consumer computation at the given producer location.
+
+        The consumer of output zero is fused at the given scheduled producer
+        axis. Other outputs are not currently supported.
+
+        Args:
+            axis: localisation of the fusion in the producer
+            root: the parent split (or the operator's absolute root)
+        """
+        ...
+
+    @abstractmethod
     def define_memory_mesh(self, axes: dict[str, int]) -> None:
         """Define a memory mesh.
 

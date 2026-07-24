@@ -5,7 +5,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing_extensions import override
-from typing import Any, Type, TypeAlias
+from typing import Any, Type, TypeAlias, cast
 
 from xtc.utils.math import mulall
 from xtc.utils.text import to_cname
@@ -25,9 +25,8 @@ import tvm
 import tvm.te as te
 import tvm.topi as topi
 
-TETensor: TypeAlias = Any  # Use instead of te.Tensor to avoids type errors
+TETensor: TypeAlias = te.Tensor
 TEIndexVar: TypeAlias = Any
-TESchedule: TypeAlias = te.Schedule
 
 
 class TVMBaseExpr(ABC):
@@ -35,18 +34,9 @@ class TVMBaseExpr(ABC):
         self.name = name
 
     @abstractmethod
-    def generate(self) -> tuple[TETensor, ...]: ...
-    @abstractmethod
-    def schedule(
-        self, tensors: Sequence[TETensor], schedule: Any = None
-    ) -> te.Schedule: ...
-    @abstractmethod
     def np_outputs_spec(self) -> list[dict[str, Any]]: ...
     @abstractmethod
     def np_inputs_spec(self) -> list[dict[str, Any]]: ...
-
-    def lower(self, tensors: Sequence[TETensor], sch: te.Schedule) -> str:
-        return tvm.lower(sch, list(tensors), simple_mode=True)
 
     @classmethod
     def from_operation(cls, xtc_op: Operation, name: str | None) -> "TVMOperation":
@@ -87,24 +77,6 @@ class TVMOperation(TVMBaseExpr):
         super().__init__(
             name=self.operator.name if name is None else name,
         )
-
-    @override
-    def generate(self) -> tuple[Any, ...]:
-        return self.operator.generate_op()
-
-    @override
-    def schedule(
-        self, tensors: Sequence[TETensor], schedule: Any = None
-    ) -> te.Schedule:
-        sch = te.create_schedule(tensors[-1].op)
-        if schedule is None:
-            return sch
-        schedule_map = schedule.schedule_impl
-        tensors_map = {t.name: t for t in tensors}
-        for sched in schedule_map.values():
-            if sched:
-                exec(sched, {"sch": sch, "obj": tensors_map}, {})
-        return sch
 
     @override
     def np_inputs_spec(self) -> list[dict[str, Any]]:
@@ -198,25 +170,6 @@ class TVMGraph(TVMBaseExpr):
         return variables, params
 
     @override
-    def generate(self) -> tuple[TETensor, ...]:
-        self._variables, self._params = self._te_expr_from_graph()
-        return tuple(self._params.values())
-
-    @override
-    def schedule(
-        self, tensors: Sequence[TETensor], schedule: Any = None
-    ) -> te.Schedule:
-        sch = te.create_schedule(tensors[-1].op)
-        if schedule is None:
-            return sch
-        schedule_map = schedule.schedule_impl
-        tensors_map = {t.name: t for t in self._variables.values()}
-        for sched in schedule_map.values():
-            if sched:
-                exec(sched, {"sch": sch, "obj": tensors_map}, {})
-        return sch
-
-    @override
     def np_inputs_spec(self) -> list[dict[str, Any]]:
         inputs_spec = [
             {
@@ -303,7 +256,7 @@ class TVMOperatorMatmul(TVMOperator):
             A = te.placeholder((Ki, Kk), name="A", dtype=dtype)
             B = te.placeholder((Kk, Kj), name="B", dtype=dtype)
         else:
-            A, B = inputs
+            A, B = cast(Sequence[Any], inputs)
         Ashape = tuple(A.shape)
         Bshape = tuple(B.shape)
         Anewshape = (Ashape[0], mulall(list(Ashape[1:])))
@@ -323,7 +276,7 @@ class TVMOperatorMatmul(TVMOperator):
             ),
             name=self.name,
         )
-        return A, B, O
+        return cast(tuple[TETensor], (A, B, O))
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
@@ -375,7 +328,7 @@ class TVMOperatorRelu(TVMOperator):
         if inputs is None:
             A = te.placeholder((Ki,), name="A", dtype=dtype)
         else:
-            (A,) = inputs
+            (A,) = cast(Sequence[Any], inputs)
         shape = tuple(A.shape)
         size = mulall(A.shape)
         newshape = (size,)
@@ -389,7 +342,7 @@ class TVMOperatorRelu(TVMOperator):
         )
         if shape != newshape:
             O = topi.reshape(O, newshape=shape)
-        return A, O
+        return cast(tuple[TETensor], (A, O))
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
@@ -444,7 +397,7 @@ class TVMOperatorConv2D(TVMOperator):
             A = te.placeholder(inps_dims[0], name="A", dtype=dtype)
             W = te.placeholder(inps_dims[1], name="W", dtype=dtype)
         else:
-            A, W = inputs
+            A, W = cast(Sequence[Any], inputs)
         r = te.reduce_axis((0, Kr), "r")
         s = te.reduce_axis((0, Ks), "s")
         c = te.reduce_axis((0, Kc), "c")
@@ -460,7 +413,7 @@ class TVMOperatorConv2D(TVMOperator):
             ),
             name=self.name,
         )
-        return A, W, O
+        return cast(tuple[TETensor], (A, W, O))
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
@@ -522,7 +475,7 @@ class TVMOperatorPad(TVMOperator):
         if inputs is None:
             A = te.placeholder(tuple(dims_values_all), name="A", dtype=dtype)
         else:
-            (A,) = inputs
+            (A,) = cast(Sequence[Any], inputs)
 
         def get_indexes(*args: int) -> tuple[int, ...]:
             indexes = list(args)
@@ -563,7 +516,7 @@ class TVMOperatorPad(TVMOperator):
             ),
             name=self.name,
         )
-        return A, O
+        return cast(tuple[TETensor], (A, O))
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
@@ -641,7 +594,7 @@ class TVMOperatorUnpad(TVMOperator):
                 ]
             A = te.placeholder(tuple(dims_values_before_unpad), name="A", dtype=dtype)
         else:
-            (A,) = inputs
+            (A,) = cast(Sequence[Any], inputs)
 
         def get_indexes(*args: int) -> tuple[int, ...]:
             indexes = list(args)
@@ -657,7 +610,7 @@ class TVMOperatorUnpad(TVMOperator):
             lambda *args: A[get_indexes(*args)],
             name=self.name,
         )
-        return A, O
+        return cast(tuple[TETensor], (A, O))
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
@@ -713,7 +666,7 @@ class TVMOperatorTranspose(TVMOperator):
         if inputs is None:
             A = te.placeholder(self.attrs["inp_shape"], name="A", dtype=dtype)
         else:
-            (A,) = inputs
+            (A,) = cast(Sequence[Any], inputs)
         shape = A.shape
         axes = self.attrs["axes"]
         if axes == ():
@@ -736,7 +689,7 @@ class TVMOperatorTranspose(TVMOperator):
         O = te.compute((i,), transpose_i, name=self.name)
         if out_shape != (i,):
             O = topi.reshape(O, newshape=out_shape)
-        return A, O
+        return cast(tuple[TETensor], (A, O))
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:

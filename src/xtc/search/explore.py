@@ -111,6 +111,7 @@ class ExplorationConfig:
     results: list[Sequence] = field(default_factory=list)
     descript: str | None = None
     use_tensors: bool = False
+    tir_schedule: bool = False
     progress_cls: str = "tqdm"
 
     def __post_init__(self):
@@ -349,10 +350,15 @@ class Exploration:
         args = self.config
         assert isinstance(in_x, list), f"X not a list: {in_x} ({type(in_x)})"
         logger.debug("Compile: %s: %s: %s...", ident, backend, in_x)
+        kwargs = {}
+        if backend == "tvm":
+            kwargs.update({"tir_schedule": args.tir_schedule})
+        if backend == "mlir":
+            kwargs.update({"use_tensor_dialect": args.use_tensors})
         impl, backend_name = self.graph_implementer(
             graph,
             backend,
-            use_tensor_dialect=args.use_tensors,
+            **kwargs,
         )
         assert backend_name == backend
         scheduler = impl.get_scheduler()

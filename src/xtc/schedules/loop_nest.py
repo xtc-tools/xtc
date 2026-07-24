@@ -97,6 +97,9 @@ class LoopNestNode(Node["LoopNestNode"]):
         pack_at: Pack configuration per axis. Maps axis names to tuples of
             (input_idx, mtype, pad). input_idx is the input buffer index,
             mtype is the memory type (None for default), pad enables padding.
+        fuse_producer_at: Producer fusion configuration per axis. Maps axis
+            names to producer indices.
+        fuse_consumer_at: List of axes where the output consumer is fused.
     """
 
     root: str
@@ -108,6 +111,8 @@ class LoopNestNode(Node["LoopNestNode"]):
     unroll: dict[str, int] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool]] = field(default_factory=dict)
+    fuse_producer_at: dict[str, int] = field(default_factory=dict)
+    fuse_consumer_at: list[str] = field(default_factory=list)
 
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
@@ -208,7 +213,7 @@ class LoopNestNode(Node["LoopNestNode"]):
         return "\n".join(lines)
 
     def _add_annotations(self, line: str, loop_name: str) -> str:
-        """Add annotations (parallelized, vectorized, unroll, buffer, pack) to a loop line."""
+        """Add loop annotations to a loop line."""
         annotations: list[str] = []
         if loop_name in self.parallelize:
             annotations.append("parallelized")
@@ -230,6 +235,11 @@ class LoopNestNode(Node["LoopNestNode"]):
             if pad:
                 parts.append("pad")
             annotations.append(f"pack({', '.join(parts)})")
+        if loop_name in self.fuse_producer_at:
+            prod_idx = self.fuse_producer_at[loop_name]
+            annotations.append(f"fuse_producer({prod_idx})")
+        if loop_name in self.fuse_consumer_at:
+            annotations.append("fuse_consumer")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line
