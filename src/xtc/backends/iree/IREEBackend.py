@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+import tempfile
+from pathlib import Path
 from typing import Any
 from typing_extensions import override
 
@@ -57,3 +59,18 @@ class IREEBackend(itf.back.Backend):
     @override
     def graph(self) -> itf.graph.Graph:
         return self._graph
+
+    def evaluate(
+        self,
+        schedule: itf.schd.Schedule,
+        compiler_args: dict[str, Any] = {},
+        evaluate_args: dict[str, Any] = {},
+    ) -> float | str:
+        """Compile and evaluate a schedule, returning the best time or an error."""
+        with tempfile.TemporaryDirectory() as dirname:
+            libpath = Path(dirname) / f"payload_{self._graph.name}"
+            compiler = self.get_compiler(dump_file=str(libpath), **compiler_args)
+            module = compiler.compile(schedule)
+            evaluator = module.get_evaluator(validate=True, **evaluate_args)
+            results, code, error_msg = evaluator.evaluate()
+        return min(results) if code == 0 else error_msg
