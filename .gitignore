@@ -1,6 +1,8 @@
 __pycache__
 __marimo__
 *.so
+*.dylib
+*.vmfb
 *.csv
 venv
 .venv
