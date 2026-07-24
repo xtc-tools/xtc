@@ -355,8 +355,13 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
                 )
         if node.buffer_at:
             print(f'O_W0 = {sch}.cache_write({block}, 0, "global")', file=outf)
-        # TODO: support fuse
-        # print(f"I_F{inp_idx} = sch.get_producers({block})", file=outf)
+        if node.fuse_producer_at:
+            producers = list({idx: None for idx in node.fuse_producer_at.values()})
+            for prod_idx in producers:
+                print(
+                    f"I_F{prod_idx} = {sch}.get_producers({block})[{prod_idx}]",
+                    file=outf,
+                )
         for t_axis, t_tiles in [(k, v) for k, v in node.tiles.items() if v]:
             t_names = [t_axis] + list(t_tiles)
             factors = functools.reduce(
@@ -379,13 +384,9 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
                 #        f"{sch}[I_R{inp_idx}].storage_align(I_R{inp_idx}.op.axis[-2], factor={factor}, offset={offset})",
                 #        file=outf,
                 #    )
-        # TODO: support fuse
-        # if tile_axis in fuses:
-        # (inp_idx,) = fuses[tile_axis]
-        # print(
-        #     f"{sch}.compute_at(I_F{inp_idx}, {tile_axis})",
-        #     file=outf,
-        # )
+        if node.fuse_producer_at:
+            for axis, prod_idx in node.fuse_producer_at.items():
+                print(f"{sch}.compute_at(I_F{prod_idx}, {axis})", file=outf)
         for u_axis, u_factor in node.unroll.items():
             print(f"{sch}.unroll({u_axis})", file=outf)
         for v_axis in node.vectorize:
@@ -645,6 +646,9 @@ class TVMScheduler(itf.schd.Scheduler):
         root_node.pack_at = {
             axis: (input_idx, None, pad) for axis, input_idx, pad in self.read_buffers
         }
+
+        # Build fuse_producer_at mapping
+        root_node.fuse_producer_at = dict(self.fused)
 
         return loop_nest
 
