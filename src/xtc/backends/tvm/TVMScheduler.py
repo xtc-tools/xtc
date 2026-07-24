@@ -346,6 +346,8 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
         block = "O"
         print(f'{block} = {sch}.get_block("{self._op.name}")', file=outf)
         print(f"{', '.join(dims)}, = {sch}.get_loops({block})", file=outf)
+        if node.fuse_consumer_at:
+            print(f"O_F0 = {sch}.get_consumers({block})[0]", file=outf)
         if node.pack_at:
             inputs = list({inp[0]: None for inp in node.pack_at.values()})
             for inp_idx in inputs:
@@ -387,6 +389,9 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
         if node.fuse_producer_at:
             for axis, prod_idx in node.fuse_producer_at.items():
                 print(f"{sch}.compute_at(I_F{prod_idx}, {axis})", file=outf)
+        if node.fuse_consumer_at:
+            for axis in node.fuse_consumer_at:
+                print(f"{sch}.reverse_compute_at(O_F0, {axis})", file=outf)
         for u_axis, u_factor in node.unroll.items():
             print(f"{sch}.unroll({u_axis})", file=outf)
         for v_axis in node.vectorize:
@@ -445,6 +450,7 @@ class TVMScheduler(itf.schd.Scheduler):
         self.write_caches: list[str] = []
         self.read_buffers: list[tuple[str, int, bool]] = []
         self.fused: list[tuple[str, int]] = []
+        self.fused_consumers: list[str] = []
         self._update_loops()
 
     @property
@@ -572,6 +578,10 @@ class TVMScheduler(itf.schd.Scheduler):
         self.fused.append((axis, input_idx))
 
     @override
+    def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
+        self.fused_consumers.append(axis)
+
+    @override
     def define_memory_mesh(self, axes: dict[str, int]) -> None:
         # TODO: not implemented for now
         pass
@@ -649,6 +659,9 @@ class TVMScheduler(itf.schd.Scheduler):
 
         # Build fuse_producer_at mapping
         root_node.fuse_producer_at = dict(self.fused)
+
+        # Build fuse_consumer_at list
+        root_node.fuse_consumer_at = list(self.fused_consumers)
 
         return loop_nest
 

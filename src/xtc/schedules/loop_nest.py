@@ -99,6 +99,7 @@ class LoopNestNode(Node["LoopNestNode"]):
             mtype is the memory type (None for default), pad enables padding.
         fuse_producer_at: Producer fusion configuration per axis. Maps axis
             names to producer indices.
+        fuse_consumer_at: List of axes where the output consumer is fused.
     """
 
     root: str
@@ -111,6 +112,7 @@ class LoopNestNode(Node["LoopNestNode"]):
     buffer_at: dict[str, str | None] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool]] = field(default_factory=dict)
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
+    fuse_consumer_at: list[str] = field(default_factory=list)
 
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
@@ -236,6 +238,8 @@ class LoopNestNode(Node["LoopNestNode"]):
         if loop_name in self.fuse_producer_at:
             prod_idx = self.fuse_producer_at[loop_name]
             annotations.append(f"fuse_producer({prod_idx})")
+        if loop_name in self.fuse_consumer_at:
+            annotations.append("fuse_consumer")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line
