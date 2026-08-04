@@ -185,8 +185,7 @@ class MlirScheduler(itf.schd.Scheduler):
 
     @override
     def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
-        # TODO: not implemented for now
-        pass
+        self._current_scheduler.fuse_consumer_at(axis, root=root)
 
     @override
     def define_memory_mesh(self, axes: dict[str, int]) -> None:
