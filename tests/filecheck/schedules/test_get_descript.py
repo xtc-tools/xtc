@@ -35,10 +35,10 @@ sch.interchange(["J", "K", "I", "J1", "I1", "K0", "I0", "J0"])
 sch.unroll({"K0": 8, "I0": 2})
 sch.vectorize(["J0"])
 sch.parallelize(["J"])
+sch.fuse_producer_at("I", 0)
 if "--tvm" in sys.argv:
     sch.buffer_at("J")
     sch.pack_at("K", 1, pad=True)
-    sch.fuse_producer_at("I", 0)
     sch.fuse_consumer_at("J")
 
 loop_nest = sch.get_loop_nest()
@@ -46,7 +46,7 @@ print(loop_nest.root_node.pretty_print())
 
 # CHECK-MLIR:      loop J // parallelized
 # CHECK-MLIR-NEXT:   loop K
-# CHECK-MLIR-NEXT:     loop I
+# CHECK-MLIR-NEXT:     loop I  // fuse_producer(0)
 # CHECK-MLIR-NEXT:       tile(J, 128)
 # CHECK-MLIR-NEXT:         tile(I, 64)
 # CHECK-MLIR-NEXT:           tile(K, 32)  // unroll(8)

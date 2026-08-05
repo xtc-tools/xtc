@@ -395,6 +395,12 @@ class ScheduleInterpreter:
             else:
                 node.pack_at[loop_name] = (input_matrix, mtype, pad)
 
+        if annotations.fuse_producer is not None:
+            node.fuse_producer_at[loop_name] = annotations.fuse_producer
+
+        if annotations.fuse_consumer:
+            node.fuse_consumer_at.append(loop_name)
+
     def _check_splitting_intervals(
         self,
         item: SplitDecl,
@@ -537,6 +543,11 @@ class Descript:
         for axis, (input_idx, mtype, pad) in node.pack_at.items():
             scheduler.pack_at(axis, input_idx, mtype=mtype, pad=pad, root=root)
 
+        for axis, input_idx in node.fuse_producer_at.items():
+            scheduler.fuse_producer_at(axis, input_idx, root=root)
+
+        for axis in node.fuse_consumer_at:
+            scheduler.fuse_consumer_at(axis, root=root)
         # Recursively apply children
         for child in node.children:
             self._apply_node(child, scheduler)

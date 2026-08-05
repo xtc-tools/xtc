@@ -5,6 +5,8 @@
 # RUN: python %s --split 2>&1 | filecheck %s --check-prefix=CHECK-SPLIT
 # RUN: python %s --buffer 2>&1 | filecheck %s --check-prefix=CHECK-BUFFER
 # RUN: python %s --pack 2>&1 | filecheck %s --check-prefix=CHECK-PACK
+# RUN: python %s --fuse-producer 2>&1 | filecheck %s --check-prefix=CHECK-FUSE-PRODUCER
+# RUN: python %s --fuse-consumer 2>&1 | filecheck %s --check-prefix=CHECK-FUSE-CONSUMER
 
 import sys
 from xtc.schedules.parsing import ScheduleParser
@@ -75,6 +77,18 @@ elif "--pack" in sys.argv:
     ast = parser.parse(spec)
     loop_nest = interpreter.interpret(ast, root="C")
     print(loop_nest.root_node.pretty_print())
+    
+elif "--fuse-producer" in sys.argv:
+    spec = {"i": {"fuse_producer": 0}, "k": {}, "j": {}}
+    ast = parser.parse(spec)
+    loop_nest = interpreter.interpret(ast, root="C")
+    print(loop_nest.root_node.pretty_print())
+
+elif "--fuse-consumer" in sys.argv:
+    spec = {"i": {}, "k": {}, "j": {"fuse_consumer": True}}
+    ast = parser.parse(spec)
+    loop_nest = interpreter.interpret(ast, root="C")
+    print(loop_nest.root_node.pretty_print())
 
 # CHECK-SIMPLE:      loop i
 # CHECK-SIMPLE-NEXT:   loop k
@@ -123,3 +137,13 @@ elif "--pack" in sys.argv:
 # CHECK-PACK-NEXT:     loop j  // pack(1, shared, pad)
 # CHECK-PACK-NEXT:       tile(j, 16)  // vectorized
 # CHECK-PACK-NEXT:         ...
+
+# CHECK-FUSE-PRODUCER:      loop i  // fuse_producer(0)
+# CHECK-FUSE-PRODUCER-NEXT:   loop k
+# CHECK-FUSE-PRODUCER-NEXT:     loop j
+# CHECK-FUSE-PRODUCER-NEXT:       ...
+
+# CHECK-FUSE-CONSUMER:      loop i
+# CHECK-FUSE-CONSUMER-NEXT:   loop k
+# CHECK-FUSE-CONSUMER-NEXT:     loop j  // fuse_consumer
+# CHECK-FUSE-CONSUMER-NEXT:       ...
