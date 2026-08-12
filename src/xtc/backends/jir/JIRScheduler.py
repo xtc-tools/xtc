@@ -346,6 +346,26 @@ class JIRScheduler(itf.schd.Scheduler):
         # TODO: not implemented for now
         pass
 
+    @override
+    def gpu_lane(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def gpu_warp(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def gpu_thread(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        # TODO: not implemented for now
+        pass
+
+    @override
+    def gpu_block(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
+        # TODO: not implemented for now
+        pass
+
     def get_schedule_str(self) -> str:
         return str(JIRSchedule(scheduler=self))
 

@@ -108,6 +108,10 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             (input_idx, mtype, pad). input_idx is the input buffer index,
             mtype is the memory type (None for default), pad enables padding.
         constraints: List of generated constraints.
+        gpu_lane: Maps loops to lane id, that loop need to be parallelize
+        gpu_warp: Maps loops to warp id, that loop need to be parallelize
+        gpu_block: Maps loops to block id, that loop need to be parallelize
+        gpu_thread: Maps loops to thread id, that loop need to be parallelize
     """
 
     root: str
@@ -122,6 +126,10 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     buffer_at: dict[str, str | None] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool | str]] = field(default_factory=dict)
     constraints: list[str] = field(default_factory=list)
+    gpu_lane: dict[str, int] = field(default_factory=dict)
+    gpu_warp: dict[str, int] = field(default_factory=dict)
+    gpu_block: dict[str, int] = field(default_factory=dict)
+    gpu_thread: dict[str, int] = field(default_factory=dict)
 
     def apply_sample(self, sample: dict[str, int]) -> LoopNestNode:
         """
@@ -166,6 +174,10 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             if self.split_origin is not None
             else None
         )
+        gpu_warp = self.gpu_warp
+        gpu_lane = self.gpu_lane
+        gpu_block = self.gpu_block
+        gpu_thread = self.gpu_thread
         return LoopNestNode(
             root=root,
             tiles=tiles,
@@ -178,6 +190,10 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             pack_at=pack_at,
             children=children,
             split_origin=split_origin,
+            gpu_lane=gpu_lane,
+            gpu_warp=gpu_warp,
+            gpu_block=gpu_block,
+            gpu_thread=gpu_thread,
         )
 
     def pretty_print(self, indent: int = 0) -> str:
@@ -301,6 +317,14 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             if pad:
                 parts.append("pad")
             annotations.append(f"pack({', '.join(parts)})")
+        if loop_name in self.gpu_lane:
+            annotations.append(f"gpu_lane({self.gpu_lane[loop_name]})")
+        if loop_name in self.gpu_warp:
+            annotations.append(f"gpu_warp({self.gpu_warp[loop_name]})")
+        if loop_name in self.gpu_block:
+            annotations.append(f"gpu_block({self.gpu_block[loop_name]})")
+        if loop_name in self.gpu_thread:
+            annotations.append(f"gpu_thread({self.gpu_thread[loop_name]})")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line

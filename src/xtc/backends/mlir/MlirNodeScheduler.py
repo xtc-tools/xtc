@@ -25,6 +25,10 @@ class MlirNodeSchedule:
     permutation: dict[str, list[str]]
     vectorization: list[str]
     parallelization: list[str]
+    gpu_lanes: list[str]
+    gpu_warps: list[str]
+    gpu_threads: list[str]
+    gpu_blocks: list[str]
     unrolling: dict[str, int]
     packed_buffers: dict[str, list[int]]
     memory_mesh: dict[str, int]
@@ -86,6 +90,10 @@ class MlirNodeScheduler:
         self.permutation: dict[str, list[str]] = {}
         self.vectorization: list[str] = []
         self.parallelization: list[str] = []
+        self.gpu_lanes: list[str] = []
+        self.gpu_warps: list[str] = []
+        self.gpu_threads: list[str] = []
+        self.gpu_blocks: list[str] = []
         self.unrolling: dict[str, int] = {}
         self.packed_buffers: dict[str, list[int]] = {}
         self.memory_mesh: dict[str, int] = {}
@@ -113,6 +121,10 @@ class MlirNodeScheduler:
             permutation=self.permutation,
             vectorization=self.vectorization,
             parallelization=self.parallelization,
+            gpu_lanes=self.gpu_lanes,
+            gpu_warps=self.gpu_warps,
+            gpu_threads=self.gpu_threads,
+            gpu_blocks=self.gpu_blocks,
             unrolling=self.unrolling,
             memory_mesh=self.memory_mesh,
             packed_buffers=self.packed_buffers,
@@ -230,3 +242,23 @@ class MlirNodeScheduler:
         self, axis: str, input_idx: int, root: str = DEFAULT_ROOT
     ) -> None:
         self.fused.append((make_loop_name(root, axis), input_idx))
+
+    def map_gpu_lanes(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu lane"
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu lane"
+        self.gpu_lanes = [make_loop_name(root, axis) for axis in axes]
+
+    def map_gpu_warps(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu warp"
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu warp"
+        self.gpu_warps = [make_loop_name(root, axis) for axis in axes]
+
+    def map_gpu_threads(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu thread"
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu thread"
+        self.gpu_threads = [make_loop_name(root, axis) for axis in axes]
+
+    def map_gpu_blocks(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu block"
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu block"
+        self.gpu_blocks = [make_loop_name(root, axis) for axis in axes]

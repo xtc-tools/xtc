@@ -27,7 +27,7 @@ sch.tile("j", {"j1": 128, "j2": 32})
 sch.tile("k", {"k1": 64})
 sch.unroll({"i2": 2})
 sch.gpu_block(["i", "j"])
-sch.gpu_thread(["i1", "j1"])
+sch.gpu_lane(["i1", "j1"])
 sch.interchange(["i", "j", "i1", "j1","k", "k1", "i2", "j2"])
 sched = sch.schedule()
 
@@ -63,7 +63,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %1 = transform.structured.match attributes {__xtc_id_C_} in %arg0 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      %tiled_op, %forall_op = transform.structured.tile_using_forall %1 tile_sizes [128, 128, 0](mapping = [#gpu.block<x>, #gpu.block<y>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %forall_op "./i" : !transform.any_op
-# CHECK-NEXT:      %tiled_op_2, %forall_op_3 = transform.structured.tile_using_forall %tiled_op tile_sizes [32, 32, 0](mapping = [#gpu.thread<x>, #gpu.thread<y>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_op_2, %forall_op_3 = transform.structured.tile_using_forall %tiled_op tile_sizes [32, 32, 0](mapping = [#gpu.lane<linear_dim_0>, #gpu.lane<linear_dim_1>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %forall_op_3 "./i1" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_op_2 tile_sizes [0, 0, 64] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_5 "./k" : !transform.any_op
@@ -82,7 +82,11 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  
 # CHECK-NEXT:  // -----// IR Dump After transform //----- //
 # CHECK-NEXT:  #map = affine_map<(d0) -> (d0 * 128)>
-# CHECK-NEXT:  #map1 = affine_map<(d0) -> (d0 * 32)>
+# CHECK-NEXT:  #map1 = affine_map<()[s0, s1, s2] -> (s0 + s1 * 4 + s2 * 16)>
+# CHECK-NEXT:  #map2 = affine_map<()[s0, s1, s2] -> ((s0 + s1 * 4 + s2 * 16) mod 32)>
+# CHECK-NEXT:  #map3 = affine_map<()[s0] -> (s0 mod 4)>
+# CHECK-NEXT:  #map4 = affine_map<()[s0, s1, s2] -> (((s0 + s1 * 4 + s2 * 16) mod 32) floordiv 4)>
+# CHECK-NEXT:  #map5 = affine_map<(d0) -> (d0 * 32)>
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:    func.func @matmul(%arg0: memref<512x512xf32> {llvm.noalias}, %arg1: memref<512x512xf32> {llvm.noalias, memref.on_device}, %arg2: memref<512x512xf32> {llvm.noalias, memref.on_device}) {
 # CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
@@ -120,11 +124,15 @@ print(f"CODE: {res}")
 # CHECK-NEXT:        %thread_id_x = gpu.thread_id  x
 # CHECK-NEXT:        %thread_id_y = gpu.thread_id  y
 # CHECK-NEXT:        %thread_id_z = gpu.thread_id  z
-# CHECK-NEXT:        %2 = affine.apply #map1(%thread_id_x)
-# CHECK-NEXT:        %3 = affine.apply #map1(%thread_id_y)
-# CHECK-NEXT:        %subview_10 = memref.subview %subview[%2, 0] [32, 512] [1, 1] : memref<128x512xf32, strided<[512, 1], offset: ?>> to memref<32x512xf32, strided<[512, 1], offset: ?>>
-# CHECK-NEXT:        %subview_11 = memref.subview %subview_8[0, %3] [512, 32] [1, 1] : memref<512x128xf32, strided<[512, 1], offset: ?>> to memref<512x32xf32, strided<[512, 1], offset: ?>>
-# CHECK-NEXT:        %subview_12 = memref.subview %subview_9[%2, %3] [32, 32] [1, 1] : memref<128x128xf32, strided<[512, 1], offset: ?>> to memref<32x32xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:        %2 = affine.apply #map1()[%thread_id_x, %thread_id_y, %c0_6]
+# CHECK-NEXT:        %3 = affine.apply #map2()[%thread_id_x, %thread_id_y, %c0_6]
+# CHECK-NEXT:        %4 = affine.apply #map3()[%thread_id_x]
+# CHECK-NEXT:        %5 = affine.apply #map4()[%thread_id_x, %thread_id_y, %c0_6]
+# CHECK-NEXT:        %6 = affine.apply #map5(%4)
+# CHECK-NEXT:        %7 = affine.apply #map5(%5)
+# CHECK-NEXT:        %subview_10 = memref.subview %subview[%6, 0] [32, 512] [1, 1] : memref<128x512xf32, strided<[512, 1], offset: ?>> to memref<32x512xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:        %subview_11 = memref.subview %subview_8[0, %7] [512, 32] [1, 1] : memref<512x128xf32, strided<[512, 1], offset: ?>> to memref<512x32xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:        %subview_12 = memref.subview %subview_9[%6, %7] [32, 32] [1, 1] : memref<128x128xf32, strided<[512, 1], offset: ?>> to memref<32x32xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:        %c0_13 = arith.constant 0 : index
 # CHECK-NEXT:        %c512_14 = arith.constant 512 : index
 # CHECK-NEXT:        %c64 = arith.constant 64 : index
@@ -157,11 +165,11 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                linalg.matmul {__xtc_id_C_} ins(%subview_39, %subview_40 : memref<1x1xf32, strided<[512, 1], offset: ?>>, memref<1x1xf32, strided<[512, 1], offset: ?>>) outs(%subview_41 : memref<1x1xf32, strided<[512, 1], offset: ?>>)
 # CHECK-NEXT:              } {"./j2"}
 # CHECK-NEXT:              %c1_32 = arith.constant 1 : index
-# CHECK-NEXT:              %4 = arith.muli %c1_25, %c1_32 : index
-# CHECK-NEXT:              %5 = arith.addi %arg17, %4 : index
-# CHECK-NEXT:              %subview_33 = memref.subview %subview_21[%5, 0] [1, 1] [1, 1] : memref<32x1xf32, strided<[512, 1], offset: ?>> to memref<1x1xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:              %8 = arith.muli %c1_25, %c1_32 : index
+# CHECK-NEXT:              %9 = arith.addi %arg17, %8 : index
+# CHECK-NEXT:              %subview_33 = memref.subview %subview_21[%9, 0] [1, 1] [1, 1] : memref<32x1xf32, strided<[512, 1], offset: ?>> to memref<1x1xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:              %subview_34 = memref.subview %subview_22[0, 0] [1, 32] [1, 1] : memref<1x32xf32, strided<[512, 1], offset: ?>> to memref<1x32xf32, strided<[512, 1], offset: ?>>
-# CHECK-NEXT:              %subview_35 = memref.subview %subview_23[%5, 0] [1, 32] [1, 1] : memref<32x32xf32, strided<[512, 1], offset: ?>> to memref<1x32xf32, strided<[512, 1], offset: ?>>
+# CHECK-NEXT:              %subview_35 = memref.subview %subview_23[%9, 0] [1, 32] [1, 1] : memref<32x32xf32, strided<[512, 1], offset: ?>> to memref<1x32xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:              %c0_36 = arith.constant 0 : index
 # CHECK-NEXT:              %c32_37 = arith.constant 32 : index
 # CHECK-NEXT:              %c1_38 = arith.constant 1 : index
