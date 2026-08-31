@@ -162,6 +162,7 @@ OPERATORS = {
             "mlir": {},
             "tvm": {},
             "jir": {},
+            "iree": {},
         },
         "default_strategy": "tile_oo",
     },
@@ -416,6 +417,8 @@ class Exploration:
             validate=args.validate,
             parameters=args.eval_parameters,
         )
+        if backend == "iree":
+            evaluator_args["threads"] = args.threads
         if args.operator:
             reference_impl = OPERATORS[args.operator]["reference_impl"]
             if reference_impl is not None:
@@ -747,6 +750,10 @@ class Exploration:
         args = self.config
         if "tvm" in args.backends:
             os.environ["TVM_NUM_THREADS"] = str(args.threads)
+        if "mlir" in args.backends:
+            os.environ.setdefault("OMP_NUM_THREADS", str(args.threads))
+            os.environ.setdefault("OMP_PLACES", "cores")
+            os.environ.setdefault("OMP_PROC_BIND", "close")
 
         if args.operator and args.eval == "eval" and args.execute:
             self.init_eval_parameters()

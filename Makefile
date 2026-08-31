@@ -22,7 +22,7 @@ help:
 
 
 test:
-	pytest tests/pytest/unit tests/pytest/mlir tests/pytest/tvm tests/pytest/jir
+	pytest tests/pytest/unit tests/pytest/mlir tests/pytest/tvm tests/pytest/jir tests/pytest/iree
 
 check: check-format check-banwords check-type check-dependencies check-lit-all check-pytest check-tutorials
 
