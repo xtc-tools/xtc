@@ -4,11 +4,12 @@
 #
 from abc import abstractmethod
 from dataclasses import dataclass, field
-from typing import TypeAlias, Any
+from typing import TypeAlias, Any, Callable
 from typing_extensions import override
 from collections.abc import Sequence, Mapping, Iterator, Generator
 import itertools
 import numpy as np
+import re
 
 from xtc.itf.graph import Graph
 from xtc.itf.schd import Scheduler
@@ -1029,25 +1030,55 @@ try:
     from xvs.execute import execute_static, execute_dynamic
 
     class Strategy_Descript(Strategy):
+        _FP_PATTERN = re.compile(r"footprint\((\w*),\s*(\w*)\)")
+
         def __init__(
             self,
             graph: Graph,
             spec: dict[str, dict[str, Any]] | str,
-            constraints: list[str] = [],
+            constraints: list[str] | None = None,
+            axes: list[str] | None = None,
+            tensors: list[str] | None = None,
+            functions: dict[str, Callable] | None = None,
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
         ) -> None:
             self._graph = graph
+            self._functions = functions
             self._op = graph.outputs_nodes[0].operation
             self._stats: dict[str, int] = {}
-            self._axes = list(self._op.dims)
+            self._axes = axes if axes else list(self._op.dims)
+            accesses: tuple[tuple[str, ...], ...] = (
+                self._op.accesses_maps[1] + self._op.accesses_maps[2]
+            )
+            if axes:
+                if len(axes) != len(self._op.dims):
+                    raise ValueError(
+                        f"Number of user axes: {axes} is different from operation's axes: {self._op.dims}"
+                    )
+                self._axes = axes
+                access_swap = {
+                    list(self._op.dims)[i]: axes[i] for i in range(len(axes))
+                }
+                accesses = tuple((tuple((access_swap[x] for x in d)) for d in accesses))
+            else:
+                self._axes = list(self._op.dims)
             self._sizes = self._constant_sizes()
             self._sample_names: list[str] = []
+            tensors = [
+                chr(ord("A") + i)
+                for i in range(
+                    len(graph.outputs_nodes[0].inputs)
+                    + len(graph.outputs_nodes[0].outputs)
+                )
+            ]
             descript = Descript(
                 abstract_dims=self._axes,
                 abstract_dim_sizes=dict(self._sizes),
-                abstract_matrix=["A", "B", "C"],
+                abstract_matrix=tensors,
+                abstract_p_dims=list(self._op.dims_kind("P")),
+                abstract_r_dims=list(self._op.dims_kind("R")),
                 partial_tiles=partial_tiles,
                 partial_unrolls=partial_unrolls,
             )
@@ -1056,10 +1087,47 @@ try:
             self._loop_nest = loop_nest
             input_constraints = loop_nest.collect_constraints()
             self._orders: dict[str, list] = {}
-            self._constraints = constraints + input_constraints
+            self._constraints = (
+                constraints + input_constraints if constraints else input_constraints
+            )
+            self._footprints(tensors, accesses)
             self._initialized = False
             if initialize:
                 self._initialize()
+
+        def _footprints(
+            self, tensors: list[str], accesses: tuple[tuple[str, ...], ...]
+        ):
+            if not self._constraints:
+                return
+            if not self._loop_nest.root_node:
+                return
+            levels = self._loop_nest.root_node._levels
+            for i in range(len(self._constraints)):
+                constraint = self._constraints[i]
+                match = self._FP_PATTERN.search(constraint)
+                while match:
+                    tensor, level = match.groups()
+                    tensor = tensors.index(tensor)
+                    if level not in levels:
+                        raise ValueError(f"Level {level} is not defined in the spec.")
+                    level = levels[level]
+                    level_accesses = []
+                    for access in accesses[tensor]:
+                        if access in level:
+                            level_accesses.append(str(level[access]))
+                        else:
+                            for k, v in level.items():
+                                access = re.sub(rf"\b{k}\b", f"({v}-1)", access)
+                            access += "+1"
+                            level_accesses.append(access)
+
+                    footprint = "*".join(level_accesses)
+                    self._constraints[i] = self._FP_PATTERN.sub(
+                        footprint, constraint, count=1
+                    )
+                    constraint = self._constraints[i]
+                    match = self._FP_PATTERN.search(constraint)
 
         def _constant_sizes(self) -> Mapping[str, int]:
             sizes = {a: v for a, v in self._op.dims.items() if isinstance(v, int)}
@@ -1072,7 +1140,7 @@ try:
                 self._initialized = True
                 return
             max_enum = int(1 + np.log2(max(self._sizes.values())))
-            context = Context()
+            context = Context(functions=self._functions)
             constraints, self.constants = constraints_from_str(
                 list(self._constraints), context=context
             )
@@ -1158,14 +1226,25 @@ try:
             self,
             graph: Graph,
             spec: dict[str, dict[str, Any]] | str,
-            constraints: list[str] = [],
+            constraints: list[str] | None = None,
+            axes: list[str] | None = None,
+            tensors: list[str] | None = None,
+            functions: dict[str, Callable] | None = None,
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
         ) -> None:
             self._sample_shape: list[str] = []
             super().__init__(
-                graph, spec, constraints, partial_tiles, partial_unrolls, initialize
+                graph,
+                spec,
+                constraints,
+                axes,
+                tensors,
+                functions,
+                partial_tiles,
+                partial_unrolls,
+                initialize,
             )
 
         @override
@@ -1179,7 +1258,6 @@ try:
 
         @override
         def generate(self, scheduler: Scheduler, sample: Sample) -> None:
-            assert isinstance(self._sample_shape, list)
             sample = dict(zip(self._sample_shape, sample))
             super().generate(scheduler, sample)
 

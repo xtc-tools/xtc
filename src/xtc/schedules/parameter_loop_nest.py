@@ -3,6 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from __future__ import annotations
+import itertools
 
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar, Any
@@ -10,8 +11,6 @@ from typing import Generic, TypeVar, Any
 from xtc.schedules.loop_nest import LoopNest, LoopNestNode, SplitOrigin
 
 NodeT = TypeVar("NodeT", bound="Node[Any]")
-
-from .exceptions import ScheduleValidationError
 
 literal = int | str
 
@@ -114,20 +113,25 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     tiles: dict[str, dict[str, literal]]
     splits: dict[str, dict[str, literal]] = field(default_factory=dict)
     interchange: list[str] = field(default_factory=list)
+    interchange_groups: dict[str, dict[int, str]] = field(default_factory=dict)
     vectorize: list[str] = field(default_factory=list)
     vectorize_parameters: dict[str, str] = field(default_factory=dict)
     parallelize: list[str] = field(default_factory=list)
     parallelize_parameters: dict[str, str] = field(default_factory=dict)
     unroll: dict[str, literal] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
+    buffer_parameters: dict[str, str] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool | str]] = field(default_factory=dict)
+    pack_parameters: dict[str, str] = field(default_factory=dict)
     constraints: list[str] = field(default_factory=list)
+    _levels: dict[str, dict[str, literal]] = field(default_factory=dict)
 
     def apply_sample(self, sample: dict[str, int]) -> LoopNestNode:
         """
         Replaces the string parameters with the correspondings values in sample.
         And builds the corresponding LoopNestNode."""
         root = self.root
+
         tiles = {
             a: {
                 b: sample[v_b] if isinstance(v_b, str) else v_b
@@ -135,6 +139,7 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             }
             for a, v_a in self.tiles.items()
         }
+
         splits = {
             a: {
                 b: sample[v_b] if isinstance(v_b, str) else v_b
@@ -142,30 +147,50 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             }
             for a, v_a in self.splits.items()
         }
-        interchange = self.interchange
+
+        interchange = self.interchange.copy()
+        for a, v_d in self.interchange_groups.items():
+            if a in sample:
+                v_ = iter(list(itertools.permutations(v_d.values()))[sample[a] - 1])
+                for i in v_d.keys():
+                    interchange[i] = next(v_)
+
         vectorize = self.vectorize
         for a, v in self.vectorize_parameters.items():
             if sample.get(v, False):
                 vectorize.append(a)
+
         parallelize = self.parallelize
         for a, v in self.parallelize_parameters.items():
             if sample.get(v, False):
                 parallelize.append(a)
+
         unroll = {
             a: sample[v_a] if isinstance(v_a, str) else v_a
             for a, v_a in self.unroll.items()
         }
-        buffer_at = self.buffer_at
+
+        buffer_at = self.buffer_at.copy()
+        for a, v in self.buffer_parameters.items():
+            if not sample.get(v, True):
+                buffer_at.pop(a)
+
         pack_at = {
             a: (a1, a2, bool(sample[a3]) if isinstance(a3, str) else a3)
             for a, (a1, a2, a3) in self.pack_at.items()
         }
+        for a, v in self.pack_parameters.items():
+            if not sample.get(v, True):
+                pack_at.pop(a)
+
         children = [child.apply_sample(sample) for child in self.children]
+
         split_origin = (
             self.split_origin.apply_sample(sample)
             if self.split_origin is not None
             else None
         )
+
         return LoopNestNode(
             root=root,
             tiles=tiles,
@@ -426,14 +451,6 @@ class ParameterLoopNest:
         self.root_node = node
         return node
 
-    def check(self):
-        assert self.root_node is not None
-        info = ParameterLoopInfo.build_from_node(self.root_node)
-        self._check_use_defined_dims(info)
-        self._check_vectorization_consistency()
-        self._check_tiling_consistency(info)
-        self._check_sizes(info)
-
     def apply_sample(self, sample: dict[str, int]) -> LoopNest:
         """
         Replaces the string parameters with the correspondings values in sample.
@@ -448,121 +465,3 @@ class ParameterLoopNest:
         for node in self.nodes:
             constraints += node.constraints
         return constraints
-
-    def _check_use_defined_dims(self, info: ParameterLoopInfo):
-        for dim in self.abstract_dims:
-            if dim not in info.dims:
-                raise ScheduleValidationError(f"{dim} defined but never used")
-
-    def _check_vectorization_consistency(self):
-        for sched in self.nodes:
-            vect_above = False
-            for loop_name in sched.interchange:
-                if loop_name in sched.vectorize:
-                    vect_above = True
-                elif vect_above:
-                    raise ScheduleValidationError(
-                        f"Inner loop {loop_name} isn't vectorized but an outer one is."
-                    )
-
-    def _check_tiling_consistency(self, info: ParameterLoopInfo) -> None:
-        seen_axes: dict[str, literal | None] = {}
-        for sched in self.nodes:
-            for loop_name in sched.interchange:
-                if loop_name in info.dims:
-                    seen_axes[loop_name] = None
-                elif loop_name in info.splits_to_axis:
-                    axis = info.splits_to_axis[loop_name]
-                    seen_axes[axis] = sched.splits[axis][loop_name]
-                elif loop_name in info.tiles_to_axis:
-                    axis = info.tiles_to_axis[loop_name]
-                    size = sched.tiles[axis][loop_name]
-                    if axis not in seen_axes:
-                        raise ScheduleValidationError(
-                            f"""
-                            `{axis}#{size}`: {axis} has not been materialized yet.
-                            """
-                        )
-                    seen_axes[axis] = size
-
-    def _check_sizes(self, info: ParameterLoopInfo):
-        current_size_of_split: dict[str, literal | None] = {}
-        for sched in self.nodes:
-            current_size_of_tile: dict[str, literal] = {}
-            if sched.split_origin is not None:
-                axis = sched.split_origin.axis
-                start = sched.split_origin.start
-                end = sched.split_origin.end
-                if end is not None and start is not None:
-                    current_size_of_split[axis] = (
-                        end - start
-                        if isinstance(end, int) and isinstance(start, int)
-                        else f"{end} - {start}"
-                    )
-                else:
-                    current_size_of_split[axis] = None
-
-            for loop_name in sched.interchange:
-                axis = info.loops_to_axis[loop_name]
-                current_sizes = (
-                    {d: None for d in info.dims}
-                    | current_size_of_split
-                    | current_size_of_tile
-                )
-                loop_size = None
-                if loop_name in info.dims:
-                    if loop_name not in current_size_of_split:
-                        current_size_of_split[loop_name] = None
-                elif loop_name in info.tiles_to_axis:
-                    loop_size = sched.tiles[axis][loop_name]
-                    ParameterLoopNest._must_be_smaller_routine(
-                        new_size=loop_size,
-                        current_sizes=current_sizes,
-                        loop_name=loop_name,
-                        axis=axis,
-                    )
-                    current_size_of_tile[axis] = loop_size
-                elif (
-                    loop_name in info.splits_to_axis
-                    and loop_name in info.splits_to_sizes
-                ):
-                    loop_size = info.splits_to_sizes[loop_name]
-                    ParameterLoopNest._must_be_smaller_routine(
-                        new_size=loop_size,
-                        current_sizes=current_sizes,
-                        loop_name=loop_name,
-                        axis=axis,
-                    )
-                    current_size_of_split[axis] = loop_size
-
-                if loop_name in sched.unroll:
-                    unroll_factor = sched.unroll[loop_name]
-                    if (
-                        loop_size
-                        and isinstance(loop_size, int)
-                        and isinstance(unroll_factor, int)
-                        and loop_size < unroll_factor
-                    ):
-                        raise ScheduleValidationError(
-                            f'`{{"unroll" = {unroll_factor}}}`: unroll factor should be smaller than {loop_size}.'
-                        )
-
-    @staticmethod
-    def _must_be_smaller_routine(
-        new_size: literal,
-        current_sizes: dict[str, literal | None],
-        loop_name: str,
-        axis: str,
-    ):
-        old_size = current_sizes[axis]
-        if (
-            old_size is not None
-            and isinstance(new_size, int)
-            and isinstance(old_size, int)
-            and new_size > old_size
-        ):
-            raise ScheduleValidationError(
-                f"""
-                Inner loop {loop_name} on axis {axis} must be smaller than outer loop.
-                """
-            )
