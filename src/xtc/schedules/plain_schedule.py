@@ -31,7 +31,7 @@ class PlainNodeSchedule:
     processor_mesh: dict[str, int]
     distribution: dict[str, str]
     distributed_buffers: dict[str, dict]
-    fused: list[tuple[str, int]]
+    fused_producers: list[tuple[str, int]]
     fused_consumers: list[str]
     # Optional caller-provided vector sizes, keyed by vectorized axis name.
     # When an axis has a size, its dimension is vectorized with masking for
@@ -114,7 +114,7 @@ class PlainNodeScheduler:
         self.processor_mesh: dict[str, int] = {}
         self.distribution: dict[str, str] = {}
         self.distributed_buffers: dict[str, dict] = {}
-        self.fused: list[tuple[str, int]] = []
+        self.fused_producers: list[tuple[str, int]] = []
         self.fused_consumers: list[str] = []
 
     def get_plain_schedule(self) -> PlainNodeSchedule:
@@ -135,7 +135,7 @@ class PlainNodeScheduler:
             processor_mesh=deepcopy(self.processor_mesh),
             distribution=deepcopy(self.distribution),
             distributed_buffers=deepcopy(self.distributed_buffers),
-            fused=deepcopy(self.fused),
+            fused_producers=deepcopy(self.fused_producers),
             fused_consumers=deepcopy(self.fused_consumers),
             vectorization_sizes=deepcopy(self.vectorization_sizes),
         )
@@ -269,7 +269,7 @@ class PlainNodeScheduler:
         self, axis: str, input_idx: int, root: str = DEFAULT_ROOT
     ) -> None:
         fuse_axis = make_loop_name(root, axis)
-        self.fused.append((fuse_axis, input_idx))
+        self.fused_producers.append((fuse_axis, input_idx))
 
     def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
         fuse_axis = make_loop_name(root, axis)

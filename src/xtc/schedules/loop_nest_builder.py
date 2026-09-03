@@ -79,7 +79,7 @@ class LoopNestBuilder:
             if is_node_axis(axis)
         }
         # TODO: loop nest supports only one fuse per axis
-        fuse_producer_at = dict(localize_axis_tuples(node_sched.fused))
+        fuse_producer_at = dict(localize_axis_tuples(node_sched.fused_producers))
         # TODO: loop nest supports only one fuse consumer per axis
         fuse_consumer_at = localize_axis_list(node_sched.fused_consumers)
 
