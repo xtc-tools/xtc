@@ -281,6 +281,13 @@ def main():
         "--batch", type=int, default=defaults.batch, help="batch size for optimizer"
     )
     parser.add_argument(
+        "--module-type",
+        type=str,
+        choices=["shlib", "arlib", "csrc"],
+        default=defaults.module_type,
+        help="type of module",
+    )
+    parser.add_argument(
         "--debug",
         action=argparse.BooleanOptionalAction,
         default=False,
