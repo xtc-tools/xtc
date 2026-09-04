@@ -467,18 +467,18 @@ class PackedOperatorWrapper:
                 cmd = (
                     f"{cc_command(self._arch)} {sh_opts} {opts} "
                     f"{' '.join(object_fnames)}  "
-                    f"{packed_lib_fname}.a "
+                    f"{relative_to(packed_lib_fname, output_dir)}.a "
                     f"-o {unpacked_lib_base}{ext}"
                 )
                 p = subprocess.run(
                     shlex.split(cmd),
                     text=True,
                     capture_output=True,
-                    cwd=unpacked_lib_dir,
+                    cwd=output_dir,
                 )
                 if p.returncode != 0:
                     raise RuntimeError(
-                        f"Failed command {cmd} (cwd: {unpacked_lib_dir}:\n"
+                        f"Failed command {cmd} (cwd: {output_dir}:\n"
                         f"{p.stdout}\n"
                         f"{p.stderr}\n"
                     )

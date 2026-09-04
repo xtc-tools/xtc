@@ -112,6 +112,7 @@ class ExplorationConfig:
     descript: str | None = None
     use_tensors: bool = False
     progress_cls: str = "tqdm"
+    module_type: str = "shlib"
 
     def __post_init__(self):
         if self.graph_file is not None:
@@ -366,11 +367,17 @@ class Exploration:
         if dump_file is None:
             dump_file = f"{args.explore_dir}/payload_{ident}"
         compile_args = dict(
-            shared_lib=True,
             dump_file=dump_file,
             bare_ptr=args.bare_ptr,
             debug=args.debug_compile,
         )
+        if args.module_type == "shlib":
+            compile_args.update(dict(shared_lib=True))
+        elif args.module_type == "arlib":
+            compile_args.update(dict(ar_lib=True))
+        else:
+            assert args.module_type == "csrc"
+            compile_args.update(dict(emit_c=True))
         if args.dump:
             compile_args.update(
                 dict(
