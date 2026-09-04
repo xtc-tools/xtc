@@ -108,6 +108,9 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             (input_idx, mtype, pad). input_idx is the input buffer index,
             mtype is the memory type (None for default), pad enables padding.
         constraints: List of generated constraints.
+        fuse_producer_at: Producer fusion configuration per axis. Maps axis
+            names to producer indices.
+        fuse_consumer_at: List of axes where the output consumer is fused.
     """
 
     root: str
@@ -121,6 +124,8 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     unroll: dict[str, literal] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
     pack_at: dict[str, tuple[int, str | None, bool | str]] = field(default_factory=dict)
+    fuse_producer_at: dict[str, int] = field(default_factory=dict)
+    fuse_consumer_at: list[str] = field(default_factory=list)
     constraints: list[str] = field(default_factory=list)
 
     def apply_sample(self, sample: dict[str, int]) -> LoopNestNode:
@@ -160,6 +165,9 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             a: (a1, a2, bool(sample[a3]) if isinstance(a3, str) else a3)
             for a, (a1, a2, a3) in self.pack_at.items()
         }
+        fuse_producer_at = self.fuse_producer_at
+        fuse_consumer_at = self.fuse_consumer_at
+
         children = [child.apply_sample(sample) for child in self.children]
         split_origin = (
             self.split_origin.apply_sample(sample)
@@ -176,6 +184,8 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             unroll=unroll,
             buffer_at=buffer_at,
             pack_at=pack_at,
+            fuse_producer_at=fuse_producer_at,
+            fuse_consumer_at=fuse_consumer_at,
             children=children,
             split_origin=split_origin,
         )
@@ -301,6 +311,11 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             if pad:
                 parts.append("pad")
             annotations.append(f"pack({', '.join(parts)})")
+        if loop_name in self.fuse_producer_at:
+            prod_idx = self.fuse_producer_at[loop_name]
+            annotations.append(f"fuse_producer({prod_idx})")
+        if loop_name in self.fuse_consumer_at:
+            annotations.append("fuse_consumer")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line

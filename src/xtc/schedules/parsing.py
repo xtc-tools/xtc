@@ -38,6 +38,8 @@ class Annotations:
         pack: Pack configuration as (input_idx, mtype, pad). mtype is None for default.
             Only meaningful when pack_specified is True.
         pack_specified: True if pack was explicitly requested.
+        fuse_producer: the input_idx for the operand to fuse, None if not requested.
+        fuse_consumer: True if consumer fusion was requested.
     """
 
     unroll_factor: literal | None = None
@@ -48,6 +50,8 @@ class Annotations:
     buffer_specified: bool = False
     pack: tuple[literal, str | None, bool | str] | None = None
     pack_specified: bool = False
+    fuse_producer: int | None = None
+    fuse_consumer: bool | None = False
     partial: bool = False
     full: bool = False
 
@@ -173,6 +177,8 @@ class ScheduleParser:
         buffer_specified = False
         pack: tuple[literal, str | None, bool | str] | None = None
         pack_specified = False
+        fuse_producer: int | None = None
+        fuse_consumer: bool = False
         partial = False
         full = False
 
@@ -217,6 +223,22 @@ class ScheduleParser:
                 case "pack":
                     pack = self._parse_pack_param(param, context)
                     pack_specified = True
+                case "fuse_producer":
+                    if param is None:
+                        fuse_producer = None
+                    elif not isinstance(param, int):
+                        raise ScheduleParseError(
+                            f'`{{"fuse_producer" = {param}}}`: input_idx should be a integer.'
+                        )
+                    fuse_producer = param
+                case "fuse_consumer":
+                    if param is None:
+                        param = True
+                    elif not isinstance(param, bool):
+                        raise ScheduleParseError(
+                            f'`{{"fuse_consumer" = {param}}}`: fuse_consumer parameter should be a bool.'
+                        )
+                    fuse_consumer = param
                 case "partial":
                     partial = True
                 case "full":
@@ -236,6 +258,8 @@ class ScheduleParser:
             buffer_specified=buffer_specified,
             pack=pack,
             pack_specified=pack_specified,
+            fuse_producer=fuse_producer,
+            fuse_consumer=fuse_consumer,
             partial=partial,
             full=full,
         )
