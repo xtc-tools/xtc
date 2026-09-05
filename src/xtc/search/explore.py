@@ -871,8 +871,20 @@ class Exploration:
         for name in Optimizers.names():
             print(f"{name}")
 
+    def _warmup_llvm_backends(self) -> None:
+        """Initialize TVM's LLVM codegen before any other backend touches LLVM."""
+        if "tvm" not in self.config.backends:
+            return
+        try:
+            import tvm
+
+            tvm.target.codegen.llvm_version_major()
+        except Exception as exc:  # best-effort: never fail the run on warmup
+            logger.debug("TVM LLVM warmup skipped: %s", exc)
+
     def run(self) -> list[Sequence]:
         args = self.config
+        self._warmup_llvm_backends()
         if args.seed >= 0:
             np.random.seed(args.seed)
             random.seed(args.seed)

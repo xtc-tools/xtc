@@ -97,10 +97,10 @@ pages:
 	$(MAKE) -C docs/site site
 
 agents:
-	scripts/llms/init_agents.py agents README.md "Links" "AI assistants" > AGENTS.md
+	scripts/llms/init_agents.py agents README.md "Links" "local LLVM" "AI assistants" > AGENTS.md
 
 claude:
-	scripts/llms/init_agents.py claude README.md "Links" "AI assistants" > CLAUDE.md
+	scripts/llms/init_agents.py claude README.md "Links" "local LLVM" "AI assistants" > CLAUDE.md
 
 run-tutorial:
 	marimo run docs/tutorials/xtc_101.py

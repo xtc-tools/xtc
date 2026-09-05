@@ -123,7 +123,7 @@ class MlirProgramToLLVMDialectPass:
             "sccp",
             # Data flow to LLVM
             "convert-math-to-llvm",
-            "convert-vector-to-llvm{enable-x86vector=true}",
+            "convert-vector-to-llvm",
             "convert-index-to-llvm",
             "convert-arith-to-llvm",
             "convert-ub-to-llvm",

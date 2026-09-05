@@ -33,7 +33,8 @@ from mlir.ir import (
 )
 from mlir.passmanager import PassManager
 from mlir.ir import Module
-import mlir.xtc_transform
+
+import xtc.backends.mlir.MlirBindingsExtensions as binding_extensions
 
 # Import SDist if available
 try:
@@ -779,7 +780,6 @@ class MlirProgramApplyPasses:
 
 
 def apply_bufferization_passes(mlir_program: RawMlirProgram, mlir_install_dir: str):
-    assert mlir.xtc_transform
     bufferize_options = [
         "bufferize-function-boundaries",
         "function-boundary-type-conversion=identity-layout-map",
@@ -787,9 +787,8 @@ def apply_bufferization_passes(mlir_program: RawMlirProgram, mlir_install_dir: s
     ]
 
     MlirProgramApplyPasses(mlir_program).run(
-        [
-            # xtc pass that folds extract slices to make smaller tensor.empty allocations
-            "func.func(reduce-extract-slices)",
+        binding_extensions.passes(["func.func(reduce-extract-slices)"])
+        + [
             "canonicalize",
             "cse",
             "eliminate-empty-tensors",  # causes ops to write directly to out buffer

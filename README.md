@@ -52,6 +52,38 @@ Available extensions are:
 - `[default]`: mlir + tvm
 - `[dev]`: default + test
 
+### Using a local LLVM / MLIR build
+
+By default XTC uses the LLVM/MLIR toolchain shipped in its Python wheels. To
+use a local LLVM checkout instead (e.g. to test compiler changes), point XTC
+at your build directory (`$LLVM_BUILD` below). Two levels are possible.
+
+**Binaries only.** Override `opt`, `llc`, `mlir-opt` and `mlir-translate`
+while keeping the wheel's Python bindings — the simplest option, e.g. when
+your changes live in the LLVM middle-end / back-end:
+
+```bash
+export XTC_LLVM_PREFIX=$LLVM_BUILD   # providing bin/opt and bin/llc
+export XTC_MLIR_PREFIX=$LLVM_BUILD   # providing bin/mlir-opt and bin/mlir-translate
+```
+
+**Binaries and Python bindings.** The MLIR bindings are a native extension,
+so the interpreter must match the Python version they were built for (check
+the ABI tag under
+`$LLVM_BUILD/tools/mlir/python_packages/mlir_core/mlir/_mlir_libs`).
+Create a matching venv if, install XTC without the MLIR wheels, build the
+runtime support libraries, then prepend the bindings to `PYTHONPATH`:
+
+```bash
+uv venv -p 3.14 .venv-local && source .venv-local/bin/activate
+uv pip install -e '.[tvm]'
+
+export PYTHONPATH=$LLVM_BUILD/tools/mlir/python_packages/mlir_core:$PYTHONPATH
+export XTC_MLIR_PREFIX=$LLVM_BUILD
+export XTC_LLVM_PREFIX=$LLVM_BUILD
+export XTC_MLIR_TARGET=llvmir
+```
+
 ### Code quality
 
 Code quality requirements:
