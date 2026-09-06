@@ -75,41 +75,32 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.yield 
 # CHECK-NEXT:    }
 # CHECK-NEXT:    transform.named_sequence @__transform_main(%arg0: !transform.any_op {transform.readonly}) {
-# CHECK-NEXT:      %0 = transform.structured.match attributes {__xtc_id_O_0_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [1, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %0 = transform.structured.match attributes {__xtc_id_O_} in %arg0 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [1, 0, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops "./b" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %tiled_linalg_op tile_sizes [0, 1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %tiled_linalg_op tile_sizes [0, 1, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_1 "./h" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %tiled_linalg_op_0 tile_sizes [0, 0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %tiled_linalg_op_0 tile_sizes [0, 0, 1, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_3 "./w" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_linalg_op_2 tile_sizes [0, 0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_linalg_op_2 tile_sizes [0, 0, 0, 1, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_5 "./f" : !transform.any_op
-# CHECK-NEXT:      %1 = transform.structured.match attributes {__xtc_id_O_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %1 tile_sizes [1, 0, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_7 "./b" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [0, 1, 0, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_9 "./h" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %tiled_linalg_op_8 tile_sizes [0, 0, 1, 0, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_11 "./w" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_12, %loops_13 = transform.structured.tile_using_for %tiled_linalg_op_10 tile_sizes [0, 0, 0, 1, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_13 "./f" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_14, %loops_15 = transform.structured.tile_using_for %tiled_linalg_op_12 tile_sizes [0, 0, 0, 0, 1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_15 "./r" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_16, %loops_17 = transform.structured.tile_using_for %tiled_linalg_op_14 tile_sizes [0, 0, 0, 0, 0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_17 "./s" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_18, %loops_19 = transform.structured.tile_using_for %tiled_linalg_op_16 tile_sizes [0, 0, 0, 0, 0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_19 "./c" : !transform.any_op
-# CHECK-NEXT:      %2 = transform.structured.match attributes {__xtc_id_relu_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_20, %loops_21 = transform.structured.tile_using_for %2 tile_sizes [16] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_21 "./i" : !transform.any_op
-# CHECK-NEXT:      %3 = transform.get_parent_op %tiled_linalg_op_20 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %3 {
+# CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 0, 0, 0, 1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_7 "./r" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [0, 0, 0, 0, 0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_9 "./s" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %tiled_linalg_op_8 tile_sizes [0, 0, 0, 0, 0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_11 "./c" : !transform.any_op
+# CHECK-NEXT:      %1 = transform.structured.match attributes {__xtc_id_relu_} in %arg0 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_12, %loops_13 = transform.structured.tile_using_for %1 tile_sizes [16] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_13 "./i" : !transform.any_op
+# CHECK-NEXT:      %2 = transform.get_parent_op %tiled_linalg_op_12 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %2 {
 # CHECK-NEXT:        transform.apply_patterns.linalg.fold_unit_extent_dims_via_slices
 # CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      %4 = transform.structured.match interface{LinalgOp} in %3 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%4) : (!transform.any_op) -> ()
-# CHECK-NEXT:      %5 = transform.get_parent_op %loops_21 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %5 {
+# CHECK-NEXT:      %3 = transform.structured.match interface{LinalgOp} in %2 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%3) : (!transform.any_op) -> ()
+# CHECK-NEXT:      %4 = transform.get_parent_op %loops_13 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %4 {
 # CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
 # CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 # CHECK-NEXT:      } : !transform.any_op
@@ -133,27 +124,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %c0 = arith.constant 0 : index
 # CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:      %0 = tensor.empty() : tensor<1x8x8x16xf32>
-# CHECK-NEXT:      %1 = scf.for %arg3 = %c0 to %c1 step %c1 iter_args(%arg4 = %0) -> (tensor<1x8x8x16xf32>) {
-# CHECK-NEXT:        %extracted_slice = tensor.extract_slice %arg4[%arg3, 0, 0, 0] [1, 8, 8, 16] [1, 1, 1, 1] : tensor<1x8x8x16xf32> to tensor<1x8x8x16xf32>
-# CHECK-NEXT:        %5 = scf.for %arg5 = %c0 to %c8 step %c1 iter_args(%arg6 = %extracted_slice) -> (tensor<1x8x8x16xf32>) {
-# CHECK-NEXT:          %extracted_slice_0 = tensor.extract_slice %arg6[0, %arg5, 0, 0] [1, 1, 8, 16] [1, 1, 1, 1] : tensor<1x8x8x16xf32> to tensor<1x1x8x16xf32>
-# CHECK-NEXT:          %6 = scf.for %arg7 = %c0 to %c8 step %c1 iter_args(%arg8 = %extracted_slice_0) -> (tensor<1x1x8x16xf32>) {
-# CHECK-NEXT:            %extracted_slice_2 = tensor.extract_slice %arg8[0, 0, %arg7, 0] [1, 1, 1, 16] [1, 1, 1, 1] : tensor<1x1x8x16xf32> to tensor<1x1x1x16xf32>
-# CHECK-NEXT:            %7 = scf.for %arg9 = %c0 to %c16 step %c1 iter_args(%arg10 = %extracted_slice_2) -> (tensor<1x1x1x16xf32>) {
-# CHECK-NEXT:              %extracted_slice_4 = tensor.extract_slice %arg10[0, 0, 0, %arg9] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x16xf32> to tensor<1x1x1x1xf32>
-# CHECK-NEXT:              %8 = linalg.fill {__xtc_id_O_0_} ins(%cst : f32) outs(%extracted_slice_4 : tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>
-# CHECK-NEXT:              %inserted_slice_5 = tensor.insert_slice %8 into %arg10[0, 0, 0, %arg9] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x1xf32> into tensor<1x1x1x16xf32>
-# CHECK-NEXT:              scf.yield %inserted_slice_5 : tensor<1x1x1x16xf32>
-# CHECK-NEXT:            } {"./f"}
-# CHECK-NEXT:            %inserted_slice_3 = tensor.insert_slice %7 into %arg8[0, 0, %arg7, 0] [1, 1, 1, 16] [1, 1, 1, 1] : tensor<1x1x1x16xf32> into tensor<1x1x8x16xf32>
-# CHECK-NEXT:            scf.yield %inserted_slice_3 : tensor<1x1x8x16xf32>
-# CHECK-NEXT:          } {"./w"}
-# CHECK-NEXT:          %inserted_slice_1 = tensor.insert_slice %6 into %arg6[0, %arg5, 0, 0] [1, 1, 8, 16] [1, 1, 1, 1] : tensor<1x1x8x16xf32> into tensor<1x8x8x16xf32>
-# CHECK-NEXT:          scf.yield %inserted_slice_1 : tensor<1x8x8x16xf32>
-# CHECK-NEXT:        } {"./h"}
-# CHECK-NEXT:        %inserted_slice = tensor.insert_slice %5 into %arg4[%arg3, 0, 0, 0] [1, 8, 8, 16] [1, 1, 1, 1] : tensor<1x8x8x16xf32> into tensor<1x8x8x16xf32>
-# CHECK-NEXT:        scf.yield %inserted_slice : tensor<1x8x8x16xf32>
-# CHECK-NEXT:      } {"./b"}
+# CHECK-NEXT:      %1 = linalg.fill {__xtc_id_O_0_} ins(%cst : f32) outs(%0 : tensor<1x8x8x16xf32>) -> tensor<1x8x8x16xf32>
 # CHECK-NEXT:      %2 = scf.for %arg3 = %c0 to %c1 step %c1 iter_args(%arg4 = %1) -> (tensor<1x8x8x16xf32>) {
 # CHECK-NEXT:        %extracted_slice = tensor.extract_slice %arg0[%arg3, 0, 0, 0] [1, 10, 10, 3] [1, 1, 1, 1] : tensor<1x10x10x3xf32> to tensor<1x10x10x3xf32>
 # CHECK-NEXT:        %extracted_slice_0 = tensor.extract_slice %arg4[%arg3, 0, 0, 0] [1, 8, 8, 16] [1, 1, 1, 1] : tensor<1x8x8x16xf32> to tensor<1x8x8x16xf32>
@@ -244,71 +215,53 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %c0 = arith.constant 0 : index
 # CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:      %alloc = memref.alloc() {alignment = 256 : i64} : memref<1x8x8x16xf32>
+# CHECK-NEXT:      linalg.fill {__xtc_id_O_0_} ins(%cst : f32) outs(%alloc : memref<1x8x8x16xf32>)
 # CHECK-NEXT:      %0 = scf.for %arg3 = %c0 to %c8 step %c1 iter_args(%arg4 = %alloc) -> (memref<1x8x8x16xf32>) {
-# CHECK-NEXT:        %subview = memref.subview %arg4[0, %arg3, 0, 0] [1, 1, 8, 16] [1, 1, 1, 1] : memref<1x8x8x16xf32> to memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:        %2 = scf.for %arg5 = %c0 to %c8 step %c1 iter_args(%arg6 = %subview) -> (memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
-# CHECK-NEXT:          %subview_1 = memref.subview %arg6[0, 0, %arg5, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:          %3 = scf.for %arg7 = %c0 to %c16 step %c1 iter_args(%arg8 = %subview_1) -> (memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
-# CHECK-NEXT:            %subview_3 = memref.subview %arg8[0, 0, 0, %arg7] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:            linalg.fill {__xtc_id_O_0_} ins(%cst : f32) outs(%subview_3 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>)
-# CHECK-NEXT:            %subview_4 = memref.subview %arg8[0, 0, 0, %arg7] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:            memref.copy %subview_3, %subview_4 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:            scf.yield %arg8 : memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:          } {"./f"}
-# CHECK-NEXT:          %subview_2 = memref.subview %arg6[0, 0, %arg5, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:          memref.copy %3, %subview_2 : memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:          scf.yield %arg6 : memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:        } {"./w"}
-# CHECK-NEXT:        %subview_0 = memref.subview %arg4[0, %arg3, 0, 0] [1, 1, 8, 16] [1, 1, 1, 1] : memref<1x8x8x16xf32> to memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:        memref.copy %2, %subview_0 : memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:        scf.yield %arg4 : memref<1x8x8x16xf32>
-# CHECK-NEXT:      } {"./h"}
-# CHECK-NEXT:      %1 = scf.for %arg3 = %c0 to %c8 step %c1 iter_args(%arg4 = %0) -> (memref<1x8x8x16xf32>) {
 # CHECK-NEXT:        %subview = memref.subview %arg0[0, %arg3, 0, 0] [1, 3, 10, 3] [1, 1, 1, 1] : memref<1x10x10x3xf32> to memref<1x3x10x3xf32, strided<[300, 30, 3, 1], offset: ?>>
 # CHECK-NEXT:        %subview_0 = memref.subview %arg4[0, %arg3, 0, 0] [1, 1, 8, 16] [1, 1, 1, 1] : memref<1x8x8x16xf32> to memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:        %2 = scf.for %arg5 = %c0 to %c8 step %c1 iter_args(%arg6 = %subview_0) -> (memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
+# CHECK-NEXT:        %1 = scf.for %arg5 = %c0 to %c8 step %c1 iter_args(%arg6 = %subview_0) -> (memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
 # CHECK-NEXT:          %subview_2 = memref.subview %subview[0, 0, %arg5, 0] [1, 3, 3, 3] [1, 1, 1, 1] : memref<1x3x10x3xf32, strided<[300, 30, 3, 1], offset: ?>> to memref<1x3x3x3xf32, strided<[300, 30, 3, 1], offset: ?>>
 # CHECK-NEXT:          %subview_3 = memref.subview %arg6[0, 0, %arg5, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:          %3 = scf.for %arg7 = %c0 to %c16 step %c1 iter_args(%arg8 = %subview_3) -> (memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
+# CHECK-NEXT:          %2 = scf.for %arg7 = %c0 to %c16 step %c1 iter_args(%arg8 = %subview_3) -> (memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
 # CHECK-NEXT:            %subview_5 = memref.subview %arg1[0, 0, 0, %arg7] [3, 3, 3, 1] [1, 1, 1, 1] : memref<3x3x3x16xf32> to memref<3x3x3x1xf32, strided<[144, 48, 16, 1], offset: ?>>
 # CHECK-NEXT:            %subview_6 = memref.subview %arg8[0, 0, 0, %arg7] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:            %4 = scf.for %arg9 = %c0 to %c3 step %c1 iter_args(%arg10 = %subview_6) -> (memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
+# CHECK-NEXT:            %3 = scf.for %arg9 = %c0 to %c3 step %c1 iter_args(%arg10 = %subview_6) -> (memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
 # CHECK-NEXT:              %subview_8 = memref.subview %subview_2[0, %arg9, 0, 0] [1, 1, 3, 3] [1, 1, 1, 1] : memref<1x3x3x3xf32, strided<[300, 30, 3, 1], offset: ?>> to memref<1x1x3x3xf32, strided<[300, 30, 3, 1], offset: ?>>
 # CHECK-NEXT:              %subview_9 = memref.subview %subview_5[%arg9, 0, 0, 0] [1, 3, 3, 1] [1, 1, 1, 1] : memref<3x3x3x1xf32, strided<[144, 48, 16, 1], offset: ?>> to memref<1x3x3x1xf32, strided<[144, 48, 16, 1], offset: ?>>
-# CHECK-NEXT:              %5 = scf.for %arg11 = %c0 to %c3 step %c1 iter_args(%arg12 = %arg10) -> (memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
+# CHECK-NEXT:              %4 = scf.for %arg11 = %c0 to %c3 step %c1 iter_args(%arg12 = %arg10) -> (memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
 # CHECK-NEXT:                %subview_10 = memref.subview %subview_8[0, 0, %arg11, 0] [1, 1, 1, 3] [1, 1, 1, 1] : memref<1x1x3x3xf32, strided<[300, 30, 3, 1], offset: ?>> to memref<1x1x1x3xf32, strided<[300, 30, 3, 1], offset: ?>>
 # CHECK-NEXT:                %subview_11 = memref.subview %subview_9[0, %arg11, 0, 0] [1, 1, 3, 1] [1, 1, 1, 1] : memref<1x3x3x1xf32, strided<[144, 48, 16, 1], offset: ?>> to memref<1x1x3x1xf32, strided<[144, 48, 16, 1], offset: ?>>
-# CHECK-NEXT:                %6 = scf.for %arg13 = %c0 to %c3 step %c1 iter_args(%arg14 = %arg12) -> (memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
+# CHECK-NEXT:                %5 = scf.for %arg13 = %c0 to %c3 step %c1 iter_args(%arg14 = %arg12) -> (memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>) {
 # CHECK-NEXT:                  %subview_12 = memref.subview %subview_10[0, 0, 0, %arg13] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x3xf32, strided<[300, 30, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[300, 30, 3, 1], offset: ?>>
 # CHECK-NEXT:                  %subview_13 = memref.subview %subview_11[0, 0, %arg13, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x3x1xf32, strided<[144, 48, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[144, 48, 16, 1], offset: ?>>
 # CHECK-NEXT:                  linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%subview_12, %subview_13 : memref<1x1x1x1xf32, strided<[300, 30, 3, 1], offset: ?>>, memref<1x1x1x1xf32, strided<[144, 48, 16, 1], offset: ?>>) outs(%arg14 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>) attrs =  {__xtc_id_O_} {
 # CHECK-NEXT:                  ^bb0(%in: f32, %in_14: f32, %out: f32):
-# CHECK-NEXT:                    %7 = arith.mulf %in, %in_14 fastmath<fast> : f32
-# CHECK-NEXT:                    %8 = arith.addf %out, %7 fastmath<fast> : f32
-# CHECK-NEXT:                    linalg.yield %8 : f32
+# CHECK-NEXT:                    %6 = arith.mulf %in, %in_14 fastmath<fast> : f32
+# CHECK-NEXT:                    %7 = arith.addf %out, %6 fastmath<fast> : f32
+# CHECK-NEXT:                    linalg.yield %7 : f32
 # CHECK-NEXT:                  }
 # CHECK-NEXT:                  scf.yield %arg14 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
 # CHECK-NEXT:                } {"./c"}
-# CHECK-NEXT:                scf.yield %6 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
+# CHECK-NEXT:                scf.yield %5 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
 # CHECK-NEXT:              } {"./s"}
-# CHECK-NEXT:              scf.yield %5 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
+# CHECK-NEXT:              scf.yield %4 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
 # CHECK-NEXT:            } {"./r"}
 # CHECK-NEXT:            %subview_7 = memref.subview %arg8[0, 0, 0, %arg7] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:            memref.copy %4, %subview_7 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
+# CHECK-NEXT:            memref.copy %3, %subview_7 : memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[1024, 128, 16, 1], offset: ?>>
 # CHECK-NEXT:            scf.yield %arg8 : memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
 # CHECK-NEXT:          } {"./f"}
 # CHECK-NEXT:          %subview_4 = memref.subview %arg6[0, 0, %arg5, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:          memref.copy %3, %subview_4 : memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
+# CHECK-NEXT:          memref.copy %2, %subview_4 : memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
 # CHECK-NEXT:          scf.yield %arg6 : memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
 # CHECK-NEXT:        } {"./w"}
 # CHECK-NEXT:        %subview_1 = memref.subview %arg4[0, %arg3, 0, 0] [1, 1, 8, 16] [1, 1, 1, 1] : memref<1x8x8x16xf32> to memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
-# CHECK-NEXT:        memref.copy %2, %subview_1 : memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
+# CHECK-NEXT:        memref.copy %1, %subview_1 : memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>> to memref<1x1x8x16xf32, strided<[1024, 128, 16, 1], offset: ?>>
 # CHECK-NEXT:        scf.yield %arg4 : memref<1x8x8x16xf32>
 # CHECK-NEXT:      } {"./h"}
-# CHECK-NEXT:      linalg.generic {indexing_maps = [#map3, #map4, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%1, %cst : memref<1x8x8x16xf32>, f32) outs(%arg2 : memref<1x8x8x16xf32>) attrs =  {__xtc_id_relu_} {
+# CHECK-NEXT:      linalg.generic {indexing_maps = [#map3, #map4, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%0, %cst : memref<1x8x8x16xf32>, f32) outs(%arg2 : memref<1x8x8x16xf32>) attrs =  {__xtc_id_relu_} {
 # CHECK-NEXT:      ^bb0(%in: f32, %in_0: f32, %out: f32):
-# CHECK-NEXT:        %2 = arith.maximumf %in, %in_0 : f32
-# CHECK-NEXT:        linalg.yield %2 : f32
+# CHECK-NEXT:        %1 = arith.maximumf %in, %in_0 : f32
+# CHECK-NEXT:        linalg.yield %1 : f32
 # CHECK-NEXT:      }
 # CHECK-NEXT:      memref.copy %arg2, %arg2 : memref<1x8x8x16xf32> to memref<1x8x8x16xf32>
 # CHECK-NEXT:      return

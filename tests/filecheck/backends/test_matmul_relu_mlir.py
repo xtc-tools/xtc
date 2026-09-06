@@ -59,34 +59,29 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.yield 
 # CHECK-NEXT:    }
 # CHECK-NEXT:    transform.named_sequence @__transform_main(%arg0: !transform.any_op {transform.readonly}) {
-# CHECK-NEXT:      %0 = transform.structured.match attributes {__xtc_id_matmul_0_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops "./i" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %tiled_linalg_op tile_sizes [0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_1 "./j" : !transform.any_op
-# CHECK-NEXT:      %1 = transform.structured.match attributes {__xtc_id_matmul_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %1 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_3 "./k" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_linalg_op_2 tile_sizes [2, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_5 "./i" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 16, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_7 "./j" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_9 "./i1" : !transform.any_op
-# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_8) : (!transform.any_op) -> ()
-# CHECK-NEXT:      transform.loop.unroll %loops_9 {factor = 2 : i64} : !transform.any_op
-# CHECK-NEXT:      %2 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:      %0 = transform.structured.match attributes {__xtc_id_matmul_} in %arg0 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op, %loops = transform.structured.tile_using_for %0 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops "./k" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %tiled_linalg_op tile_sizes [2, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_1 "./i" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %tiled_linalg_op_0 tile_sizes [0, 16, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_3 "./j" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_4, %loops_5 = transform.structured.tile_using_for %tiled_linalg_op_2 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_5 "./i1" : !transform.any_op
+# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_4) : (!transform.any_op) -> ()
+# CHECK-NEXT:      transform.loop.unroll %loops_5 {factor = 2 : i64} : !transform.any_op
+# CHECK-NEXT:      %1 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %1 {
 # CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
 # CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 # CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:      transform.apply_patterns to %1 {
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 # CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      %3 = transform.structured.match attributes {__xtc_id_relu_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %3 tile_sizes [1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-# CHECK-NEXT:      transform.annotate %loops_11 "./i" : !transform.any_op
+# CHECK-NEXT:      %2 = transform.structured.match attributes {__xtc_id_relu_} in %arg0 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %2 tile_sizes [1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_7 "./i" : !transform.any_op
 # CHECK-NEXT:      transform.yield 
 # CHECK-NEXT:    }
 # CHECK-NEXT:  }
@@ -99,21 +94,15 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %cst = arith.constant dense<0.000000e+00> : vector<1x16xf32>
 # CHECK-NEXT:      %0 = ub.poison : f32
 # CHECK-NEXT:      %c16 = arith.constant 16 : index
-# CHECK-NEXT:      %c2 = arith.constant 2 : index
-# CHECK-NEXT:      %c512 = arith.constant 512 : index
 # CHECK-NEXT:      %c32 = arith.constant 32 : index
-# CHECK-NEXT:      %c1 = arith.constant 1 : index
+# CHECK-NEXT:      %c2 = arith.constant 2 : index
 # CHECK-NEXT:      %c4 = arith.constant 4 : index
+# CHECK-NEXT:      %c1 = arith.constant 1 : index
+# CHECK-NEXT:      %c512 = arith.constant 512 : index
 # CHECK-NEXT:      %c0 = arith.constant 0 : index
 # CHECK-NEXT:      %cst_0 = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:      %alloca = memref.alloca() {alignment = 256 : i64} : memref<4x32xf32>
-# CHECK-NEXT:      scf.for %arg3 = %c0 to %c4 step %c1 {
-# CHECK-NEXT:        %subview = memref.subview %alloca[%arg3, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
-# CHECK-NEXT:        scf.for %arg4 = %c0 to %c32 step %c1 {
-# CHECK-NEXT:          %subview_4 = memref.subview %subview[0, %arg4] [1, 1] [1, 1] : memref<1x32xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
-# CHECK-NEXT:          linalg.fill {__xtc_id_matmul_0_} ins(%cst_0 : f32) outs(%subview_4 : memref<1x1xf32, strided<[32, 1], offset: ?>>)
-# CHECK-NEXT:        } {"./j"}
-# CHECK-NEXT:      } {"./i"}
+# CHECK-NEXT:      linalg.fill {__xtc_id_matmul_0_} ins(%cst_0 : f32) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:      scf.for %arg3 = %c0 to %c512 step %c1 {
 # CHECK-NEXT:        %subview = memref.subview %arg0[0, %arg3] [4, 1] [1, 1] : memref<4x512xf32> to memref<4x1xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:        %subview_4 = memref.subview %arg1[%arg3, 0] [1, 32] [1, 1] : memref<512x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>

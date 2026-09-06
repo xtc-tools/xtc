@@ -223,6 +223,9 @@ class MlirProgramInsertTransformPass:
         for schedule in self._nodes_schedules:
             if schedule.node_ident in unscheduled_handles:
                 continue
+            # Skip linalg.fill
+            if schedule.node_name[-1] == "0":  # identify with naming convention
+                continue
             self._create_sdist_meshes(schedule)
             handle = structured_match(
                 results_=transform.AnyOpType.get(),
