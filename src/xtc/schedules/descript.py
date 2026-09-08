@@ -572,7 +572,7 @@ class Descript:
                 (k for k, v in node.gpu_warp.items() if v is not None),
                 key=lambda k: node.gpu_warp[k],
             )
-            scheduler.gpu_thread(sorted_keys, root=root)
+            scheduler.gpu_warp(sorted_keys, root=root)
 
         if node.gpu_block:
             sorted_keys = sorted(

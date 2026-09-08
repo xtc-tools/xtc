@@ -111,8 +111,6 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
         fuse_producer_at: Producer fusion configuration per axis. Maps axis
             names to producer indices.
         fuse_consumer_at: List of axes where the output consumer is fused.
-        gpu_block: Maps loops to block id, that loop need to be parallelize
-        gpu_thread: Maps loops to thread id, that loop need to be parallelize
         gpu_lane: Maps loops to lane id
         gpu_warp: Maps loops to warp id
         gpu_block: Maps loops to block id

@@ -7,6 +7,8 @@
 # RUN: python %s --pack 2>&1 | filecheck %s --check-prefix=CHECK-PACK
 # RUN: python %s --fuse-producer 2>&1 | filecheck %s --check-prefix=CHECK-FUSE-PRODUCER
 # RUN: python %s --fuse-consumer 2>&1 | filecheck %s --check-prefix=CHECK-FUSE-CONSUMER
+# RUN: python %s --gpu 2>&1 | filecheck %s --check-prefix=CHECK-GPU
+# RUN: python %s --gpu-warp-lane 2>&1 | filecheck %s --check-prefix=CHECK-GPU-WARP-LANE
 
 import sys
 from xtc.schedules.parsing import ScheduleParser
@@ -89,7 +91,28 @@ elif "--fuse-consumer" in sys.argv:
     ast = parser.parse(spec)
     loop_nest = interpreter.interpret(ast, root="C")
     print(loop_nest.root_node.pretty_print())
-
+elif "--gpu" in sys.argv:
+    spec = {
+        "i": {},
+        "i#32": {"gpu_block": 0},
+        "i#4": {"gpu_thread": 0},
+        "j": {},
+        "k": {}
+    }
+    ast = parser.parse(spec)
+    loop_nest = interpreter.interpret(ast, root="C")
+    print(loop_nest.root_node.pretty_print())
+elif "--gpu-warp-lane" in sys.argv:
+    spec = {
+        "i": {"gpu_block": 0},
+        "i#32": {"gpu_warp": 0},
+        "i#4": {"gpu_lane": 0},
+        "j": {},
+        "k": {}
+    }
+    ast = parser.parse(spec)
+    loop_nest = interpreter.interpret(ast, root="C")
+    print(loop_nest.root_node.pretty_print())
 # CHECK-SIMPLE:      loop i
 # CHECK-SIMPLE-NEXT:   loop k
 # CHECK-SIMPLE-NEXT:     loop j
@@ -147,3 +170,17 @@ elif "--fuse-consumer" in sys.argv:
 # CHECK-FUSE-CONSUMER-NEXT:   loop k
 # CHECK-FUSE-CONSUMER-NEXT:     loop j  // fuse_consumer
 # CHECK-FUSE-CONSUMER-NEXT:       ...
+
+# CHECK-GPU:      loop i
+# CHECK-GPU-NEXT:   tile(i, 32)  // gpu_block(0)
+# CHECK-GPU-NEXT:     tile(i, 4)  // gpu_thread(0)
+# CHECK-GPU-NEXT:       loop j
+# CHECK-GPU-NEXT:         loop k
+# CHECK-GPU-NEXT:           ...
+
+# CHECK-GPU-WARP-LANE:     loop i  // gpu_block(0)
+# CHECK-GPU-WARP-LANE-NEXT:   tile(i, 32)  // gpu_warp(0)
+# CHECK-GPU-WARP-LANE-NEXT:    tile(i, 4)  // gpu_lane(0)
+# CHECK-GPU-WARP-LANE-NEXT:       loop j
+# CHECK-GPU-WARP-LANE-NEXT:         loop k
+# CHECK-GPU-WARP-LANE-NEXT:           ...

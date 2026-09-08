@@ -380,102 +380,47 @@ class MlirProgramInsertTransformPass:
                 break
             elif loop_name in tiles_sizes_by_loops:
                 if loop_name in schedule.gpu_blocks:
-                    tile_vect = [
-                        sum(values)
-                        for values in zip(
-                            *[
-                                tiles_sizes_by_loops[loop]
-                                for loop in schedule.gpu_blocks
-                            ]
-                        )
-                    ]
-                    tile_vect = tile_vect + [0] * (3 - len(tile_vect))
-                    # TODO: Do not work with splitting
-                    position_index = [
-                        permutation.index(loop) for loop in schedule.gpu_blocks
-                    ]
-                    mapping_order = sorted(
-                        range(len(position_index)), key=lambda i: position_index[i]
-                    )
                     if gpu_material:
-                        self._strip_mine(
+                        self._gpu_strip_mine(
                             loop_name=loop_name,
-                            tiling_vector=tile_vect,
-                            mapping_order=mapping_order,
                             schedule=schedule,
                             sched_state=sched_state,
+                            gpu_list=schedule.gpu_blocks,
+                            permutation=permutation,
+                            tiles_sizes_by_loops=tiles_sizes_by_loops,
                         )
                         gpu_material = False
                 elif loop_name in schedule.gpu_warps:
-                    tile_vect = [
-                        sum(values)
-                        for values in zip(
-                            *[tiles_sizes_by_loops[loop] for loop in schedule.gpu_warps]
-                        )
-                    ]
-                    tile_vect = tile_vect + [0] * (3 - len(tile_vect))
-                    position_index = [
-                        permutation.index(loop) for loop in schedule.gpu_warps
-                    ]
-                    mapping_order = sorted(
-                        range(len(position_index)), key=lambda i: position_index[i]
-                    )
                     if gpu_warp_thread:
-                        self._strip_mine(
+                        self._gpu_strip_mine(
                             loop_name=loop_name,
-                            tiling_vector=tile_vect,
-                            mapping_order=mapping_order,
                             schedule=schedule,
                             sched_state=sched_state,
+                            gpu_list=schedule.gpu_warps,
+                            permutation=permutation,
+                            tiles_sizes_by_loops=tiles_sizes_by_loops,
                         )
                         gpu_warp_thread = False
                 elif loop_name in schedule.gpu_threads:
-                    tile_vect = [
-                        sum(values)
-                        for values in zip(
-                            *[
-                                tiles_sizes_by_loops[loop]
-                                for loop in schedule.gpu_threads
-                            ]
-                        )
-                    ]
-                    tile_vect = tile_vect + [0] * (3 - len(tile_vect))
-                    position_index = [
-                        permutation.index(loop) for loop in schedule.gpu_threads
-                    ]
-                    mapping_order = sorted(
-                        range(len(position_index)), key=lambda i: position_index[i]
-                    )
                     if gpu_mat_thread:
-                        self._strip_mine(
+                        self._gpu_strip_mine(
                             loop_name=loop_name,
-                            tiling_vector=tile_vect,
-                            mapping_order=mapping_order,
                             schedule=schedule,
                             sched_state=sched_state,
+                            gpu_list=schedule.gpu_threads,
+                            permutation=permutation,
+                            tiles_sizes_by_loops=tiles_sizes_by_loops,
                         )
                         gpu_mat_thread = False
                 elif loop_name in schedule.gpu_lanes:
-                    tile_vect = [
-                        sum(values)
-                        for values in zip(
-                            *[tiles_sizes_by_loops[loop] for loop in schedule.gpu_lanes]
-                        )
-                    ]
-                    tile_vect = tile_vect + [0] * (3 - len(tile_vect))
-                    position_index = [
-                        permutation.index(loop) for loop in schedule.gpu_lanes
-                    ]
-                    mapping_order = sorted(
-                        range(len(position_index)), key=lambda i: position_index[i]
-                    )
                     if gpu_mat_thread:
-                        self._strip_mine(
+                        self._gpu_strip_mine(
                             loop_name=loop_name,
-                            tiling_vector=tile_vect,
-                            mapping_order=mapping_order,
                             schedule=schedule,
                             sched_state=sched_state,
+                            gpu_list=schedule.gpu_lanes,
+                            permutation=permutation,
+                            tiles_sizes_by_loops=tiles_sizes_by_loops,
                         )
                         gpu_mat_thread = False
                 else:
@@ -936,7 +881,6 @@ class MlirProgramInsertTransformPass:
         schedule: MlirNodeSchedule,
         sched_state: SchedulingState,
     ):
-        tiles_sizes_by_loops = self._generate_tiling_insns(schedule)
         if schedule.gpu_blocks and not self._using_tensors:
             new_loop = next(
                 (
@@ -946,50 +890,7 @@ class MlirProgramInsertTransformPass:
                 ),
                 None,
             )
-            # Since we know there only 1 non zero number
-            # TODO Find a way to put thread number instead of putting tile size
-            new_loop = MapForallToBlocks(
-                new_loop,
-                generate_gpu_launch=True,
-            ).result
-            # Tiling threads number
-            # threads, block / threads
-            # warps, tile size at least 32 threads
-            # lane, tile size, preferably 32 threads
-            block_dims = []
-            if schedule.gpu_threads:
-                block_dims = [
-                    max(tiles_sizes_by_loops[loop_name_block])
-                    // max(tiles_sizes_by_loops[loop_name])
-                    for loop_name, loop_name_block in zip(
-                        schedule.gpu_threads, schedule.gpu_blocks
-                    )
-                ]
-            if schedule.gpu_lanes:
-                block_dims = [
-                    max(tiles_sizes_by_loops[loop_name_block])
-                    // max(tiles_sizes_by_loops[loop_name])
-                    for loop_name, loop_name_block in zip(
-                        schedule.gpu_lanes, schedule.gpu_blocks
-                    )
-                ]
-            if schedule.gpu_warps:
-                block_dims = [
-                    32
-                    * (
-                        max(tiles_sizes_by_loops[loop_name_block])
-                        // max(tiles_sizes_by_loops[loop_name])
-                    )
-                    for loop_name, loop_name_block in zip(
-                        schedule.gpu_warps, schedule.gpu_blocks
-                    )
-                ]
-            if block_dims:
-                block_dims = block_dims + [1] * (3 - len(block_dims))
-                MapNestedForallToThreads(
-                    new_loop,
-                    block_dims=block_dims,
-                )
+            self._gpu_mapping_helper(schedule, new_loop)
         elif (
             schedule.gpu_blocks
             and self._using_tensors
@@ -1009,46 +910,68 @@ class MlirProgramInsertTransformPass:
                         "mapping": self._gpu_block_order,
                     },
                 )
-                # Since we know there only 1 non zero number
-                # TODO Find a way to put thread number instead of putting tile size
-                new_loop = MapForallToBlocks(
-                    gpu_block_handle,
-                    generate_gpu_launch=True,
-                ).result
+                self._gpu_mapping_helper(schedule, gpu_block_handle)
+
+    def _gpu_mapping_helper(self, schedule: MlirNodeSchedule, handle: OpResult):
+        tiles_sizes_by_loops = self._generate_tiling_insns(schedule)
+        new_loop = MapForallToBlocks(
+            handle,
+            generate_gpu_launch=True,
+        ).result
+        block_dims: list[int] = []
+        for curType, gpu_list in enumerate(
+            [schedule.gpu_threads, schedule.gpu_lanes, schedule.gpu_warps]
+        ):
+            if not gpu_list:
+                continue
+            # If there is a something in gpu warp multiply it by 32
+            thread_size = 1
+            if curType == 2:
+                thread_size = 32
                 block_dims = []
-                if schedule.gpu_threads:
-                    block_dims = [
-                        max(tiles_sizes_by_loops[loop_name_block])
-                        // max(tiles_sizes_by_loops[loop_name])
-                        for loop_name, loop_name_block in zip(
-                            schedule.gpu_threads, schedule.gpu_blocks
-                        )
-                    ]
-                if schedule.gpu_lanes:
-                    block_dims = [
-                        max(tiles_sizes_by_loops[loop_name_block])
-                        // max(tiles_sizes_by_loops[loop_name])
-                        for loop_name, loop_name_block in zip(
-                            schedule.gpu_lanes, schedule.gpu_blocks
-                        )
-                    ]
-                if schedule.gpu_warps:
-                    block_dims = [
-                        32
-                        * (
-                            max(tiles_sizes_by_loops[loop_name_block])
-                            // max(tiles_sizes_by_loops[loop_name])
-                        )
-                        for loop_name, loop_name_block in zip(
-                            schedule.gpu_warps, schedule.gpu_blocks
-                        )
-                    ]
-                if block_dims:
-                    block_dims = block_dims + [1] * (3 - len(block_dims))
-                    MapNestedForallToThreads(
-                        new_loop,
-                        block_dims=block_dims,
+            for loop_name in gpu_list:
+                tile_size = schedule.size_of_tile(loop_name)
+
+                if tile_size is None:
+                    block_dims.append(1)
+                else:
+                    block_dims.append(
+                        thread_size
+                        * (tile_size // max(tiles_sizes_by_loops[loop_name]))
                     )
+        if block_dims:
+            block_dims = block_dims + [1] * (3 - len(block_dims))
+            MapNestedForallToThreads(
+                new_loop,
+                block_dims=block_dims,
+            )
+
+    def _gpu_strip_mine(
+        self,
+        loop_name: str,
+        schedule: MlirNodeSchedule,
+        sched_state: SchedulingState,
+        gpu_list: list[str],
+        permutation: list[str],
+        tiles_sizes_by_loops: dict[str, list[int]],
+    ):
+        tile_vect = [
+            sum(values)
+            for values in zip(*[tiles_sizes_by_loops[loop] for loop in gpu_list])
+        ]
+        tile_vect = tile_vect + [0] * (3 - len(tile_vect))
+        # TODO: Make it work with splitting
+        position_index = [permutation.index(loop) for loop in gpu_list]
+        mapping_order = sorted(
+            range(len(position_index)), key=lambda i: position_index[i]
+        )
+        self._strip_mine(
+            loop_name=loop_name,
+            tiling_vector=tile_vect,
+            mapping_order=mapping_order,
+            schedule=schedule,
+            sched_state=sched_state,
+        )
 
 
 def find_consumer_handles(module: Module, root_handle: str) -> list[str | None]:
@@ -1072,6 +995,7 @@ def find_consumer_handles(module: Module, root_handle: str) -> list[str | None]:
             if attr.startswith("__xtc_id_"):
                 consumer_handles.append(attr)
     return consumer_handles
+
 
 def find_producer_handles(module: Module, root_handle: str) -> list[str | None]:
     # returns the handles for each operand of the operation specified by root_handle

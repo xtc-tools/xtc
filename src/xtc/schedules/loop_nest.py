@@ -105,6 +105,10 @@ class LoopNestNode(Node["LoopNestNode"]):
         fuse_producer_at: Producer fusion configuration per axis. Maps axis
             names to producer indices.
         fuse_consumer_at: List of axes where the output consumer is fused.
+        gpu_block: List of loops to map to gpu block
+        gpu_thread: List of loops to map to gpu thread
+        gpu_warp: List of loops to map to gpu warp
+        gpu_lane: List of loops to map to gpu lane
     """
 
     root: str
@@ -121,6 +125,8 @@ class LoopNestNode(Node["LoopNestNode"]):
     external_at: dict[str, str] = field(default_factory=dict)
     gpu_block: dict[str, int] = field(default_factory=dict)
     gpu_thread: dict[str, int] = field(default_factory=dict)
+    gpu_warp: dict[str, int] = field(default_factory=dict)
+    gpu_lane: dict[str, int] = field(default_factory=dict)
 
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
@@ -254,6 +260,10 @@ class LoopNestNode(Node["LoopNestNode"]):
             annotations.append(f"gpu_block({self.gpu_block[loop_name]})")
         if loop_name in self.gpu_thread:
             annotations.append(f"gpu_thread({self.gpu_thread[loop_name]})")
+        if loop_name in self.gpu_warp:
+            annotations.append(f"gpu_warp({self.gpu_warp[loop_name]})")
+        if loop_name in self.gpu_lane:
+            annotations.append(f"gpu_lane({self.gpu_lane[loop_name]})")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line
