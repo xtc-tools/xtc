@@ -36,7 +36,7 @@ sched = sch.schedule()
 comp = impl.get_compiler(
     target=gpu,
     shared_lib=True,
-    dump_file="gpu_matmul_mlir_offload_tensor_vectorise",
+    dump_file="gpu_matmul_mlir_offload_tensor_warp_lane_vectorise",
     print_source_ir=True,
     print_transformed_ir=True,
 )
