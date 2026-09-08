@@ -13,6 +13,7 @@ from typing_extensions import override
 from .exceptions import ScheduleParseError
 
 literal = int | str
+_GPU_DIM = {"x": 0, "y": 1, "z": 2}
 
 
 def toliteral(s: str) -> literal:
@@ -54,6 +55,10 @@ class Annotations:
     fuse_consumer: bool | None = False
     partial: bool = False
     full: bool = False
+    gpu_lane: int | None = None
+    gpu_warp: int | None = None
+    gpu_block: int | None = None
+    gpu_thread: int | None = None
 
 
 @dataclass(frozen=True)
@@ -181,6 +186,10 @@ class ScheduleParser:
         fuse_consumer: bool = False
         partial = False
         full = False
+        gpu_lane: str | int | None = None
+        gpu_warp: str | int | None = None
+        gpu_block: str | int | None = None
+        gpu_thread: str | int | None = None
 
         for key, param in value.items():
             match key:
@@ -243,12 +252,71 @@ class ScheduleParser:
                     partial = True
                 case "full":
                     full = True
+                case "gpu_lane":
+                    if isinstance(param, str):
+                        gpu_lane = _GPU_DIM.get(param, None)
+                        if gpu_lane is None:
+                            raise ScheduleParseError(
+                                f'`{{"gpu_lane" = {param}}}`: gpu_block parameter should be a string or int'
+                            )
+                    elif isinstance(param, int):
+                        gpu_lane = param
+                    else:
+                        raise ScheduleParseError(
+                            f'`{{"gpu_lane" = {param}}}`: gpu_block parameter should be a string or int'
+                        )
+                case "gpu_warp":
+                    if isinstance(param, str):
+                        gpu_warp = _GPU_DIM.get(param, None)
+                        if gpu_warp is None:
+                            raise ScheduleParseError(
+                                f'`{{"gpu_warp" = {param}}}`: gpu_warp parameter should be a string or int'
+                            )
+                    elif isinstance(param, int):
+                        gpu_warp = param
+                    else:
+                        raise ScheduleParseError(
+                            f'`{{"gpu_warp" = {param}}}`: gpu_warp parameter should be a string or int'
+                        )
+                case "gpu_block":
+                    if isinstance(param, str):
+                        gpu_block = _GPU_DIM.get(param, None)
+                        if gpu_block is None:
+                            raise ScheduleParseError(
+                                f'`{{"gpu_block" = {param}}}`: gpu_block parameter should be a string or int'
+                            )
+                    elif isinstance(param, int):
+                        gpu_block = param
+                    else:
+                        raise ScheduleParseError(
+                            f'`{{"gpu_block" = {param}}}`: gpu_block parameter should be a string or int'
+                        )
+                case "gpu_thread":
+                    if isinstance(param, str):
+                        gpu_thread = _GPU_DIM.get(param, None)
+                        if gpu_thread is None:
+                            raise ScheduleParseError(
+                                f'`{{"gpu_thread" = {param}}}`: gpu_thread string parameter should x, y or z'
+                            )
+                    elif isinstance(param, int):
+                        gpu_thread = param
+                        if param < 0 and param < 3:
+                            raise ScheduleParseError(
+                                f'`{{"gpu_thread" = {param}}}`: gpu_thread int parameter should 0, 1 or 2'
+                            )
+                    else:
+                        raise ScheduleParseError(
+                            f'`{{"gpu_thread" = {param}}}`: gpu_thread parameter should be a string or int'
+                        )
                 case _:
                     raise ScheduleParseError(f"Unknown annotation on {context}: {key}")
 
         if partial and full:
             raise ScheduleParseError(f"{context} has both annotations full and partial")
-
+        assert isinstance(gpu_lane, int) or gpu_lane is None
+        assert isinstance(gpu_warp, int) or gpu_warp is None
+        assert isinstance(gpu_block, int) or gpu_block is None
+        assert isinstance(gpu_thread, int) or gpu_thread is None
         return Annotations(
             unroll_factor=unroll_factor,
             unroll_specified=unroll_specified,
@@ -262,6 +330,8 @@ class ScheduleParser:
             fuse_consumer=fuse_consumer,
             partial=partial,
             full=full,
+            gpu_block=gpu_block,
+            gpu_thread=gpu_thread,
         )
 
     def _parse_pack_param(

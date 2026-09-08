@@ -33,6 +33,10 @@ class PlainNodeSchedule:
     distributed_buffers: dict[str, dict]
     fused: list[tuple[str, int]]
     fused_consumers: list[str]
+    gpu_blocks: list[str]
+    gpu_threads: list[str]
+    gpu_lanes: list[str]
+    gpu_warps: list[str]
     # Optional caller-provided vector sizes, keyed by vectorized axis name.
     # When an axis has a size, its dimension is vectorized with masking for
     # non-divisible extents; axes absent from this mapping are vectorized to
@@ -116,6 +120,10 @@ class PlainNodeScheduler:
         self.distributed_buffers: dict[str, dict] = {}
         self.fused: list[tuple[str, int]] = []
         self.fused_consumers: list[str] = []
+        self.gpu_blocks: list[str] = []
+        self.gpu_threads: list[str] = []
+        self.gpu_lanes: list[str] = []
+        self.gpu_warps: list[str] = []
 
     def get_plain_schedule(self) -> PlainNodeSchedule:
         return PlainNodeSchedule(
@@ -137,6 +145,10 @@ class PlainNodeScheduler:
             distributed_buffers=deepcopy(self.distributed_buffers),
             fused=deepcopy(self.fused),
             fused_consumers=deepcopy(self.fused_consumers),
+            gpu_blocks=deepcopy(self.gpu_blocks),
+            gpu_threads=deepcopy(self.gpu_threads),
+            gpu_lanes=deepcopy(self.gpu_lanes),
+            gpu_warps=deepcopy(self.gpu_warps),
             vectorization_sizes=deepcopy(self.vectorization_sizes),
         )
 
@@ -274,3 +286,23 @@ class PlainNodeScheduler:
     def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
         fuse_axis = make_loop_name(root, axis)
         self.fused_consumers.append(fuse_axis)
+
+    def gpu_block(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu thread"
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu block"
+        self.gpu_blocks = [make_loop_name(root, axis) for axis in axes]
+
+    def gpu_thread(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu thread"
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu thread"
+        self.gpu_threads = [make_loop_name(root, axis) for axis in axes]
+
+    def gpu_lane(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu lane"
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu lane"
+        self.gpu_lanes = [make_loop_name(root, axis) for axis in axes]
+
+    def gpu_warp(self, axes: list[str], root: str = DEFAULT_ROOT):
+        assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu warp"
+        assert len(axes) <= 3, "We cannot map more than 3 dimension for gpu warp"
+        self.gpu_warps = [make_loop_name(root, axis) for axis in axes]

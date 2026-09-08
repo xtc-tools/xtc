@@ -401,6 +401,18 @@ class ScheduleInterpreter:
         if annotations.fuse_consumer:
             node.fuse_consumer_at.append(loop_name)
 
+        if annotations.gpu_lane is not None:
+            node.gpu_lane[loop_name] = annotations.gpu_lane
+
+        if annotations.gpu_warp is not None:
+            node.gpu_warp[loop_name] = annotations.gpu_warp
+
+        if annotations.gpu_block is not None:
+            node.gpu_block[loop_name] = annotations.gpu_block
+
+        if annotations.gpu_thread is not None:
+            node.gpu_thread[loop_name] = annotations.gpu_thread
+
     def _check_splitting_intervals(
         self,
         item: SplitDecl,
@@ -525,7 +537,6 @@ class Descript:
     def _apply_node(self, node: LoopNestNode, scheduler: Scheduler) -> None:
         """Recursively apply a LoopNestNode and its children to the scheduler."""
         root = node.root
-
         for d, s in node.splits.items():
             scheduler.split(d, s, root=root)
 
@@ -548,6 +559,35 @@ class Descript:
 
         for axis in node.fuse_consumer_at:
             scheduler.fuse_consumer_at(axis, root=root)
+
+        if node.gpu_lane:
+            sorted_keys = sorted(
+                (k for k, v in node.gpu_lane.items() if v is not None),
+                key=lambda k: node.gpu_lane[k],
+            )
+            scheduler.gpu_lane(sorted_keys, root=root)
+
+        if node.gpu_warp:
+            sorted_keys = sorted(
+                (k for k, v in node.gpu_warp.items() if v is not None),
+                key=lambda k: node.gpu_warp[k],
+            )
+            scheduler.gpu_thread(sorted_keys, root=root)
+
+        if node.gpu_block:
+            sorted_keys = sorted(
+                (k for k, v in node.gpu_block.items() if v is not None),
+                key=lambda k: node.gpu_block[k],
+            )
+            scheduler.gpu_block(sorted_keys, root=root)
+
+        if node.gpu_thread:
+            sorted_keys = sorted(
+                (k for k, v in node.gpu_thread.items() if v is not None),
+                key=lambda k: node.gpu_thread[k],
+            )
+            scheduler.gpu_thread(sorted_keys, root=root)
+
         # Recursively apply children
         for child in node.children:
             self._apply_node(child, scheduler)
