@@ -118,6 +118,7 @@ class LoopNestNode(Node["LoopNestNode"]):
     pack_at: dict[str, tuple[int, str | None, bool]] = field(default_factory=dict)
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
     fuse_consumer_at: list[str] = field(default_factory=list)
+    external_at: dict[str, str] = field(default_factory=dict)
 
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
@@ -245,6 +246,8 @@ class LoopNestNode(Node["LoopNestNode"]):
             annotations.append(f"fuse_producer({prod_idx})")
         if loop_name in self.fuse_consumer_at:
             annotations.append("fuse_consumer")
+        if loop_name in self.external_at:
+            annotations.append(f"external({self.external_at[loop_name]})")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line
@@ -363,6 +366,7 @@ class LoopNest:
         info = LoopInfo.build_from_node(self.root_node)
         self._check_use_defined_dims(info)
         self._check_vectorization_consistency()
+        self._check_external_consistency()
         self._check_tiling_consistency(info)
         self._check_sizes(info)
 
@@ -380,6 +384,36 @@ class LoopNest:
                 elif vect_above:
                     raise ScheduleValidationError(
                         f"Inner loop {loop_name} isn't vectorized but an outer one is."
+                    )
+
+    def _check_external_consistency(self) -> None:
+        for sched in self.nodes:
+            for axis in sched.external_at:
+                if axis not in sched.interchange:
+                    raise ScheduleValidationError(
+                        f"External axis {axis} is not part of the loop nest."
+                    )
+                axis_idx = sched.interchange.index(axis)
+                descendants = sched.interchange[axis_idx + 1 :]
+                if not descendants:
+                    raise ScheduleValidationError(
+                        f"External axis {axis} has no nested tile to replace."
+                    )
+                conflicts = (
+                    set(descendants) & set(sched.vectorize)
+                    | set(descendants) & set(sched.unroll)
+                    | set(descendants) & set(sched.parallelize)
+                )
+                if conflicts:
+                    conflict_names = ", ".join(sorted(conflicts))
+                    raise ScheduleValidationError(
+                        f"Loops below external axis {axis} have conflicting "
+                        f"transformations: {conflict_names}."
+                    )
+                if sched.splits:
+                    raise ScheduleValidationError(
+                        "External calls and split partitions cannot currently be "
+                        "combined in the same loop nest."
                     )
 
     def _check_tiling_consistency(self, info: LoopInfo) -> None:

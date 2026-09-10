@@ -163,6 +163,19 @@ class Scheduler(ABC):
         """
         ...
 
+    def external_at(self, axis: str, symbol: str, root: str = DEFAULT_ROOT) -> None:
+        """Replace the loop subtree below an axis with an external function call.
+
+        The named axis itself is preserved. The external function is called once
+        per iteration of that axis and implements all loops nested below it.
+
+        Args:
+            axis: axis whose nested loop subtree is externally implemented
+            symbol: C-ABI symbol implementing the nested computation
+            root: the parent split (or the operator's absolute root)
+        """
+        raise NotImplementedError
+
     @abstractmethod
     def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         """Apply parallelization on the given axes names.
