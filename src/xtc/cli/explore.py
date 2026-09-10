@@ -22,6 +22,15 @@ def launch_child(argv: Sequence[str], args: argparse.Namespace):
     if "tvm" in args.backends:
         # Force number of threads for TVM
         env.update({"TVM_NUM_THREADS": str(args.threads)})
+    if "mlir" in args.backends:
+        # Force number of threads for MLIR
+        env.update(
+            {
+                "OMP_NUM_THREADS": str(args.threads),
+                "OMP_PLACES": "cores",
+                "OMP_PROC_BIND": "close",
+            }
+        )
     env_args = [
         "env",
         *(f"{k}={v}" for k, v in env.items()),
@@ -111,7 +120,7 @@ def main():
         "--backends",
         type=str,
         nargs="+",
-        choices=["mlir", "tvm", "jir"],
+        choices=["mlir", "tvm", "jir", "iree"],
         default=defaults.backends,
         help="backends to use",
     )

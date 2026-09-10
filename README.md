@@ -15,7 +15,7 @@ Refer to tutorials [here](docs/tutorials) and to additionnal developers document
 XTC is a domain-specific dataflow graph compiler for linear algebra operations. It provides:
 - **Operational DSL**: Define computation graphs with tensors and operators
 - **Scheduling DSL**: High-level transformations (tiling, parallelization, vectorization, etc.)
-- **Multiple backends**: MLIR (linalg + transform), TVM (Tensor IR), JIR (INRIA internal)
+- **Multiple backends**: MLIR (linalg + transform), TVM (Tensor IR), IREE (iree_codegen, CPU), JIR (INRIA internal)
 - **Autotuning**: Definition and exploration of the optimization space
 
 ## Build & Development

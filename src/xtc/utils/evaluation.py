@@ -126,23 +126,34 @@ def ensure_ndarray_parameters(
     return (nd_inputs, nd_outputs)
 
 
+def compare_to_reference(
+    got: list[np.ndarray],
+    inputs: list[np.ndarray],
+    reference_impl: Callable[..., None],
+) -> tuple[int, str]:
+    """Compare already-computed outputs against the reference implementation."""
+    assert reference_impl is not None
+    ref_outputs = [np.empty_like(out) for out in got]
+    reference_impl(*inputs, *ref_outputs)
+    for out_ref, out in zip(ref_outputs, got):
+        if not np.allclose(out_ref, out):
+            return (1, "Error in validation: outputs differ")
+    return (0, "")
+
+
 def validate_outputs(
     func: Callable[[Any], Any],
     parameters: tuple[list[NDArray], list[NDArray]],
     reference_impl: Callable[[], None],
 ) -> tuple[list[float], int, str]:
-    # Get the reference outputs
-    assert reference_impl is not None
-    ref_inputs = [inp.numpy() for inp in parameters[0]]
-    ref_outputs = [np.empty(shape=out.shape, dtype=out.dtype) for out in parameters[1]]
-    reference_impl(*ref_inputs, *ref_outputs)
-    # Get the function outputs
+    # Run the compiled function, writing its outputs into parameters[1].
     CFunc(func)(*parameters[0], *parameters[1])
-    # Compare
-    for out_ref, out in zip(ref_outputs, [out.numpy() for out in parameters[1]]):
-        if not np.allclose(out_ref, out):
-            return ([], 1, "Error in validation: outputs differ")
-    return ([], 0, "")
+    code, msg = compare_to_reference(
+        [out.numpy() for out in parameters[1]],
+        [inp.numpy() for inp in parameters[0]],
+        reference_impl,
+    )
+    return ([], code, msg)
 
 
 def evaluate_performance(
