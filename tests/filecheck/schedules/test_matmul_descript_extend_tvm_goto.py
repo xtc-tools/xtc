@@ -69,11 +69,11 @@ print(f"CODE: {res}")
 # CHECK-NEXT:    - %2 : 512x512xfloat32
 # CHECK-NEXT:    nodes:
 # CHECK-NEXT:    - %2: matmul(%0, %1) {name = 'C'} : [512x512xfloat32, 512x512xfloat32] -> [512x512xfloat32]
-# CHECK-NEXT:  
+# CHECK-EMPTY:
 # CHECK-NEXT:  # from tvm.script import ir as I
 # CHECK-NEXT:  # from tvm.script import tirx as T
 # CHECK-NEXT:  # from tvm.tirx.layout import Axis
-# CHECK-NEXT:  
+# CHECK-EMPTY:
 # CHECK-NEXT:  @I.ir_module
 # CHECK-NEXT:  class Module:
 # CHECK-NEXT:      @T.prim_func(s_tir=True)
@@ -101,11 +101,11 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  sch.unroll(j1)
 # CHECK-NEXT:  sch.vectorize(__v_j1)
 # CHECK-NEXT:  sch.parallel(j)
-# CHECK-NEXT:  
+# CHECK-EMPTY:
 # CHECK-NEXT:  # from tvm.script import ir as I
 # CHECK-NEXT:  # from tvm.script import tirx as T
 # CHECK-NEXT:  # from tvm.tirx.layout import Axis
-# CHECK-NEXT:  
+# CHECK-EMPTY:
 # CHECK-NEXT:  @I.ir_module
 # CHECK-NEXT:  class Module:
 # CHECK-NEXT:      @T.prim_func(s_tir=True)

@@ -20,7 +20,7 @@ def _register_conv2d_ops():
 
 
 def _register_matmul_ops():
-    for group in [alexnet_matmuls]:
+    for group in [alexnet_matmuls, default_matmuls]:
         for name, params in group.items():
             register_operation(
                 "matmul",

@@ -16,6 +16,7 @@ Though most strategies are supported for all backends for matmult.
 
 from dataclasses import dataclass, field
 import sys
+import importlib.util
 import os
 from argparse import Namespace as NS
 import logging
@@ -110,6 +111,7 @@ class ExplorationConfig:
     db_callback: Any = None
     results: list[Sequence] = field(default_factory=list)
     descript: str | None = None
+    functions: str | None = None
     use_tensors: bool = False
     progress_cls: str = "tqdm"
     module_type: str = "shlib"
@@ -835,7 +837,22 @@ class Exploration:
 
             with open(args.descript, "r") as f:
                 spec = f.read()
-                return Strategy_Descript_Explore(graph=graph, spec=spec)
+            functions = None
+            if args.functions:
+                fn_path = args.functions
+                fn_spec = importlib.util.spec_from_file_location(
+                    "descript_functions", fn_path
+                )
+                if fn_spec is None or fn_spec.loader is None:
+                    raise Exception(
+                        f"Function path {fn_path} is not to a valid module."
+                    )
+                module = importlib.util.module_from_spec(fn_spec)
+                fn_spec.loader.exec_module(module)
+                functions = {k: v for k, v in vars(module).items() if callable(v)}
+            return Strategy_Descript_Explore(
+                graph=graph, spec=spec, functions=functions
+            )
         strat_name = args.strategy
         strat_args = strat_name.split(":")
         name = self.get_strategy_name(strat_args[0])
