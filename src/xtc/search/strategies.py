@@ -1236,7 +1236,6 @@ try:
             partial_unrolls: bool = False,
             initialize: bool = True,
         ) -> None:
-            self._sample_shape: list[str] = []
             super().__init__(
                 graph,
                 spec,
@@ -1253,13 +1252,11 @@ try:
         def sample(self, num: int, seed: int | None = 0) -> Iterator[Sample]:
             sample = super().sample(num, seed)
             for x in sample:
-                if not self._sample_shape:
-                    self._sample_shape = list(x.keys())
-                yield tuple(x.values())
+                yield tuple((x[k] for k in self.sample_names))
 
         @override
         def generate(self, scheduler: Scheduler, sample: Sample) -> None:
-            sample = dict(zip(self._sample_shape, sample))
+            sample = dict(zip(self.sample_names, sample))
             super().generate(scheduler, sample)
 
 except ModuleNotFoundError:
