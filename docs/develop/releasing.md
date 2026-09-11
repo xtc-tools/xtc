@@ -35,6 +35,15 @@ git tag -a xtc-v0.3.0 -m "XTC 0.3.0"
 git push upstream xtc-v0.3.0
 ```
 
+To create the GitHub release notes, use `docs/templates/release_notes.md` as the
+structure and collect the pull requests merged between the previous and current
+tags (for example, `xtc-v0.2.0..xtc-v0.3.0`). The feature and fix sections may be
+selected and summarized with LLM assistance, but the changes section should list
+all merged pull requests and the new-contributors section should identify each
+contributor's first pull request. Review the generated Markdown, then publish it
+with `gh release create <tag> --notes-file <release-notes.md>` (or attach it to an
+existing GitHub release).
+
 The tag workflow checks that the package version is exactly `X.Y.Z`, builds and
 validates the wheel and source distribution, and publishes them to PyPI. The
 GitHub `pypi` environment should require maintainer approval.
