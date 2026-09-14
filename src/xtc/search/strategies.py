@@ -18,6 +18,7 @@ from xtc.schedules.descript import Descript
 from xtc.utils.math import (
     factors_to_sizes,
     factors_enumeration,
+    divisors_list,
 )
 from xtc.utils.algorithms import (
     sample_uniques,
@@ -346,6 +347,136 @@ class Strategy_P1v(Strategy_P1):
         for x in samples:
             if x[-1] in self._valid_vector_idx and x[vidx] >= self._vec_size:
                 yield x
+
+
+class Strategy_IREENative(BaseStrategy):
+    """Strategy for a matmul microkernel fitting the scheduling primitives IREE exposes.
+
+    Sample vector [i1, i2, j1, j2, j3, k1, k2] on a matmul(i, j, k):
+    - i, j: distribution tile (i1*i2 / j1*j2*j3) + cache_parallel (i2 / j2);
+    - j3: SIMD width of the parallel (j) vector;
+    - k1: cache_reduction block (a loop that keeps A/B panels resident);
+    - k2: inner vectorized reduction (vector_reduction width; k2=1 = scalar).
+
+    i, j are parallelized; j3 and k2 vectorized; the register tile (i2, j2) is
+    unrolled while the k cache block stays a loop. This maps one-to-one onto
+    iree_cpu.lowering_config (one k loop level + one vector level), so every
+    sample is IREE-valid and the schedule is equivalent on both backends: IREE
+    reads distribution / cache_parallel / cache_reduction / vector_*; MLIR turns
+    the same tiles into a cache-blocked, register-accumulating loop nest (its
+    unroll/interchange are no-ops on IREE).
+
+    _filter keeps only realizable microkernels: j3, k2 <= IREE vector limit; the
+    register tile i2*j2 <= vector register count; and (parallel) enough
+    workgroups to fill the threads. The unroll budget gates unrolling in
+    _generate rather than pruning tile sizes.
+    """
+
+    def __init__(self, graph: Graph, **kwargs: Any) -> None:
+        super().__init__(graph, ["i1", "i2", "j1", "j2", "j3", "k1", "k2"], **kwargs)
+        assert tuple(self._op.dims) == ("i", "j", "k")
+        assert tuple(self._op.dims_kind("P")) == ("i", "j")
+        assert tuple(self._op.dims_kind("R")) == ("k",)
+
+        from xtc.backends.iree.IREEScheduler import _MAX_VECTOR_WIDTH
+
+        self._vec_limit = _MAX_VECTOR_WIDTH
+        # Minimum parallel workgroups as a multiple of the worker count, so the
+        # distribution has enough independent work to fill (and load-balance
+        # across) the threads. Only applied when parallelizing.
+        self._wg_factor = int(kwargs.get("wg_factor", 1))
+
+    @override
+    def _generate(self, sch: Scheduler, in_x: list[int]) -> None:
+        si = factors_to_sizes(in_x[0:2])  # i -> [distribution, cache_parallel]
+        sj = factors_to_sizes(in_x[2:5])  # j -> [distribution, cache_parallel, vector]
+        sk = factors_to_sizes(in_x[5:7])  # k -> [cache_reduction, vector_reduction]
+        # k is tiled into an outer cache_reduction block (sk[0]) and an inner
+        # vectorized reduction (sk[1]). The cache block is a *loop* that keeps the
+        # A/B panels resident across the register tile; the register accumulator
+        # stays live across it (iter_args on MLIR / cache_reduction on IREE), so
+        # the compute is cache-blocked instead of streaming A/B from memory. The
+        # inner k2 is vectorized -> IREE's vector_reduction (k2=1 recovers the
+        # scalar reduction), which is the one form letting both backends share a
+        # two-level-k schedule (IREE allows one k loop level + one vector level).
+        sch.tile("k", {"k1": sk[0], "k2": sk[1]}, root=".")
+        if self._parallelize:
+            sch.tile("i", {"i1": si[0], "i2": si[1]}, root=".")
+            sch.tile("j", {"j1": sj[0], "j2": sj[1], "j3": sj[2]}, root=".")
+            sch.parallelize(["i", "j"], root=".")
+            vector = ["j3", "k2"]
+            # Cache block k1 raised above the register tile (i2, j2) for A/B reuse;
+            # j3 and k2 vectorized innermost.
+            order = ["i", "j", "k", "i1", "j1", "k1", "i2", "j2", "j3", "k2"]
+            register = {"i2": si[1], "j2": sj[1]}
+        else:
+            # Single thread: no distribution level.
+            sch.tile("i", {"i1": si[1]}, root=".")
+            sch.tile("j", {"j1": sj[1], "j2": sj[2]}, root=".")
+            vector = ["j2", "k2"]
+            order = ["i", "j", "k", "i1", "k1", "j2", "k2"]
+            register = {"j2": sj[2]}
+        if self._vectorize:
+            sch.vectorize(vector, root=".")
+        sch.interchange(order, root=".")
+        # Unroll only the parallel register tile (the k cache block stays a loop
+        # and the inner k2 is vectorized, not unrolled).
+        i2, j2 = in_x[1], in_x[3]
+        if self._max_unroll < 0 or i2 * j2 <= self._max_unroll:
+            sch.unroll(register, root=".")
+
+    @override
+    def _independents(self) -> list[list[list[int]]]:
+        i, j, k = self._constant_sizes().values()
+        if self._parallelize:
+            return [
+                factors_enumeration(i, 2),
+                factors_enumeration(j, 3),
+                factors_enumeration(k, 2),
+            ]
+        # Single thread: no distribution level, so its factor is fixed to 1
+        # (i1 = j1 = 1); only the cache/vector factors are explored.
+        return [
+            [[1, i2] for (i2,) in factors_enumeration(i, 1)],
+            [[1, j2, j3] for j2, j3 in factors_enumeration(j, 2)],
+            factors_enumeration(k, 2),
+        ]
+
+    @override
+    def _filter(self, samples: Iterator[VecSample]) -> Iterator[VecSample]:
+        # x holds the outer-inner tiling factors [i1, i2, j1, j2, j3, k1]. Keep
+        # only samples whose innermost register microkernel is realizable:
+        #   - j3 is the SIMD lane width, so it must fit IREE's vector-size limit;
+        #   - the C accumulator is a register tile of i2 rows by j2 column groups
+        #     (each group a width-j3 SIMD vector), i.e. i2 * j2 vector registers
+        #     held live across the reduction, so i2 * j2 must fit the register file;
+        #   - in parallel mode, the distribution must yield enough workgroups to
+        #     keep the threads busy: W = (i // (i1*i2)) * (j // (j1*j2*j3)) must be
+        #     at least wg_factor * threads (the distribution tile is i1*i2 / j1*j2*j3
+        #     since factors_to_sizes([i1,i2])[0] = i1*i2). Not applied single-thread.
+        sizes = self._constant_sizes()
+        i, j = sizes["i"], sizes["j"]
+        min_wg = self._wg_factor * self._threads
+        for x in samples:
+            i1, i2, j1, j2, j3, k2 = x[0], x[1], x[2], x[3], x[4], x[6]
+            # j3 and k2 are SIMD widths (parallel / reduction) -> vector limit.
+            if j3 > self._vec_limit or k2 > self._vec_limit:
+                continue
+            if i2 * j2 > self._arch_vreg_num:
+                continue
+            if self._parallelize:
+                wg = (i // (i1 * i2)) * (j // (j1 * j2 * j3))
+                if wg < min_wg:
+                    continue
+            yield x
+
+    @override
+    def _default_schedule(self, opt_level: int) -> list[int]:
+        i, j, k = self._constant_sizes().values()
+        cap = min(j, self._vec_size, self._vec_limit)
+        j3 = next((d for d in reversed(divisors_list(j)) if d <= cap), 1)
+        # k2 = 1: scalar reduction (cache_reduction = k1); k1 = a cache-sized block.
+        return [1, 1, 1, 1, j3, min(self._vec_size, k), 1]
 
 
 class BaseStrategyPRTScheme(BaseStrategy):
@@ -1278,6 +1409,9 @@ Strategies.register("tile_pfpwrprp_vr", Strategy_PFPWRPRPvr, aliases=("tile9dvr"
 Strategies.register("tile_goto", Strategy_GOTO)
 Strategies.register("tile_goto_r", Strategy_GOTO_R)
 Strategies.register("prt", BaseStrategyPRTScheme)
+Strategies.register(
+    "tile_iree_native", Strategy_IREENative, aliases=("iree_native", "ireedv")
+)
 # legacy tile4d* for matmul is same as tile_p1*
 Strategies.register_alias("tile4d", "tile_p1")
 Strategies.register_alias("tile4dv", "tile_p1_v")
