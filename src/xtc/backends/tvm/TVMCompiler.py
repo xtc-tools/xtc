@@ -20,6 +20,7 @@ import xtc.itf as itf
 from xtc.utils.text import jinja_generate_file
 from xtc.utils.tarfile import TarFile
 from xtc.utils.files import relative_to
+from xtc.utils.ext_tools import cc_opts
 
 from xtc.utils.host_tools import (
     disassemble,
@@ -54,6 +55,8 @@ class TVMCompiler(itf.comp.Compiler):
     def __init__(
         self,
         backend: "backend.TVMBackend",
+        csrcs: list[str] | None = None,
+        csrcs_xflags: str | None = None,
         **kwargs: Any,
     ) -> None:
         self._backend = backend
@@ -72,6 +75,8 @@ class TVMCompiler(itf.comp.Compiler):
         self.ar_lib = kwargs.get("ar_lib", False)
         self.executable = kwargs.get("executable", False)
         self.emit_c = kwargs.get("emit_c", False)
+        self.csrcs = [] if csrcs is None else csrcs[:]
+        self.csrcs_xflags = "" if csrcs_xflags is None else csrcs_xflags
         self.target = kwargs.get("target", "native")
         self.arch = kwargs.get("arch", "native")
         self.tvm_target = "llvm"
@@ -104,11 +109,17 @@ class TVMCompiler(itf.comp.Compiler):
         with open(f"{self.save_temps_dir}/{fname}", "w") as outf:
             outf.write(content)
 
+    def _save_temp_file(self, fname: str | Path) -> None:
+        if not self.save_temps:
+            return
+        fname = Path(fname)
+        Path(self.save_temps_dir).mkdir(parents=True, exist_ok=True)
+        shutil.copy(fname, Path(self.save_temps_dir) / fname.name)
+
     @override
     def compile(self, schedule: itf.schd.Schedule) -> itf.comp.Module:
         assert isinstance(schedule, backend.TVMSchedule)
         assert self.dump_file is not None
-        save_temp = self._save_temp
         op = self._backend._tvm_base
         func_name = self.payload_name
         tvm_ffi_func_name = f"__tvm_ffi_{func_name}"
@@ -138,9 +149,9 @@ class TVMCompiler(itf.comp.Compiler):
             lowered = schedulable.schedule().dumps()
             if self.print_source_ir:
                 self._print(lowered)
-            save_temp(f"{dump_base}.initial.txt", lowered)
+            self._save_temp(f"{dump_base}.initial.txt", lowered)
         schedule = cast(backend.TVMSchedule, schedule)
-        save_temp(f"{dump_base}.sched.txt", str(schedule))
+        self._save_temp(f"{dump_base}.sched.txt", str(schedule))
         if self.print_transformed_ir:
             self._print(schedule)
         sch = schedulable.schedule(schedule)
@@ -148,7 +159,7 @@ class TVMCompiler(itf.comp.Compiler):
             lowered = sch.dumps()
             if self.print_transformed_ir:
                 self._print(lowered)
-            save_temp(f"{dump_base}.scheduled.txt", lowered)
+            self._save_temp(f"{dump_base}.scheduled.txt", lowered)
         if self.emit_c:
             self._build_c(
                 sch,
@@ -160,10 +171,12 @@ class TVMCompiler(itf.comp.Compiler):
             if self.save_temps:
                 for idx, mod in enumerate(built._collect_dso_modules()):
                     llvm_ir = str(mod.inspect_source("ll"))
-                    save_temp(f"{dump_base}.lib{idx}.ll", llvm_ir)
+                    self._save_temp(f"{dump_base}.lib{idx}.ll", llvm_ir)
                     # This will generate a .tar with the .o files
                     # built.export_library(f"{save_temps_dir}/{packed_lib_path}.tar")
             self._export_archive(built, f"{packed_lib_path}.a")
+            if self.save_temps:
+                self._save_temp_file(f"{packed_lib_path}.a")
 
         wrapper = PackedOperatorWrapper(
             op,
@@ -174,8 +187,18 @@ class TVMCompiler(itf.comp.Compiler):
         )
         if type in ["shlib", "arlib"] and self.emit_c:
             wrapper.build(emit_c_base, emit_c_packed_base, type="csrc")
-        module_file, module_args = wrapper.build(lib_path, packed_lib_path, type=type)
+            self._save_temp_file(f"{emit_c_packed_base}.c")
+            self._save_temp_file(f"{emit_c_base}.c")
+        module_file, module_args = wrapper.build(
+            lib_path,
+            packed_lib_path,
+            type=type,
+            additional_csrcs=self.csrcs,
+            additional_csrcs_xflags=self.csrcs_xflags,
+        )
         assert Path(module_file).with_suffix("") == Path(lib_path)
+        if self.save_temps:
+            self._save_temp_file(module_file)
         if type == "shlib" and self.print_assembly:
             disassembly = disassemble(
                 module_file,
@@ -398,8 +421,21 @@ class PackedOperatorWrapper:
             )
 
     def build(
-        self, lib_fname: str, packed_lib_fname: str, type: str
+        self,
+        lib_fname: str,
+        packed_lib_fname: str,
+        type: str,
+        additional_csrcs: list[str] | None = None,
+        additional_csrcs_xflags: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
+        additional_csrcs = [] if additional_csrcs is None else additional_csrcs[:]
+        additional_csrcs_xflags = (
+            "" if additional_csrcs_xflags is None else additional_csrcs_xflags
+        )
+        for csrc in additional_csrcs:
+            if not Path(csrc).is_file():
+                raise FileNotFoundError(f"Additional C source not found: {csrc}")
+
         ext = ".dylib" if sys.platform == "darwin" else ".so"
         unpacked_lib_dir = Path(lib_fname).parent
         unpacked_lib_base = Path(lib_fname).stem
@@ -435,6 +471,7 @@ class PackedOperatorWrapper:
                 csrcs += [
                     tvm_runtime_init_c,
                     f"{packed_lib_fname}.c",
+                    *additional_csrcs,
                 ]
                 headers_path += [
                     str(path)
@@ -449,14 +486,19 @@ class PackedOperatorWrapper:
                 ]
             elif type == "shlib":
                 output_dir = unpacked_lib_dir
+                base_sources = [f"{output_base}.c"] + self._runtime_sources()
+                xflags = [None] * len(base_sources) + [additional_csrcs_xflags] * len(
+                    additional_csrcs
+                )
                 object_fnames = [
                     str(relative_to(fname, output_dir))
                     for fname in self._build_objects(
-                        [f"{output_base}.c"] + self._runtime_sources(),
+                        base_sources + additional_csrcs,
                         tdir,
+                        xflags=xflags,
                     )
                 ]
-                opts = "-O2"
+                opts = " ".join(cc_opts)
                 sh_opts = "--shared -fPIC"
                 ext = ".so"
                 if sys.platform == "darwin":
@@ -489,9 +531,15 @@ class PackedOperatorWrapper:
                 ]
             else:
                 assert type == "arlib"
+                base_sources = [f"{output_base}.c"] + self._runtime_sources()
+                xflags = [None] * len(base_sources) + [additional_csrcs_xflags] * len(
+                    additional_csrcs
+                )
                 archive_fname = self._build_archive(
-                    [f"{output_base}.c"] + self._runtime_sources(),
+                    base_sources + additional_csrcs,
                     f"{lib_fname}.a",
+                    tdir,
+                    xflags=xflags,
                 )
                 module_file = archive_fname
                 arlibs += [f"{packed_lib_fname}.a"]
@@ -517,15 +565,22 @@ class PackedOperatorWrapper:
         tvm_runtime_init_c = str(host_runtime_dir / "tvm_runtime_init.c")
         return [tvm_runtime_init_c]
 
-    def _build_object(self, source_fname: str, object_fname: str) -> str:
+    def _build_object(
+        self,
+        source_fname: str,
+        object_fname: str,
+        flags: str | None = None,
+        xflags: str | None = None,
+    ) -> str:
         assert object_fname.endswith(".o")
-        opts = "-O2"
-        pic_opts = "-fPIC"
+        flags = " ".join(cc_opts) if flags is None else flags
+        xflags = "" if xflags is None else xflags
+        pic_flags = "-fPIC"
         output_dir = Path(object_fname).parent
         object_dest = str(relative_to(object_fname, output_dir))
         source_inp = str(relative_to(source_fname, output_dir))
         cmd = (
-            f"{cc_command(self._arch)} -c {opts} {pic_opts} "
+            f"{cc_command(self._arch)} -c {pic_flags} {flags} {xflags} "
             f"{source_inp} "
             f"-o {object_dest}"
         )
@@ -541,13 +596,34 @@ class PackedOperatorWrapper:
             )
         return object_fname
 
-    def _build_objects(self, source_fnames: list[str], output_dir: str) -> list[str]:
+    def _build_objects(
+        self,
+        source_fnames: list[str],
+        output_dir: str,
+        flags: list[str | None] | str | None = None,
+        xflags: list[str | None] | str | None = None,
+    ) -> list[str]:
+        if not isinstance(flags, list):
+            flags = [flags] * len(source_fnames)
+        if not isinstance(xflags, list):
+            xflags = [xflags] * len(source_fnames)
         return [
-            self._build_object(fname, str(Path(output_dir) / f"{Path(fname).stem}.o"))
-            for fname in source_fnames
+            self._build_object(
+                fname,
+                str(Path(output_dir) / f"{Path(fname).stem}.o"),
+                flags,
+                xflags,
+            )
+            for fname, (flags, xflags) in zip(source_fnames, zip(flags, xflags))
         ]
 
-    def _build_archive(self, source_fnames: list[str], archive_fname: str) -> str:
+    def _build_archive(
+        self,
+        source_fnames: list[str],
+        archive_fname: str,
+        flags: list[str | None] | str | None = None,
+        xflags: list[str | None] | str | None = None,
+    ) -> str:
         assert archive_fname.endswith(".a")
         output_dir = Path(archive_fname).parent
         archive_dest = str(relative_to(archive_fname, output_dir))
@@ -555,7 +631,7 @@ class PackedOperatorWrapper:
         try:
             object_fnames = [
                 str(relative_to(fname, output_dir))
-                for fname in self._build_objects(source_fnames, tdir)
+                for fname in self._build_objects(source_fnames, tdir, flags, xflags)
             ]
             cmd = (
                 f"{binutils_command('ar', self._arch)} -crs {archive_dest} "

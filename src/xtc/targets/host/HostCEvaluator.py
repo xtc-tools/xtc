@@ -13,6 +13,7 @@ import sys
 
 import xtc.itf as itf
 import xtc.targets.host as host
+from xtc.utils.ext_tools import cc_opts
 
 
 __all__ = [
@@ -40,7 +41,7 @@ class HostCEvaluator(itf.exec.Evaluator):
     def _compile_to_shlib(self, shlib_base: str):
         cwd_dir = Path(shlib_base).parent
         shlib_name = Path(shlib_base).stem
-        opts = "-O3 -march=native -mtune=native"
+        opts = " ".join(cc_opts)
         sh_opts = "--shared -fPIC"
         csrcs = [
             str(Path(fname).absolute())

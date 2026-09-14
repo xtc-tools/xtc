@@ -68,6 +68,7 @@ class HostEvaluator(itf.exec.Evaluator):
 
         # Check the correctness of the outputs
         if self._validate:
+            assert self._reference_impl is not None
             results = validate_outputs(func, parameters, self._reference_impl)
             validation_failed = results[1] != 0
 

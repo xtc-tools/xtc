@@ -78,7 +78,7 @@ class XTCTensorType(TensorType):
         if self._shape is None:
             return 0
         assert self.is_constant_shape(), "TODO: symboling shapes not implemented"
-        return functools.reduce(operator.mul, self._shape, 1)
+        return functools.reduce(operator.mul, self.constant_shape, 1)
 
     @property
     def itemsize(self) -> int:

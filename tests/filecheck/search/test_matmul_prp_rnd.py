@@ -2,7 +2,7 @@
 """
 Test strategy PPRPRPvr (Ansor like tiling, vectorized and constraints) on matmul
 """
-import utils
+import utils.search as utils
 from xtc.search.strategies import Strategy_PRP as Strategy
 
 graph = utils.get_graph_matmul()
@@ -39,4 +39,4 @@ utils.print_random_samples(backend, strategy, 20)
 # CHECK-NEXT:  sample 18: [3, 2]
 # CHECK-NEXT:  sample 19: [21, 8]
 # CHECK-NEXT:  stats {'filtered': 19}
-# CHECK-NEXT:  [MlirNodeSchedule(node_name='%2_0', node_ident='__xtc_id_%2_0_', dims=['i', 'j'], loop_stamps=[], splits={}, tiles={'./i': {}, './j': {}}, permutation={'.': ['./i', './j']}, vectorization=[], parallelization=[], unrolling={}, packed_buffers={}, write_buffers={}, memory_mesh={}, processor_mesh={}, distribution={}, distributed_buffers={}, fused_producers=[], fused_consumers=[], vectorization_sizes={}), MlirNodeSchedule(node_name='%2', node_ident='__xtc_id_%2_', dims=['i', 'j', 'k'], loop_stamps=[], splits={}, tiles={'./i': {'./i1': 21}, './j': {'./j1': 8}}, permutation={'.': ['./i', './j', './k', './i1', './j1']}, vectorization=['./j1'], parallelization=['./i', './j'], unrolling={'./j1': 8, './i1': 21}, packed_buffers={}, write_buffers={}, memory_mesh={}, processor_mesh={}, distribution={}, distributed_buffers={}, fused_producers=[], fused_consumers=[], vectorization_sizes={})]
+# CHECK-NEXT:  [MlirNodeSchedule(node_name='%2_0', node_ident='__xtc_id_%2_0_', dims=['i', 'j'], loop_stamps=[], splits={}, tiles={'./i': {}, './j': {}}, permutation={'.': ['./i', './j']}, vectorization=[], parallelization=[], unrolling={}, packed_buffers={}, write_buffers={}, memory_mesh={}, processor_mesh={}, distribution={}, distributed_buffers={}, fused_producers=[], fused_consumers=[], externals={}, vectorization_sizes={}), MlirNodeSchedule(node_name='%2', node_ident='__xtc_id_%2_', dims=['i', 'j', 'k'], loop_stamps=[], splits={}, tiles={'./i': {'./i1': 21}, './j': {'./j1': 8}}, permutation={'.': ['./i', './j', './k', './i1', './j1']}, vectorization=['./j1'], parallelization=['./i', './j'], unrolling={'./j1': 8, './i1': 21}, packed_buffers={}, write_buffers={}, memory_mesh={}, processor_mesh={}, distribution={}, distributed_buffers={}, fused_producers=[], fused_consumers=[], externals={}, vectorization_sizes={})]

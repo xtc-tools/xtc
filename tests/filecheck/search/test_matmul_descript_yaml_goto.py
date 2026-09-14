@@ -4,7 +4,7 @@
 Test strategy Goto on matmul
 """
 
-import utils
+import utils.search as utils
 from xtc.search.strategies import Strategy_Descript as Strategy
 
 import xtc.graphs.xtc.op as O

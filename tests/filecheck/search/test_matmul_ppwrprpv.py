@@ -3,7 +3,7 @@
 """
 Test strategy PPWRPRP (Ansor like tiling for all axes, buffer and vectorized) on matmul
 """
-import utils
+import utils.search as utils
 from xtc.search.strategies import Strategy_PPWRPRPv as Strategy
 
 graph = utils.get_graph_matmul()

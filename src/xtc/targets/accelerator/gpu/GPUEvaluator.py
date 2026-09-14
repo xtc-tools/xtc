@@ -67,11 +67,13 @@ class GPUEvaluator(itf.exec.Evaluator):
         # Map the buffers
         # TODO Replace memory mapping of buffers by explicit transfers
         for i, buffer in enumerate(parameters[0]):
+            assert self._np_inputs_spec is not None
             if self._np_inputs_spec()[i]["device"] is None:
                 self._device._register_buffer(
                     buffer.data, buffer.size * buffer.dtype.itemsize
                 )
         for i, buffer in enumerate(parameters[1]):
+            assert self._np_outputs_spec is not None
             if self._np_outputs_spec()[i]["device"] is None:
                 self._device._register_buffer(
                     buffer.data, buffer.size * buffer.dtype.itemsize
@@ -79,6 +81,7 @@ class GPUEvaluator(itf.exec.Evaluator):
 
         # Check the correctness of the outputs
         if self._validate:
+            assert self._reference_impl is not None
             results = validate_outputs(func, parameters, self._reference_impl)
             validation_failed = results[1] != 0
 
@@ -96,9 +99,11 @@ class GPUEvaluator(itf.exec.Evaluator):
 
         # Unmap the buffers
         for i, buffer in enumerate(parameters[0]):
+            assert self._np_inputs_spec is not None
             if self._np_inputs_spec()[i]["device"] is None:
                 self._device._unregister_buffer(buffer.data)
         for i, buffer in enumerate(parameters[1]):
+            assert self._np_outputs_spec is not None
             if self._np_outputs_spec()[i]["device"] is None:
                 self._device._unregister_buffer(buffer.data)
 

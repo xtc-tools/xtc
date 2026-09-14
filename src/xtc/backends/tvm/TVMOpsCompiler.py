@@ -18,7 +18,7 @@ from .TVMOps import (
     TVMOperation,
     TVMGraph,
 )
-from .TVMScheduleTransforms import loop_partition_rebased
+from .TVMScheduleTransforms import externalize_tile_below, loop_partition_rebased
 
 __all__ = [
     "TVMExprCompiler",
@@ -43,13 +43,12 @@ class TVMExprCompiler:
 
     def generate(self) -> "TVMSchedulableExpr":
         if isinstance(self._expr, TVMGraph):
-            vars, params = [
+            _, params = [
                 list(vars.values()) for vars in self._expr._te_expr_from_graph()
             ]
         else:
             assert isinstance(self._expr, TVMOperation)
             params = list(self._expr.operator.generate_op())
-            vars = params
         args = cast(list[TEParam], params)
         prim_func = te.create_prim_func(args)
         return TVMSchedulableExprTIR(self._expr, prim_func)
@@ -87,6 +86,7 @@ class TVMSchedulableExprTIR(TVMSchedulableExpr):
         namespace = {
             "sch": sch,
             "loop_partition_rebased": loop_partition_rebased,
+            "externalize_tile_below": externalize_tile_below,
         }
         for sched in schedule_map.values():
             if sched:

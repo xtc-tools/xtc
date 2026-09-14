@@ -141,6 +141,12 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
                 f"{sch}.parallel({node.parallelize[-1]})",
                 file=outf,
             )
+        for external_axis, symbol in node.external_at.items():
+            print(
+                f"{sch} = externalize_tile_below({sch}, {block}, "
+                f"{external_axis}, {symbol!r})",
+                file=outf,
+            )
         if node.splits:
             split_axis = list(node.splits)[0]
             splits = node.splits[split_axis]
@@ -254,6 +260,7 @@ def tvm_update_loopnest_for_codegen(sched: LoopNest) -> LoopNest:
             pack_at=deepcopy(node.pack_at),
             fuse_producer_at=deepcopy(node.fuse_producer_at),
             fuse_consumer_at=deepcopy(node.fuse_consumer_at),
+            external_at=deepcopy(node.external_at),
             split_origin=deepcopy(node.split_origin),
         )
         for child in node.children:
@@ -362,6 +369,10 @@ class TVMScheduler(itf.schd.Scheduler):
         root: str = DEFAULT_ROOT,
     ) -> None:
         self._plain_sch.vectorize(axes, root)
+
+    @override
+    def external_at(self, axis: str, symbol: str, root: str = DEFAULT_ROOT) -> None:
+        self._plain_sch.external_at(axis, symbol, root)
 
     @override
     def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:

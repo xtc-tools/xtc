@@ -82,6 +82,7 @@ class LoopNestBuilder:
         fuse_producer_at = dict(localize_axis_tuples(node_sched.fused_producers))
         # TODO: loop nest supports only one fuse consumer per axis
         fuse_consumer_at = localize_axis_list(node_sched.fused_consumers)
+        external_at = localize_axis_dict(node_sched.externals)
 
         return LoopNestNode(
             root=basename(full_name),
@@ -94,6 +95,7 @@ class LoopNestBuilder:
             pack_at=pack_at,
             fuse_producer_at=fuse_producer_at,
             fuse_consumer_at=fuse_consumer_at,
+            external_at=external_at,
             splits=splits,
             parent=parent,
             split_origin=split_origin,

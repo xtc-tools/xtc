@@ -1,0 +1,275 @@
+#include <stdint.h>
+#include <assert.h>
+
+#define INLINE inline __attribute__((always_inline))
+
+#define C_ACCESS(i, j) ((I_OFFSET + (i)) * CSI + (J_OFFSET + (j)) * CSJ)
+#define A_ACCESS(i, k) ((I_OFFSET + (i)) * ASI + (K_OFFSET + (k)) * ASK)
+#define B_ACCESS(k, j) ((K_OFFSET + (k)) * BSK + (J_OFFSET + (j)) * BSJ)
+
+#if __x86_64__ && __AVX512F__ && {{J}} % 16 == 0
+#include <immintrin.h>
+
+#define MATMUL_UK matmul_uk_kx{{I}}x{{J}}_avx512
+
+static INLINE void MATMUL_UK(float *restrict C,
+                             const float *restrict A,
+                             const float *restrict B,
+                             int64_t I_OFFSET,
+                             int64_t J_OFFSET,
+                             int64_t K_OFFSET,
+                             int64_t CSI,
+                             int64_t CSJ,
+                             int64_t ASI,
+                             int64_t ASK,
+                             int64_t BSK,
+                             int64_t BSJ,
+                             int64_t KR)
+
+{
+    {% for j in range(J//16) -%}
+    {% for i in range(I) -%}
+    __m512 c_vec{{i}}_{{j}} = _mm512_loadu_ps(&C[C_ACCESS({{i}}, {{j*16}})]);
+    {% endfor %}
+    {% endfor %}
+
+    for (int kr = 0; kr < KR; kr++){
+
+        {% for j in range(J//16) -%}
+        __m512 b_vec{{j}} = _mm512_loadu_ps(&B[B_ACCESS(kr, {{j*16}})]);
+
+        {% for i in range(I) -%}
+        {
+            __m512 a_vec{{i}} = _mm512_set1_ps(A[A_ACCESS({{i}}, kr)]);
+            c_vec{{i}}_{{j}} = _mm512_fmadd_ps(a_vec{{i}}, b_vec{{j}}, c_vec{{i}}_{{j}});
+        }
+        {% endfor %}
+
+        {% endfor %}
+    }
+            
+    {% for j in range(J//16) -%}
+    {% for i in range(I) -%}
+    _mm512_storeu_ps(&C[C_ACCESS({{i}}, {{j*16}})], c_vec{{i}}_{{j}}); 
+    {% endfor %}
+    {% endfor %}
+
+}
+#elif __x86_64__ && __AVX2__ && {{J}} % 8 == 0
+#include <immintrin.h>
+
+#define MATMUL_UK matmul_uk_kx{{I}}x{{J}}_avx2
+
+static INLINE void MATMUL_UK(float *restrict C,
+                             const float *restrict A,
+                             const float *restrict B,
+                             int64_t I_OFFSET,
+                             int64_t J_OFFSET,
+                             int64_t K_OFFSET,
+                             int64_t CSI,
+                             int64_t CSJ,
+                             int64_t ASI,
+                             int64_t ASK,
+                             int64_t BSK,
+                             int64_t BSJ,
+                             int64_t KR)
+
+{
+    {% for j in range(J//8) -%}
+    {% for i in range(I) -%}
+    __m256 c_vec{{i}}_{{j}} = _mm256_loadu_ps(&C[C_ACCESS({{i}}, {{j*8}})]);
+    {% endfor %}
+    {% endfor %}
+
+    for (int kr = 0; kr < KR; kr++){
+
+        {% for j in range(J//8) -%}
+        __m256 b_vec{{j}} = _mm256_loadu_ps(&B[B_ACCESS(kr, {{j*8}})]);
+
+        {% for i in range(I) -%}
+        {
+            __m256 a_vec{{i}} = _mm256_set1_ps(A[A_ACCESS({{i}}, kr)]);
+            c_vec{{i}}_{{j}} = _mm256_fmadd_ps(a_vec{{i}}, b_vec{{j}}, c_vec{{i}}_{{j}});
+        }
+        {% endfor %}
+
+        {% endfor %}
+    }
+            
+    {% for j in range(J//8) -%}
+    {% for i in range(I) -%}
+    _mm256_storeu_ps(&C[C_ACCESS({{i}}, {{j*8}})], c_vec{{i}}_{{j}}); 
+    {% endfor %}
+    {% endfor %}
+
+}
+
+#else
+
+#define MATMUL_UK matmul_uk_kx{{I}}x{{J}}
+
+static INLINE void MATMUL_UK(float *restrict C,
+                             const float *restrict A,
+                             const float *restrict B,
+                             int64_t I_OFFSET,
+                             int64_t J_OFFSET,
+                             int64_t K_OFFSET,
+                             int64_t CSI,
+                             int64_t CSJ,
+                             int64_t ASI,
+                             int64_t ASK,
+                             int64_t BSK,
+                             int64_t BSJ,
+                             int64_t KR)
+
+{
+    for (int kr = 0; kr < KR; kr++){
+        for (int i = 0; i < {{I}}; i++) {
+            for (int j = 0; j < {{J}}; j++) {
+                C[C_ACCESS(i, j)] += A[A_ACCESS(i, kr)] * B[B_ACCESS(kr, j)];
+            }
+        }
+    }
+}
+#endif
+
+#undef C_ACCESS
+#undef A_ACCESS
+#undef B_ACCESS
+
+int32_t external_matmul_uk_ixjxk_{{I}}x{{J}}(
+    float *restrict c,
+    const float *restrict a,
+    const float *restrict b,
+    int64_t extent_i,
+    int64_t extent_j,
+    int64_t extent_k,
+    int64_t c_stride_i,
+    int64_t c_stride_j,
+    int64_t c_stride_k,
+    int64_t a_stride_i,
+    int64_t a_stride_j,
+    int64_t a_stride_k,
+    int64_t b_stride_i,
+    int64_t b_stride_j,
+    int64_t b_stride_k)
+{
+    /* C is invariant along k, A along j, and B along i. */
+    (void)c_stride_k;
+    (void)a_stride_j;
+    (void)b_stride_i;
+    // For a unknwon reason the loops degrade performances there (on I = 8, J = 16, from 90% to 62% peak)!
+    // assert(extent_i % {{I}} == 0);
+    // assert(extent_j % {{J}} == 0);
+
+    // for (int64_t i = 0; i < extent_i; i += {{I}}) {
+    //     for (int64_t j = 0; j < extent_j; j += {{J}}) {
+    //         MATMUL_UK(c, a, b, i, j, 0, c_stride_i, c_stride_j, a_stride_i, a_stride_k, b_stride_k, b_stride_j, extent_k);
+    //     }
+    // }
+    assert(extent_i == {{I}});
+    assert(extent_j == {{J}});
+
+    MATMUL_UK(c, a, b, 0, 0, 0, c_stride_i, c_stride_j, a_stride_i, a_stride_k, b_stride_k, b_stride_j, extent_k);
+
+    return 0;
+}
+
+#ifdef TEST
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <stdbool.h>
+
+#define DEFAULT_ALIGN 2*1024*1024
+
+#define aligned_malloc(align, size) ({                                  \
+            size_t _align = (align), _size = (size);                    \
+            _size = ((_size + _align - 1) / _align) * _align;           \
+            aligned_alloc(_align, _size);                               \
+        })
+
+#define alloc_array(size, dtype) aligned_malloc(DEFAULT_ALIGN, size*sizeof(float))
+
+static void matmul_ref(float *C, const float *A, const float *B, int i, int j, int k) {
+    for(int ii = 0; ii < i; ii++)
+        for(int kk = 0; kk < k; kk++)
+            for(int jj = 0; jj < j; jj++)
+                C[ii * j + jj] += A[ii * k + kk] * B[kk * j + jj];
+}
+
+static void init_float_array(float *buffer, int size) {
+    for(int i = 0; i < size; i++) {
+        float value = -1.0f + (float)(i % 18) * 0.125f;
+        buffer[i] = value;
+    }
+}
+
+static int compare_float_arrays(const float *test, const float *ref, int size) {
+    int res = 0;
+    double rtol = 1e-5, atol = 1e-8;
+    int max_errors = 4;
+    int errors = 0;
+    for(int i = 0; i < size; i++) {
+        double vtest = test[i], vref = ref[i];
+        bool valid = true;
+        if (vtest != vref) {
+            if (isnan(vtest) || isnan(vref)) {
+                valid = false;
+            } else {
+                double abs_diff = fabs(vtest - vref);
+                double rel_tol = rtol * fabs(vref);
+                if (abs_diff > atol + rel_tol)
+                    valid = false;
+            }
+        }
+        if (!valid) {
+            if (errors >= max_errors) {
+                fprintf(stderr, "ERROR: skipped remaining errors...\n");
+                break;
+            }
+            fprintf(stderr, "ERROR: value mismatch at index %d %f != %f\n", i, ref[i], test[i]);
+            res |= 1;
+            errors += 1;
+        }
+    }
+    return res;
+}
+
+int main() {
+    int i = {{I}}, j = {{J}}, k = 512;
+    float *A = alloc_array(i*k, float);
+    float *B = alloc_array(k*j, float);
+    float *C = alloc_array(i*j, float);
+    float *ref = alloc_array(i*j, float);
+
+    init_float_array(A, i*k);
+    init_float_array(B, k*j);
+    memset(ref, 0, i*j*sizeof(float));
+    memset(C, 0, i*j*sizeof(float));
+
+    matmul_ref(ref, A, B, i, j, k);
+
+    external_matmul_uk_ixjxk_{{I}}x{{J}}(
+        C, A, B,
+        i, j, k,
+        j, 1, 0,
+        k, 0, 1, 
+        0, 1, j);
+
+    int res = compare_float_arrays(ref, C, i*j);
+    if (res == 0) {
+        fprintf(stderr, "SUCCESS\n");
+    } else {
+        fprintf(stderr, "ERROR: results mismatch\n");
+    }
+
+    free(C);
+    free(B);
+    free(A);
+
+    return res;
+}
+#endif

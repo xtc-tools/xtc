@@ -4,7 +4,7 @@
 Test simple schedule on matmul
 """
 
-import utils
+import utils.search as utils
 from xtc.search.strategies import Strategy_Descript as Strategy
 
 graph = utils.get_graph_matmul()

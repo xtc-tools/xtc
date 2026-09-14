@@ -33,6 +33,7 @@ class PlainNodeSchedule:
     distributed_buffers: dict[str, dict]
     fused_producers: list[tuple[str, int]]
     fused_consumers: list[str]
+    externals: dict[str, str]
     # Optional caller-provided vector sizes, keyed by vectorized axis name.
     # When an axis has a size, its dimension is vectorized with masking for
     # non-divisible extents; axes absent from this mapping are vectorized to
@@ -116,6 +117,7 @@ class PlainNodeScheduler:
         self.distributed_buffers: dict[str, dict] = {}
         self.fused_producers: list[tuple[str, int]] = []
         self.fused_consumers: list[str] = []
+        self.externals: dict[str, str] = {}
 
     def get_plain_schedule(self) -> PlainNodeSchedule:
         return PlainNodeSchedule(
@@ -137,6 +139,7 @@ class PlainNodeScheduler:
             distributed_buffers=deepcopy(self.distributed_buffers),
             fused_producers=deepcopy(self.fused_producers),
             fused_consumers=deepcopy(self.fused_consumers),
+            externals=deepcopy(self.externals),
             vectorization_sizes=deepcopy(self.vectorization_sizes),
         )
 
@@ -190,6 +193,11 @@ class PlainNodeScheduler:
             # Only explicit widths are recorded; a None means full vectorization.
             if width is not None:
                 self.vectorization_sizes[loop] = width
+
+    def external_at(self, axis: str, symbol: str, root: str = DEFAULT_ROOT) -> None:
+        assert symbol, "external symbol must not be empty"
+        external_axis = make_loop_name(root, axis)
+        self.externals[external_axis] = symbol
 
     def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT):
         self.parallelization += [make_loop_name(root, a) for a in axes]

@@ -23,8 +23,8 @@ dependencies = [
 
 [project.optional-dependencies]
 default = ['xtc-llvm-tools==22.1.8.2', 'xtc-mlir-tools==22.1.8.3', 'xtc-mlir-python-bindings==22.1.8.3', 'xtc-mlir-extra-tools==22.1.8.7', 'apache-tvm==0.26.0', 'apache-tvm-ffi==0.1.13.post3']
-dev = ['xtc-llvm-tools==22.1.8.2', 'xtc-mlir-tools==22.1.8.3', 'xtc-mlir-python-bindings==22.1.8.3', 'xtc-mlir-extra-tools==22.1.8.7', 'apache-tvm==0.26.0', 'apache-tvm-ffi==0.1.13.post3', "coverage>=7.8.0", "filecheck==1.0.3", "lit", "mkdocs", "mkdocs-material", "mkdocstrings-python", "mypy==1.15.0", "pytest", "pytest-xdist", "pyright==1.1.407", "types-PyYAML", "marimo==0.19.6", "ruff==0.14.10"]
-test = ["coverage>=7.8.0", "filecheck==1.0.3", "lit", "mkdocs", "mkdocs-material", "mkdocstrings-python", "mypy==1.15.0", "pytest", "pytest-xdist", "pyright==1.1.407", "types-PyYAML", "marimo==0.19.6", "ruff==0.14.10"]
+dev = ['xtc-llvm-tools==22.1.8.2', 'xtc-mlir-tools==22.1.8.3', 'xtc-mlir-python-bindings==22.1.8.3', 'xtc-mlir-extra-tools==22.1.8.7', 'apache-tvm==0.26.0', 'apache-tvm-ffi==0.1.13.post3', "coverage>=7.8.0", "filecheck==1.0.3", "lit", "mkdocs", "mkdocs-material", "mkdocstrings-python", "mypy==2.3.1", "pytest", "pytest-xdist", "pyright==1.1.414", "types-PyYAML", "marimo==0.19.6", "ruff==0.14.10"]
+test = ["coverage>=7.8.0", "filecheck==1.0.3", "lit", "mkdocs", "mkdocs-material", "mkdocstrings-python", "mypy==2.3.1", "pytest", "pytest-xdist", "pyright==1.1.414", "types-PyYAML", "marimo==0.19.6", "ruff==0.14.10"]
 mlir = ['xtc-llvm-tools==22.1.8.2', 'xtc-mlir-tools==22.1.8.3', 'xtc-mlir-python-bindings==22.1.8.3', 'xtc-mlir-extra-tools==22.1.8.7']
 tvm = ['apache-tvm==0.26.0', 'apache-tvm-ffi==0.1.13.post3']
 
