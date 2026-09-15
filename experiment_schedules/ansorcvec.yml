@@ -1,0 +1,21 @@
+constraints:
+  - RoB := 224
+  - v_elts := 16
+  - max_uk_vecs := 32
+  - opt_ilp := 8
+  - j3 == nvr * v_elts
+  - nvr * i3 + nvr + 1 <= max_uk_vecs
+  - ilp(nvr, j3, j2, i2, k1, RoB) >= opt_ilp
+  - v_elts || j3
+schedule:
+  i: parallelize
+  j: parallelize
+  i#i1:
+  j#j1:
+  $: pack(C)
+  k:
+  i#i2:
+  j#j2:
+  k#k1: unroll=ku
+  i#i3: unroll
+  j#j3: vectorize

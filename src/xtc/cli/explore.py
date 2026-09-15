@@ -21,7 +21,8 @@ def launch_child(argv: Sequence[str], args: argparse.Namespace):
     env = {}
     if "tvm" in args.backends:
         # Force number of threads for TVM
-        env.update({"TVM_NUM_THREADS": str(args.threads)})
+        # Force the available cores for TVM
+        env.update({"TVM_NUM_THREADS": str(args.threads), "TVM_BIND_THREADS": "0"})
     env_args = [
         "env",
         *(f"{k}={v}" for k, v in env.items()),
@@ -99,6 +100,11 @@ def main():
         "--descript",
         type=str,
         help="path to a descript yaml specification. Ignores --strategy if used.",
+    )
+    parser.add_argument(
+        "--functions",
+        type=str,
+        help="path to a python file with functions to use in the descript constraints",
     )
     parser.add_argument(
         "--search",
