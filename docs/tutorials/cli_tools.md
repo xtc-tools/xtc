@@ -6,6 +6,13 @@ Use exploration script, for instance random 100 points for a simple matmul tilin
 
     loop-explore --debug --search random --trials 100 --output results.random.csv
 
+Explore a specific node of a serialized multi-node graph:
+
+    loop-explore --trials 1 --graph-file tests/graphs/resnet18_12_pad_conv_relu.graph.yaml --node conv
+
+The selected node also determines the operation dimensions used to build the
+search space.
+
 Use exploration script, for instance on input data generated on some tvm search (3D tiling + permutations), 2054 points here:
 
     time -p loop-explore --debug --dims 256 256 512 --strategy tile4d --search data --data data/tvm_results.mm06.csv --output data/results.mm06-tile4d.csv

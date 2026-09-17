@@ -35,6 +35,7 @@ module = comp.compile(sched)
 executor = module.get_executor(validate=True)
 res = executor.execute()
 print(f"CODE: {res}")
+
 # CHECK:       graph:
 # CHECK-NEXT:    name: matmul_relu
 # CHECK-NEXT:    inputs:
@@ -53,12 +54,10 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  @I.ir_module
 # CHECK-NEXT:  class Module:
 # CHECK-NEXT:      @T.prim_func(s_tir=True)
-# CHECK-NEXT:      def matmul_relu(_0: T.Buffer((4, 512), "float32"), _1: T.Buffer((512, 32), "float32"), T_reshape: T.Buffer((4, 32), "float32")):
+# CHECK-NEXT:      def matmul_relu(_0: T.Buffer((4, 512), "float32"), _1: T.Buffer((512, 32), "float32"), relu: T.Buffer((4, 32), "float32")):
 # CHECK-NEXT:          T.func_attr({"tirx.noalias": True})
 # CHECK-NEXT:          # with T.sblock("root"):
 # CHECK-NEXT:          matmul = T.sblock_alloc_buffer((4, 32))
-# CHECK-NEXT:          T_reshape_1 = T.sblock_alloc_buffer((128,))
-# CHECK-NEXT:          relu = T.sblock_alloc_buffer((128,))
 # CHECK-NEXT:          for i, j, k in T.grid(4, 32, 512):
 # CHECK-NEXT:              with T.sblock("matmul"):
 # CHECK-NEXT:                  v_i, v_j, v_k = T.axis.remap("SSR", [i, j, k])
@@ -67,24 +66,12 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                  with T.init():
 # CHECK-NEXT:                      matmul[v_i, v_j] = T.float32(0.0)
 # CHECK-NEXT:                  matmul[v_i, v_j] = matmul[v_i, v_j] + _0[v_i, v_k] * _1[v_k, v_j]
-# CHECK-NEXT:          for ax0 in range(128):
-# CHECK-NEXT:              with T.sblock("T_reshape"):
-# CHECK-NEXT:                  v_ax0 = T.axis.spatial(128, ax0)
-# CHECK-NEXT:                  T.reads(matmul[v_ax0 % 128 // 32, v_ax0 % 32])
-# CHECK-NEXT:                  T.writes(T_reshape_1[v_ax0])
-# CHECK-NEXT:                  T_reshape_1[v_ax0] = matmul[v_ax0 % 128 // 32, v_ax0 % 32]
-# CHECK-NEXT:          for i in range(128):
+# CHECK-NEXT:          for i0, i1 in T.grid(4, 32):
 # CHECK-NEXT:              with T.sblock("relu"):
-# CHECK-NEXT:                  v_i = T.axis.spatial(128, i)
-# CHECK-NEXT:                  T.reads(T_reshape_1[v_i])
-# CHECK-NEXT:                  T.writes(relu[v_i])
-# CHECK-NEXT:                  relu[v_i] = T.max(T.float32(0.0), T_reshape_1[v_i])
-# CHECK-NEXT:          for ax0, ax1 in T.grid(4, 32):
-# CHECK-NEXT:              with T.sblock("T_reshape_1"):
-# CHECK-NEXT:                  v_ax0, v_ax1 = T.axis.remap("SS", [ax0, ax1])
-# CHECK-NEXT:                  T.reads(relu[(v_ax0 * 32 + v_ax1) % 128])
-# CHECK-NEXT:                  T.writes(T_reshape[v_ax0, v_ax1])
-# CHECK-NEXT:                  T_reshape[v_ax0, v_ax1] = relu[(v_ax0 * 32 + v_ax1) % 128]
+# CHECK-NEXT:                  v_i0, v_i1 = T.axis.remap("SS", [i0, i1])
+# CHECK-NEXT:                  T.reads(matmul[v_i0, v_i1])
+# CHECK-NEXT:                  T.writes(relu[v_i0, v_i1])
+# CHECK-NEXT:                  relu[v_i0, v_i1] = T.max(T.float32(0.0), matmul[v_i0, v_i1])
 # CHECK-NEXT:  O = sch.get_sblock("matmul")
 # CHECK-NEXT:  i, j, k, = sch.get_loops(O)
 # CHECK-NEXT:  i, i1, = sch.split(i, factors=[None, 2])
@@ -101,12 +88,10 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  @I.ir_module
 # CHECK-NEXT:  class Module:
 # CHECK-NEXT:      @T.prim_func(s_tir=True)
-# CHECK-NEXT:      def matmul_relu(_0: T.Buffer((4, 512), "float32"), _1: T.Buffer((512, 32), "float32"), T_reshape: T.Buffer((4, 32), "float32")):
+# CHECK-NEXT:      def matmul_relu(_0: T.Buffer((4, 512), "float32"), _1: T.Buffer((512, 32), "float32"), relu: T.Buffer((4, 32), "float32")):
 # CHECK-NEXT:          T.func_attr({"tirx.noalias": True})
 # CHECK-NEXT:          # with T.sblock("root"):
 # CHECK-NEXT:          matmul = T.sblock_alloc_buffer((4, 32))
-# CHECK-NEXT:          T_reshape_1 = T.sblock_alloc_buffer((128,))
-# CHECK-NEXT:          relu = T.sblock_alloc_buffer((128,))
 # CHECK-NEXT:          for i_0_init, j_0_init in T.grid(2, 2):
 # CHECK-NEXT:              for i_1_init in T.unroll(2):
 # CHECK-NEXT:                  for j_1_init in T.vectorized(16):
@@ -126,22 +111,10 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                          T.reads(matmul[v_i, v_j], _0[v_i, v_k], _1[v_k, v_j])
 # CHECK-NEXT:                          T.writes(matmul[v_i, v_j])
 # CHECK-NEXT:                          matmul[v_i, v_j] = matmul[v_i, v_j] + _0[v_i, v_k] * _1[v_k, v_j]
-# CHECK-NEXT:          for ax0 in range(128):
-# CHECK-NEXT:              with T.sblock("T_reshape"):
-# CHECK-NEXT:                  v_ax0 = T.axis.spatial(128, ax0)
-# CHECK-NEXT:                  T.reads(matmul[v_ax0 % 128 // 32, v_ax0 % 32])
-# CHECK-NEXT:                  T.writes(T_reshape_1[v_ax0])
-# CHECK-NEXT:                  T_reshape_1[v_ax0] = matmul[v_ax0 % 128 // 32, v_ax0 % 32]
-# CHECK-NEXT:          for i in range(128):
+# CHECK-NEXT:          for i0, i1 in T.grid(4, 32):
 # CHECK-NEXT:              with T.sblock("relu"):
-# CHECK-NEXT:                  v_i = T.axis.spatial(128, i)
-# CHECK-NEXT:                  T.reads(T_reshape_1[v_i])
-# CHECK-NEXT:                  T.writes(relu[v_i])
-# CHECK-NEXT:                  relu[v_i] = T.max(T.float32(0.0), T_reshape_1[v_i])
-# CHECK-NEXT:          for ax0, ax1 in T.grid(4, 32):
-# CHECK-NEXT:              with T.sblock("T_reshape_1"):
-# CHECK-NEXT:                  v_ax0, v_ax1 = T.axis.remap("SS", [ax0, ax1])
-# CHECK-NEXT:                  T.reads(relu[(v_ax0 * 32 + v_ax1) % 128])
-# CHECK-NEXT:                  T.writes(T_reshape[v_ax0, v_ax1])
-# CHECK-NEXT:                  T_reshape[v_ax0, v_ax1] = relu[(v_ax0 * 32 + v_ax1) % 128]
+# CHECK-NEXT:                  v_i0, v_i1 = T.axis.remap("SS", [i0, i1])
+# CHECK-NEXT:                  T.reads(matmul[v_i0, v_i1])
+# CHECK-NEXT:                  T.writes(relu[v_i0, v_i1])
+# CHECK-NEXT:                  relu[v_i0, v_i1] = T.max(T.float32(0.0), matmul[v_i0, v_i1])
 # CHECK-NEXT:  CODE: 0

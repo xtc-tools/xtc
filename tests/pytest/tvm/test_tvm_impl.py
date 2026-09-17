@@ -5,6 +5,34 @@ from tvm_utils import requires_tvm, matmul_impl
 I, J, K, DTYPE = 128, 256, 91, "float32"
 MATMUL_ARGS = (I, J, K, DTYPE)
 
+
+@requires_tvm
+@pytest.mark.parametrize(
+    ("shape", "dims"),
+    (
+        ((32,), ("i",)),
+        ((4, 32), ("i", "j")),
+        ((1, 4, 4, 16), ("i", "j", "k", "l")),
+    ),
+)
+def test_relu_inherits_input_rank(shape, dims):
+    import xtc.graphs.xtc.op as O
+    from xtc.backends.tvm import TVMBackend
+
+    inp = O.tensor(shape, "float32", name="A")
+    with O.graph(name="relu_graph") as gb:
+        O.relu(inp, name="relu")
+
+    impl = TVMBackend(gb.graph)
+    relu = impl._ops["relu"]
+    assert relu.operator.dims() == dims
+    assert relu.operator.dims("P") == dims
+    assert relu.operator.dims("R") == ()
+    assert relu.operator.dims_sizes() == dict(zip(dims, shape))
+    assert relu.operator.inputs_dims() == (shape,)
+    assert relu.operator.outputs_dims() == (shape,)
+
+
 def sched_nop(sch):
     # Expected in TVM schedule
     print(sch)

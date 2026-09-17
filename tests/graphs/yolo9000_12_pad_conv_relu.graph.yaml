@@ -1,0 +1,60 @@
+name: yolo9000_12_pad_conv_relu
+inputs:
+- uid: '%0'
+  expr:
+    type:
+      shape:
+      - 1
+      - 34
+      - 34
+      - 256
+      dtype: float32
+- uid: '%1'
+  expr:
+    type:
+      shape:
+      - 3
+      - 3
+      - 256
+      - 512
+      dtype: float32
+outputs:
+- uid: '%4'
+nodes:
+- name: pad
+  uid: '%2'
+  expr:
+    op:
+      name: pad2d
+      attrs:
+        padding:
+          -3:
+          - 1
+          - 1
+          -2:
+          - 1
+          - 1
+        constant_value: 0
+    args:
+    - '%0'
+- name: conv
+  uid: '%3'
+  expr:
+    op:
+      name: conv2d
+      attrs:
+        stride:
+        - 1
+        - 1
+    args:
+    - '%2'
+    - '%1'
+- name: relu
+  uid: '%4'
+  expr:
+    op:
+      name: relu
+      attrs: {}
+    args:
+    - '%3'
+ops_version: b1d3d482365150a5

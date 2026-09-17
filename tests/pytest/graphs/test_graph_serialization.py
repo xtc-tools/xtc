@@ -10,9 +10,11 @@ GRAPHS_DIR = Path(__file__).parents[2] / "graphs"
     [
         "matmul",
         "conv2d",
+        "resnet18_12_pad_conv_relu",
+        "yolo9000_12_pad_conv_relu",
     ]
 )
-def test_matmul_graph_load(opname: str):
+def test_graph_load(opname: str):
     with O.graph() as gb:
         gb.load(GRAPHS_DIR / f"{opname}.graph.yaml")
     graph = gb.graph

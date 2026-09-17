@@ -23,7 +23,7 @@ sch = impl.get_scheduler()
 descript_scheduler(
     scheduler = sch,
     node_name = "conv",
-    abstract_dims = ["b", "h", "w", "r", "s", "c", "f"],
+    abstract_dims = ["b", "h", "w", "f", "r", "s", "c"],
     spec = {
         "b": {},
         "h": {},
@@ -138,11 +138,11 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %5 = transform.structured.match attributes {__xtc_id_pad_} in %new_containing_op_3 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      %fused_op_6, %new_containing_op_7 = transform.structured.fuse_into_containing_op %5 into %loops_5 : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      %6 = transform.structured.match attributes {__xtc_id_conv_} in %new_containing_op_3 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %6 tile_sizes [0, 0, 0, 1, 0, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %6 tile_sizes [0, 0, 0, 0, 1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_9 "conv/r" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %tiled_linalg_op_8 tile_sizes [0, 0, 0, 0, 1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %tiled_linalg_op_8 tile_sizes [0, 0, 0, 0, 0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_11 "conv/s" : !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_12, %loops_13 = transform.structured.tile_using_for %tiled_linalg_op_10 tile_sizes [0, 0, 0, 0, 0, 1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_12, %loops_13 = transform.structured.tile_using_for %tiled_linalg_op_10 tile_sizes [0, 0, 0, 0, 0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_13 "conv/c" : !transform.any_op
 # CHECK-NEXT:      %7 = transform.get_parent_op %tiled_linalg_op_12 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.apply_patterns to %7 {
@@ -164,13 +164,10 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  #map1 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 # CHECK-NEXT:  #map2 = affine_map<(d0)[s0] -> (d0 + s0)>
 # CHECK-NEXT:  #map3 = affine_map<(d0)[s0] -> (d0 * 2 + s0)>
-# CHECK-NEXT:  #map4 = affine_map<(d0) -> (d0)>
-# CHECK-NEXT:  #map5 = affine_map<(d0) -> ()>
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:    func.func @pad_conv2d_nhwc_mini(%arg0: tensor<1x8x8x3xf32> {llvm.noalias}, %arg1: tensor<5x5x3x16xf32> {llvm.noalias}, %arg2: memref<1x4x4x16xf32> {llvm.noalias}) {
 # CHECK-NEXT:      %0 = ub.poison : f32
 # CHECK-NEXT:      %c5 = arith.constant 5 : index
-# CHECK-NEXT:      %c16 = arith.constant 16 : index
 # CHECK-NEXT:      %c4 = arith.constant 4 : index
 # CHECK-NEXT:      %c3 = arith.constant 3 : index
 # CHECK-NEXT:      %c8 = arith.constant 8 : index
@@ -225,32 +222,31 @@ print(f"CODE: {res}")
 # CHECK-NEXT:              linalg.yield %34 : f32
 # CHECK-NEXT:            } -> tensor<1x5x5x3xf32>
 # CHECK-NEXT:            %extracted_slice_5 = tensor.extract_slice %arg8[0, 0, %arg7, 0] [1, 1, 1, 16] [1, 1, 1, 1] : tensor<1x1x4x16xf32> to tensor<1x1x1x16xf32>
-# CHECK-NEXT:            %10 = scf.for %arg9 = %c0 to %c16 step %c1 iter_args(%arg10 = %extracted_slice_5) -> (tensor<1x1x1x16xf32>) {
-# CHECK-NEXT:              %extracted_slice_7 = tensor.extract_slice %arg1[0, 0, 0, %arg9] [5, 5, 3, 1] [1, 1, 1, 1] : tensor<5x5x3x16xf32> to tensor<5x5x3x1xf32>
-# CHECK-NEXT:              %extracted_slice_8 = tensor.extract_slice %arg10[0, 0, 0, %arg9] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x16xf32> to tensor<1x1x1x1xf32>
-# CHECK-NEXT:              %11 = scf.for %arg11 = %c0 to %c5 step %c1 iter_args(%arg12 = %extracted_slice_8) -> (tensor<1x1x1x1xf32>) {
-# CHECK-NEXT:                %extracted_slice_10 = tensor.extract_slice %9[0, %arg11, 0, 0] [1, 1, 5, 3] [1, 1, 1, 1] : tensor<1x5x5x3xf32> to tensor<1x1x5x3xf32>
-# CHECK-NEXT:                %extracted_slice_11 = tensor.extract_slice %extracted_slice_7[%arg11, 0, 0, 0] [1, 5, 3, 1] [1, 1, 1, 1] : tensor<5x5x3x1xf32> to tensor<1x5x3x1xf32>
-# CHECK-NEXT:                %12 = scf.for %arg13 = %c0 to %c5 step %c1 iter_args(%arg14 = %arg12) -> (tensor<1x1x1x1xf32>) {
-# CHECK-NEXT:                  %extracted_slice_12 = tensor.extract_slice %extracted_slice_10[0, 0, %arg13, 0] [1, 1, 1, 3] [1, 1, 1, 1] : tensor<1x1x5x3xf32> to tensor<1x1x1x3xf32>
-# CHECK-NEXT:                  %extracted_slice_13 = tensor.extract_slice %extracted_slice_11[0, %arg13, 0, 0] [1, 1, 3, 1] [1, 1, 1, 1] : tensor<1x5x3x1xf32> to tensor<1x1x3x1xf32>
-# CHECK-NEXT:                  %extracted_slice_14 = tensor.extract_slice %extracted_slice_12[0, 0, 0, 0] [1, 1, 1, 3] [1, 1, 1, 1] : tensor<1x1x1x3xf32> to tensor<3xf32>
-# CHECK-NEXT:                  %extracted_slice_15 = tensor.extract_slice %extracted_slice_13[0, 0, 0, 0] [1, 1, 3, 1] [1, 1, 1, 1] : tensor<1x1x3x1xf32> to tensor<3xf32>
-# CHECK-NEXT:                  %extracted_slice_16 = tensor.extract_slice %arg14[0, 0, 0, 0] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x1xf32> to tensor<f32>
-# CHECK-NEXT:                  %13 = vector.transfer_read %extracted_slice_14[%c0], %0 {in_bounds = [true]} : tensor<3xf32>, vector<3xf32>
-# CHECK-NEXT:                  %14 = vector.transfer_read %extracted_slice_15[%c0], %0 {in_bounds = [true]} : tensor<3xf32>, vector<3xf32>
-# CHECK-NEXT:                  %15 = vector.transfer_read %extracted_slice_16[], %0 : tensor<f32>, vector<f32>
-# CHECK-NEXT:                  %16 = vector.extract %15[] : f32 from vector<f32>
-# CHECK-NEXT:                  %17 = vector.contract {indexing_maps = [#map4, #map4, #map5], iterator_types = ["reduction"], kind = #vector.kind<add>} %13, %14, %16 : vector<3xf32>, vector<3xf32> into f32
-# CHECK-NEXT:                  %18 = vector.broadcast %17 : f32 to vector<f32>
-# CHECK-NEXT:                  %19 = vector.transfer_write %18, %extracted_slice_16[] : vector<f32>, tensor<f32>
-# CHECK-NEXT:                  %inserted_slice_17 = tensor.insert_slice %19 into %arg14[0, 0, 0, 0] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<f32> into tensor<1x1x1x1xf32>
-# CHECK-NEXT:                  scf.yield %inserted_slice_17 : tensor<1x1x1x1xf32>
+# CHECK-NEXT:            %10 = scf.for %arg9 = %c0 to %c5 step %c1 iter_args(%arg10 = %extracted_slice_5) -> (tensor<1x1x1x16xf32>) {
+# CHECK-NEXT:              %extracted_slice_7 = tensor.extract_slice %9[0, %arg9, 0, 0] [1, 1, 5, 3] [1, 1, 1, 1] : tensor<1x5x5x3xf32> to tensor<1x1x5x3xf32>
+# CHECK-NEXT:              %extracted_slice_8 = tensor.extract_slice %arg1[%arg9, 0, 0, 0] [1, 5, 3, 16] [1, 1, 1, 1] : tensor<5x5x3x16xf32> to tensor<1x5x3x16xf32>
+# CHECK-NEXT:              %11 = scf.for %arg11 = %c0 to %c5 step %c1 iter_args(%arg12 = %arg10) -> (tensor<1x1x1x16xf32>) {
+# CHECK-NEXT:                %extracted_slice_9 = tensor.extract_slice %extracted_slice_7[0, 0, %arg11, 0] [1, 1, 1, 3] [1, 1, 1, 1] : tensor<1x1x5x3xf32> to tensor<1x1x1x3xf32>
+# CHECK-NEXT:                %extracted_slice_10 = tensor.extract_slice %extracted_slice_8[0, %arg11, 0, 0] [1, 1, 3, 16] [1, 1, 1, 1] : tensor<1x5x3x16xf32> to tensor<1x1x3x16xf32>
+# CHECK-NEXT:                %12 = scf.for %arg13 = %c0 to %c3 step %c1 iter_args(%arg14 = %arg12) -> (tensor<1x1x1x16xf32>) {
+# CHECK-NEXT:                  %extracted_slice_11 = tensor.extract_slice %extracted_slice_9[0, 0, 0, %arg13] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x3xf32> to tensor<1x1x1x1xf32>
+# CHECK-NEXT:                  %extracted_slice_12 = tensor.extract_slice %extracted_slice_10[0, 0, %arg13, 0] [1, 1, 1, 16] [1, 1, 1, 1] : tensor<1x1x3x16xf32> to tensor<1x1x1x16xf32>
+# CHECK-NEXT:                  %extracted_slice_13 = tensor.extract_slice %extracted_slice_11[0, 0, 0, 0] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x1xf32> to tensor<f32>
+# CHECK-NEXT:                  %extracted_slice_14 = tensor.extract_slice %extracted_slice_12[0, 0, 0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : tensor<1x1x1x16xf32> to tensor<16xf32>
+# CHECK-NEXT:                  %extracted_slice_15 = tensor.extract_slice %arg14[0, 0, 0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : tensor<1x1x1x16xf32> to tensor<16xf32>
+# CHECK-NEXT:                  %extracted = tensor.extract %extracted_slice_13[] : tensor<f32>
+# CHECK-NEXT:                  %13 = vector.broadcast %extracted : f32 to vector<16xf32>
+# CHECK-NEXT:                  %14 = vector.transfer_read %extracted_slice_14[%c0], %0 {in_bounds = [true]} : tensor<16xf32>, vector<16xf32>
+# CHECK-NEXT:                  %15 = vector.transfer_read %extracted_slice_15[%c0], %0 {in_bounds = [true]} : tensor<16xf32>, vector<16xf32>
+# CHECK-NEXT:                  %16 = arith.mulf %13, %14 fastmath<fast> : vector<16xf32>
+# CHECK-NEXT:                  %17 = arith.addf %15, %16 fastmath<fast> : vector<16xf32>
+# CHECK-NEXT:                  %18 = vector.transfer_write %17, %extracted_slice_15[%c0] {in_bounds = [true]} : vector<16xf32>, tensor<16xf32>
+# CHECK-NEXT:                  %inserted_slice_16 = tensor.insert_slice %18 into %arg14[0, 0, 0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : tensor<16xf32> into tensor<1x1x1x16xf32>
+# CHECK-NEXT:                  scf.yield %inserted_slice_16 : tensor<1x1x1x16xf32>
 # CHECK-NEXT:                } {"conv/c"}
-# CHECK-NEXT:                scf.yield %12 : tensor<1x1x1x1xf32>
+# CHECK-NEXT:                scf.yield %12 : tensor<1x1x1x16xf32>
 # CHECK-NEXT:              } {"conv/s"}
-# CHECK-NEXT:              %inserted_slice_9 = tensor.insert_slice %11 into %arg10[0, 0, 0, %arg9] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x1xf32> into tensor<1x1x1x16xf32>
-# CHECK-NEXT:              scf.yield %inserted_slice_9 : tensor<1x1x1x16xf32>
+# CHECK-NEXT:              scf.yield %11 : tensor<1x1x1x16xf32>
 # CHECK-NEXT:            } {"conv/r"}
 # CHECK-NEXT:            %inserted_slice_6 = tensor.insert_slice %10 into %arg8[0, 0, %arg7, 0] [1, 1, 1, 16] [1, 1, 1, 1] : tensor<1x1x1x16xf32> into tensor<1x1x4x16xf32>
 # CHECK-NEXT:            scf.yield %inserted_slice_6 : tensor<1x1x4x16xf32>
@@ -285,7 +281,6 @@ print(f"CODE: {res}")
 # CHECK-NEXT:    func.func @pad_conv2d_nhwc_mini(%arg0: memref<1x8x8x3xf32> {llvm.noalias}, %arg1: memref<5x5x3x16xf32> {llvm.noalias}, %arg2: memref<1x4x4x16xf32> {llvm.noalias}) {
 # CHECK-NEXT:      %0 = ub.poison : f32
 # CHECK-NEXT:      %c5 = arith.constant 5 : index
-# CHECK-NEXT:      %c16 = arith.constant 16 : index
 # CHECK-NEXT:      %c4 = arith.constant 4 : index
 # CHECK-NEXT:      %c3 = arith.constant 3 : index
 # CHECK-NEXT:      %c8 = arith.constant 8 : index
@@ -327,35 +322,32 @@ print(f"CODE: {res}")
 # CHECK-NEXT:            linalg.yield %22 : f32
 # CHECK-NEXT:          }
 # CHECK-NEXT:          %subview_1 = memref.subview %arg6[0, 0, %arg5, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>
-# CHECK-NEXT:          %3 = scf.for %arg7 = %c0 to %c16 step %c1 iter_args(%arg8 = %subview_1) -> (memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>) {
-# CHECK-NEXT:            %subview_3 = memref.subview %arg1[0, 0, 0, %arg7] [5, 5, 3, 1] [1, 1, 1, 1] : memref<5x5x3x16xf32> to memref<5x5x3x1xf32, strided<[240, 48, 16, 1], offset: ?>>
-# CHECK-NEXT:            %subview_4 = memref.subview %arg8[0, 0, 0, %arg7] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>
-# CHECK-NEXT:            %4 = scf.for %arg9 = %c0 to %c5 step %c1 iter_args(%arg10 = %subview_4) -> (memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>) {
-# CHECK-NEXT:              %subview_6 = memref.subview %alloca[0, %arg9, 0, 0] [1, 1, 5, 3] [1, 1, 1, 1] : memref<1x5x5x3xf32> to memref<1x1x5x3xf32, strided<[75, 15, 3, 1], offset: ?>>
-# CHECK-NEXT:              %subview_7 = memref.subview %subview_3[%arg9, 0, 0, 0] [1, 5, 3, 1] [1, 1, 1, 1] : memref<5x5x3x1xf32, strided<[240, 48, 16, 1], offset: ?>> to memref<1x5x3x1xf32, strided<[240, 48, 16, 1], offset: ?>>
-# CHECK-NEXT:              %5 = scf.for %arg11 = %c0 to %c5 step %c1 iter_args(%arg12 = %arg10) -> (memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>) {
-# CHECK-NEXT:                %subview_8 = memref.subview %subview_6[0, 0, %arg11, 0] [1, 1, 1, 3] [1, 1, 1, 1] : memref<1x1x5x3xf32, strided<[75, 15, 3, 1], offset: ?>> to memref<1x1x1x3xf32, strided<[75, 15, 3, 1], offset: ?>>
-# CHECK-NEXT:                %subview_9 = memref.subview %subview_7[0, %arg11, 0, 0] [1, 1, 3, 1] [1, 1, 1, 1] : memref<1x5x3x1xf32, strided<[240, 48, 16, 1], offset: ?>> to memref<1x1x3x1xf32, strided<[240, 48, 16, 1], offset: ?>>
-# CHECK-NEXT:                %subview_10 = memref.subview %subview_8[0, 0, 0, 0] [1, 1, 1, 3] [1, 1, 1, 1] : memref<1x1x1x3xf32, strided<[75, 15, 3, 1], offset: ?>> to memref<3xf32, strided<[1], offset: ?>>
-# CHECK-NEXT:                %subview_11 = memref.subview %subview_9[0, 0, 0, 0] [1, 1, 3, 1] [1, 1, 1, 1] : memref<1x1x3x1xf32, strided<[240, 48, 16, 1], offset: ?>> to memref<3xf32, strided<[16], offset: ?>>
-# CHECK-NEXT:                %subview_12 = memref.subview %arg12[0, 0, 0, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<f32, strided<[], offset: ?>>
-# CHECK-NEXT:                %6 = vector.transfer_read %subview_10[%c0], %0 {in_bounds = [true]} : memref<3xf32, strided<[1], offset: ?>>, vector<3xf32>
-# CHECK-NEXT:                %7 = vector.transfer_read %subview_11[%c0], %0 {in_bounds = [true]} : memref<3xf32, strided<[16], offset: ?>>, vector<3xf32>
-# CHECK-NEXT:                %8 = vector.transfer_read %subview_12[], %0 : memref<f32, strided<[], offset: ?>>, vector<f32>
-# CHECK-NEXT:                %9 = vector.extract %8[] : f32 from vector<f32>
-# CHECK-NEXT:                %10 = arith.mulf %6, %7 : vector<3xf32>
-# CHECK-NEXT:                %11 = vector.reduction <add>, %10, %9 : vector<3xf32> into f32
-# CHECK-NEXT:                %12 = vector.broadcast %11 : f32 to vector<f32>
-# CHECK-NEXT:                vector.transfer_write %12, %subview_12[] : vector<f32>, memref<f32, strided<[], offset: ?>>
-# CHECK-NEXT:                %subview_13 = memref.subview %arg12[0, 0, 0, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<f32, strided<[], offset: ?>>
-# CHECK-NEXT:                memref.copy %subview_12, %subview_13 : memref<f32, strided<[], offset: ?>> to memref<f32, strided<[], offset: ?>>
-# CHECK-NEXT:                scf.yield %arg12 : memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>
+# CHECK-NEXT:          %3 = scf.for %arg7 = %c0 to %c5 step %c1 iter_args(%arg8 = %subview_1) -> (memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>) {
+# CHECK-NEXT:            %subview_3 = memref.subview %alloca[0, %arg7, 0, 0] [1, 1, 5, 3] [1, 1, 1, 1] : memref<1x5x5x3xf32> to memref<1x1x5x3xf32, strided<[75, 15, 3, 1], offset: ?>>
+# CHECK-NEXT:            %subview_4 = memref.subview %arg1[%arg7, 0, 0, 0] [1, 5, 3, 16] [1, 1, 1, 1] : memref<5x5x3x16xf32> to memref<1x5x3x16xf32, strided<[240, 48, 16, 1], offset: ?>>
+# CHECK-NEXT:            %4 = scf.for %arg9 = %c0 to %c5 step %c1 iter_args(%arg10 = %arg8) -> (memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>) {
+# CHECK-NEXT:              %subview_5 = memref.subview %subview_3[0, 0, %arg9, 0] [1, 1, 1, 3] [1, 1, 1, 1] : memref<1x1x5x3xf32, strided<[75, 15, 3, 1], offset: ?>> to memref<1x1x1x3xf32, strided<[75, 15, 3, 1], offset: ?>>
+# CHECK-NEXT:              %subview_6 = memref.subview %subview_4[0, %arg9, 0, 0] [1, 1, 3, 16] [1, 1, 1, 1] : memref<1x5x3x16xf32, strided<[240, 48, 16, 1], offset: ?>> to memref<1x1x3x16xf32, strided<[240, 48, 16, 1], offset: ?>>
+# CHECK-NEXT:              %5 = scf.for %arg11 = %c0 to %c3 step %c1 iter_args(%arg12 = %arg10) -> (memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>) {
+# CHECK-NEXT:                %subview_7 = memref.subview %subview_5[0, 0, 0, %arg11] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x3xf32, strided<[75, 15, 3, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[75, 15, 3, 1], offset: ?>>
+# CHECK-NEXT:                %subview_8 = memref.subview %subview_6[0, 0, %arg11, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x3x16xf32, strided<[240, 48, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[240, 48, 16, 1], offset: ?>>
+# CHECK-NEXT:                %subview_9 = memref.subview %subview_7[0, 0, 0, 0] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x1xf32, strided<[75, 15, 3, 1], offset: ?>> to memref<f32, strided<[], offset: ?>>
+# CHECK-NEXT:                %subview_10 = memref.subview %subview_8[0, 0, 0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[240, 48, 16, 1], offset: ?>> to memref<16xf32, strided<[1], offset: ?>>
+# CHECK-NEXT:                %subview_11 = memref.subview %arg12[0, 0, 0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<16xf32, strided<[1], offset: ?>>
+# CHECK-NEXT:                %6 = memref.load %subview_9[] : memref<f32, strided<[], offset: ?>>
+# CHECK-NEXT:                %7 = vector.broadcast %6 : f32 to vector<16xf32>
+# CHECK-NEXT:                %8 = vector.transfer_read %subview_10[%c0], %0 {in_bounds = [true]} : memref<16xf32, strided<[1], offset: ?>>, vector<16xf32>
+# CHECK-NEXT:                %9 = vector.transfer_read %subview_11[%c0], %0 {in_bounds = [true]} : memref<16xf32, strided<[1], offset: ?>>, vector<16xf32>
+# CHECK-NEXT:                %10 = arith.mulf %7, %8 fastmath<fast> : vector<16xf32>
+# CHECK-NEXT:                %11 = arith.addf %9, %10 fastmath<fast> : vector<16xf32>
+# CHECK-NEXT:                vector.transfer_write %11, %subview_11[%c0] {in_bounds = [true]} : vector<16xf32>, memref<16xf32, strided<[1], offset: ?>>
+# CHECK-NEXT:                %subview_12 = memref.subview %arg12[0, 0, 0, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<16xf32, strided<[1], offset: ?>>
+# CHECK-NEXT:                memref.copy %subview_11, %subview_12 : memref<16xf32, strided<[1], offset: ?>> to memref<16xf32, strided<[1], offset: ?>>
+# CHECK-NEXT:                scf.yield %arg12 : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>
 # CHECK-NEXT:              } {"conv/c"}
-# CHECK-NEXT:              scf.yield %5 : memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>
+# CHECK-NEXT:              scf.yield %5 : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>
 # CHECK-NEXT:            } {"conv/s"}
-# CHECK-NEXT:            %subview_5 = memref.subview %arg8[0, 0, 0, %arg7] [1, 1, 1, 1] [1, 1, 1, 1] : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>
-# CHECK-NEXT:            memref.copy %4, %subview_5 : memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x1xf32, strided<[256, 64, 16, 1], offset: ?>>
-# CHECK-NEXT:            scf.yield %arg8 : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>
+# CHECK-NEXT:            scf.yield %4 : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>
 # CHECK-NEXT:          } {"conv/r"}
 # CHECK-NEXT:          %subview_2 = memref.subview %arg6[0, 0, %arg5, 0] [1, 1, 1, 16] [1, 1, 1, 1] : memref<1x1x4x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>
 # CHECK-NEXT:          memref.copy %3, %subview_2 : memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>> to memref<1x1x1x16xf32, strided<[256, 64, 16, 1], offset: ?>>

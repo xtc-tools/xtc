@@ -69,7 +69,13 @@ def main():
     parser.add_argument(
         "--graph-file",
         type=str,
-        help="Input gaph serialized yaml file",
+        help="input graph serialized as a YAML file",
+    )
+    parser.add_argument(
+        "--node",
+        type=str,
+        default=defaults.node,
+        help="graph node to schedule",
     )
     parser.add_argument(
         "--op-name",

@@ -300,8 +300,7 @@ class TVMOperatorMatmul(TVMOperator):
 class TVMOperatorRelu(TVMOperator):
     DEFAULT_NAME = "relu"
     DEFAULT_THRESHOLD = 0
-    AXES = "i"
-    KINDS = "P"
+    AXES = "ijklmnopqrstuvwxyz"
 
     def __init__(
         self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
@@ -309,57 +308,58 @@ class TVMOperatorRelu(TVMOperator):
         attrs = {"threshold": self.DEFAULT_THRESHOLD, **attrs}
         super().__init__(args, attrs, name)
 
+    def _input_shape(self) -> tuple[int, ...]:
+        shape = self.attrs.get("inp_shape", self.args[:-1])
+        return tuple(shape)
+
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
-        return self._dims(kind)
+        rank = len(self._input_shape())
+        assert rank <= len(self.AXES), f"unsupported relu input rank: {rank}"
+        axes = tuple(self.AXES[:rank])
+        if kind == "":
+            return axes
+        if kind == "P":
+            return axes
+        return ()
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        i, _ = self.args
-        return {"i": i}
+        return dict(zip(self.dims(), self._input_shape()))
 
     @override
     def generate_op(
         self, inputs: Sequence[TETensor] | None = None
     ) -> tuple[TETensor, ...]:
-        Ki, dtype = self.args
+        dtype = self.args[-1]
+        shape = self._input_shape()
         if inputs is None:
-            A = te.placeholder((Ki,), name="A", dtype=dtype)
+            A = te.placeholder(shape, name="A", dtype=dtype)
         else:
             (A,) = cast(Sequence[Any], inputs)
-        shape = tuple(A.shape)
-        size = mulall(A.shape)
-        newshape = (size,)
-        O = A
-        if shape != newshape:
-            O = topi.reshape(A, newshape=(size,))
         O = te.compute(
-            (Ki,),
-            lambda i,: tvm.tirx.max(self.attrs["threshold"], O[i]),
+            shape,
+            lambda *indices: tvm.tirx.max(self.attrs["threshold"], A[indices]),
             name=self.name,
         )
-        if shape != newshape:
-            O = topi.reshape(O, newshape=shape)
         return cast(tuple[TETensor], (A, O))
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        i, _ = self.args
-        return ((i,),)
+        return (self._input_shape(),)
 
     @override
     def inputs_types(self) -> tuple[str, ...]:
-        _, dtype = self.args
+        dtype = self.args[-1]
         return (dtype,)
 
     @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        i, _ = self.args
-        return ((i,),)
+        return (self._input_shape(),)
 
     @override
     def outputs_types(self) -> tuple[str, ...]:
-        _, dtype = self.args
+        dtype = self.args[-1]
         return (dtype,)
 
 

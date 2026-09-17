@@ -1,12 +1,38 @@
 import csv
 from pathlib import Path
 
-from xtc.search.explore import CSVCallback
+import pytest
+
+import xtc.graphs.xtc.op as O
+from xtc.search.explore import CSVCallback, Exploration, ExplorationConfig
 
 
 def _read_rows(path: Path) -> list[list[str]]:
     with path.open(newline="") as infile:
         return list(csv.reader(infile, delimiter=","))
+
+
+def _matmul_relu_graph():
+    lhs = O.tensor((4, 8), "float32", name="lhs")
+    rhs = O.tensor((8, 16), "float32", name="rhs")
+    with O.graph(name="matmul_relu") as gb:
+        matmul = O.matmul(lhs, rhs, name="matmul")
+        O.relu(matmul, name="relu")
+    return gb.graph
+
+
+def test_exploration_strategy_targets_selected_node():
+    exploration = Exploration(ExplorationConfig(node="matmul"))
+    strategy = exploration.get_strategy(_matmul_relu_graph())
+
+    assert strategy.sample_names == ["x0", "x1", "x2"]
+
+
+def test_exploration_strategy_rejects_unknown_node():
+    exploration = Exploration(ExplorationConfig(node="unknown"))
+
+    with pytest.raises(ValueError, match="graph node named 'unknown'"):
+        exploration.get_strategy(_matmul_relu_graph())
 
 
 def test_csv_callback_resume_dedup_skips_existing_and_keeps_new(tmp_path: Path):

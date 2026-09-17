@@ -66,6 +66,7 @@ __all__ = ["ExplorationConfig", "Exploration"]
 class ExplorationConfig:
     operator: str | None = "matmul"
     graph_file: str | None = None
+    node: str | None = None
     op_name: str | None = None
     func_name: str | None = None
     strategy: str = "tile_oo"
@@ -366,7 +367,7 @@ class Exploration:
             **args.backend_kwargs.get(backend, {}),
         )
         assert backend_name == backend
-        scheduler = impl.get_scheduler()
+        scheduler = impl.get_scheduler(default_node=args.node)
         node_scheduler = scheduler
         strategy.generate(node_scheduler, in_x)
         schedule = scheduler.schedule()
@@ -841,12 +842,17 @@ class Exploration:
 
             with open(args.descript, "r") as f:
                 spec = f.read()
-                return Strategy_Descript_Explore(graph=graph, spec=spec)
+                return Strategy_Descript_Explore(
+                    graph=graph,
+                    spec=spec,
+                    node=args.node,
+                )
         strat_name = args.strategy
         strat_args = strat_name.split(":")
         name = self.get_strategy_name(strat_args[0])
         options = dict(
             threads=args.threads,
+            node=args.node,
             **(dict(max_unroll=args.max_unroll) if args.max_unroll is not None else {}),
         )
         return Strategies.create(name, graph, *strat_args[1:], **options)

@@ -23,8 +23,8 @@ sch.tile("j", {"j1": 32, "j2": 16})
 sch.tile("k", {"k1": 16})
 sch.interchange(["i", "j", "k", "i1", "j1", "k1", "i2", "j2"])
 sch.buffer_at("j")
-sch.pack_at("j", 1, pad=True)
-sch.fuse_producer_at("j", 0)
+sch.pack_at("k", 1, pad=True)
+sch.fuse_producer_at("k", 0)
 sch.vectorize(["j2"])
 sch.unroll({"i2": 4})
 sch.parallelize(["i", "j"])
@@ -87,9 +87,9 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  k, k1, = sch.split(k, factors=[None, 16])
 # CHECK-NEXT:  sch.reorder(i, j, k, i1, j1, k1, i2, j2)
 # CHECK-NEXT:  sch.reverse_compute_at(O_W0, j)
-# CHECK-NEXT:  sch.compute_at(I_R1, j)
+# CHECK-NEXT:  sch.compute_at(I_R1, k)
 # CHECK-NEXT:  sch.storage_align(I_R1, 0,  axis=-2, factor=1024, offset=16)
-# CHECK-NEXT:  sch.compute_at(I_F0, j)
+# CHECK-NEXT:  sch.compute_at(I_F0, k)
 # CHECK-NEXT:  sch.unroll(i2)
 # CHECK-NEXT:  sch.vectorize(j2)
 # CHECK-NEXT:  j = sch.fuse(i, j)
@@ -110,21 +110,6 @@ print(f"CODE: {res}")
 # CHECK-NEXT:          _1_global = T.sblock_alloc_buffer((64, 64))
 # CHECK-NEXT:          C_global = T.sblock_alloc_buffer((64, 64))
 # CHECK-NEXT:          for i_0_j_0_fused in T.parallel(16):
-# CHECK-NEXT:              for ax0, ax1 in T.grid(64, 32):
-# CHECK-NEXT:                  with T.sblock("_1_global"):
-# CHECK-NEXT:                      v0 = T.axis.spatial(64, ax0)
-# CHECK-NEXT:                      v1 = T.axis.spatial(64, i_0_j_0_fused % 2 * 32 + ax1)
-# CHECK-NEXT:                      T.reads(_1[v0, v1])
-# CHECK-NEXT:                      T.writes(_1_global[v0, v1])
-# CHECK-NEXT:                      T.sblock_attr({"buffer_dim_align": [[0, 0, 1024, 16]]})
-# CHECK-NEXT:                      _1_global[v0, v1] = _1[v0, v1]
-# CHECK-NEXT:              for ax0, ax1 in T.grid(8, 64):
-# CHECK-NEXT:                  with T.sblock("relu"):
-# CHECK-NEXT:                      v_i0 = T.axis.spatial(64, i_0_j_0_fused // 2 * 8 + ax0)
-# CHECK-NEXT:                      v_i1 = T.axis.spatial(64, ax1)
-# CHECK-NEXT:                      T.reads(_0[v_i0, v_i1])
-# CHECK-NEXT:                      T.writes(relu[v_i0, v_i1])
-# CHECK-NEXT:                      relu[v_i0, v_i1] = T.max(T.float32(0.0), _0[v_i0, v_i1])
 # CHECK-NEXT:              for i_1_init, j_1_init in T.grid(2, 2):
 # CHECK-NEXT:                  for i_2_init in T.unroll(4):
 # CHECK-NEXT:                      for j_2_init in T.vectorized(16):
@@ -134,16 +119,32 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                              T.reads()
 # CHECK-NEXT:                              T.writes(C_global[v_i, v_j])
 # CHECK-NEXT:                              C_global[v_i, v_j] = T.float32(0.0)
-# CHECK-NEXT:              for k_0, i_1, j_1, k_1 in T.grid(4, 2, 2, 16):
-# CHECK-NEXT:                  for i_2 in T.unroll(4):
-# CHECK-NEXT:                      for j_2 in T.vectorized(16):
-# CHECK-NEXT:                          with T.sblock("C_update"):
-# CHECK-NEXT:                              v_i = T.axis.spatial(64, i_0_j_0_fused // 2 * 8 + i_1 * 4 + i_2)
-# CHECK-NEXT:                              v_j = T.axis.spatial(64, i_0_j_0_fused % 2 * 32 + j_1 * 16 + j_2)
-# CHECK-NEXT:                              v_k = T.axis.reduce(64, k_0 * 16 + k_1)
-# CHECK-NEXT:                              T.reads(C_global[v_i, v_j], relu[v_i, v_k], _1_global[v_k, v_j])
-# CHECK-NEXT:                              T.writes(C_global[v_i, v_j])
-# CHECK-NEXT:                              C_global[v_i, v_j] = C_global[v_i, v_j] + relu[v_i, v_k] * _1_global[v_k, v_j]
+# CHECK-NEXT:              for k_0 in range(4):
+# CHECK-NEXT:                  for ax0, ax1 in T.grid(16, 32):
+# CHECK-NEXT:                      with T.sblock("_1_global"):
+# CHECK-NEXT:                          v0 = T.axis.spatial(64, k_0 * 16 + ax0)
+# CHECK-NEXT:                          v1 = T.axis.spatial(64, i_0_j_0_fused % 2 * 32 + ax1)
+# CHECK-NEXT:                          T.reads(_1[v0, v1])
+# CHECK-NEXT:                          T.writes(_1_global[v0, v1])
+# CHECK-NEXT:                          T.sblock_attr({"buffer_dim_align": [[0, 0, 1024, 16]]})
+# CHECK-NEXT:                          _1_global[v0, v1] = _1[v0, v1]
+# CHECK-NEXT:                  for ax0, ax1 in T.grid(8, 16):
+# CHECK-NEXT:                      with T.sblock("relu"):
+# CHECK-NEXT:                          v_i0 = T.axis.spatial(64, i_0_j_0_fused // 2 * 8 + ax0)
+# CHECK-NEXT:                          v_i1 = T.axis.spatial(64, k_0 * 16 + ax1)
+# CHECK-NEXT:                          T.reads(_0[v_i0, v_i1])
+# CHECK-NEXT:                          T.writes(relu[v_i0, v_i1])
+# CHECK-NEXT:                          relu[v_i0, v_i1] = T.max(T.float32(0.0), _0[v_i0, v_i1])
+# CHECK-NEXT:                  for i_1, j_1, k_1 in T.grid(2, 2, 16):
+# CHECK-NEXT:                      for i_2 in T.unroll(4):
+# CHECK-NEXT:                          for j_2 in T.vectorized(16):
+# CHECK-NEXT:                              with T.sblock("C_update"):
+# CHECK-NEXT:                                  v_i = T.axis.spatial(64, i_0_j_0_fused // 2 * 8 + i_1 * 4 + i_2)
+# CHECK-NEXT:                                  v_j = T.axis.spatial(64, i_0_j_0_fused % 2 * 32 + j_1 * 16 + j_2)
+# CHECK-NEXT:                                  v_k = T.axis.reduce(64, k_0 * 16 + k_1)
+# CHECK-NEXT:                                  T.reads(C_global[v_i, v_j], relu[v_i, v_k], _1_global[v_k, v_j])
+# CHECK-NEXT:                                  T.writes(C_global[v_i, v_j])
+# CHECK-NEXT:                                  C_global[v_i, v_j] = C_global[v_i, v_j] + relu[v_i, v_k] * _1_global[v_k, v_j]
 # CHECK-NEXT:              for ax0, ax1 in T.grid(8, 32):
 # CHECK-NEXT:                  with T.sblock("C_global"):
 # CHECK-NEXT:                      v0 = T.axis.spatial(64, i_0_j_0_fused // 2 * 8 + ax0)

@@ -10,7 +10,7 @@ from collections.abc import Sequence, Mapping, Iterator, Generator
 import itertools
 import numpy as np
 
-from xtc.itf.graph import Graph
+from xtc.itf.graph import Graph, Operation
 from xtc.itf.schd import Scheduler
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
 from xtc.itf.search import Sample, Strategy
@@ -39,6 +39,21 @@ class StrategyRegistration:
     default_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
+def _get_target_operation(graph: Graph, node: str | None) -> Operation:
+    if node is None:
+        return graph.outputs_nodes[0].operation
+    matching_nodes = [
+        candidate for candidate in graph.nodes.values() if candidate.name == node
+    ]
+    if len(matching_nodes) != 1:
+        node_names = [candidate.name for candidate in graph.nodes.values()]
+        raise ValueError(
+            f"expected exactly one graph node named {node!r}, "
+            f"found {len(matching_nodes)} among {node_names}"
+        )
+    return matching_nodes[0].operation
+
+
 class BaseStrategy(Strategy):
     """Base abstract class for implementing the strategies in this file.
 
@@ -54,6 +69,7 @@ class BaseStrategy(Strategy):
         max_unroll: int = 256,
         threads: int = 1,
         max_parallelize: int = -1,
+        node: str | None = None,
         **kwargs: Any,
     ) -> None:
         self._graph = graph
@@ -61,8 +77,8 @@ class BaseStrategy(Strategy):
         self._vec_size = vec_size
         self._max_unroll = max_unroll
         self._threads = threads
-        # Schedule output operation
-        self._op = graph.outputs_nodes[0].operation
+        # Schedule the selected operation, or the graph output by default.
+        self._op = _get_target_operation(graph, node)
         self._stats: dict[str, int] = {}
         self._parallelize = self._threads > 1
         self._max_parallelize = max_parallelize
@@ -1037,9 +1053,10 @@ try:
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
+            node: str | None = None,
         ) -> None:
             self._graph = graph
-            self._op = graph.outputs_nodes[0].operation
+            self._op = _get_target_operation(graph, node)
             self._stats: dict[str, int] = {}
             self._axes = list(self._op.dims)
             self._sizes = self._constant_sizes()
@@ -1162,10 +1179,17 @@ try:
             partial_tiles: bool = False,
             partial_unrolls: bool = False,
             initialize: bool = True,
+            node: str | None = None,
         ) -> None:
             self._sample_shape: list[str] = []
             super().__init__(
-                graph, spec, constraints, partial_tiles, partial_unrolls, initialize
+                graph,
+                spec,
+                constraints,
+                partial_tiles,
+                partial_unrolls,
+                initialize,
+                node,
             )
 
         @override
