@@ -2,11 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
-__all__ = [
-    "squeezenet_convs",
-    "alexnet_convs",
-    "alexnet_matmuls",
-]
+__all__ = ["squeezenet_convs", "alexnet_convs", "alexnet_matmuls", "default_matmuls"]
 
 squeezenet_convs = {
     "SqueezeNet_00": {
@@ -205,3 +201,15 @@ alexnet_matmuls = {
     "AlexNet_FC7": {"i": 1, "j": 4096, "k": 4096},
     "AlexNet_FC8": {"i": 1, "j": 1000, "k": 4096},
 }
+
+default_matmuls = dict(
+    Vit_query={"i": 197, "j": 768, "k": 768},
+    Vit_intermediate={"i": 197, "j": 3072, "k": 768},
+    Vit_output={"i": 197, "j": 768, "k": 3072},
+    Whisper_k_proj={"i": 1500, "j": 1280, "k": 1280},
+    Whisper_fc1={"i": 1500, "j": 5120, "k": 1280},
+    Whisper_fc2={"i": 1500, "j": 1280, "k": 5120},
+    Llama31_8B_64_k_proj={"i": 64, "j": 1024, "k": 4096},
+    Llama31_8B_64_gate_proj={"i": 64, "j": 14336, "k": 4096},
+    Llama31_8B_64_down_proj={"i": 64, "j": 4096, "k": 14336},
+)

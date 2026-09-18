@@ -1,0 +1,32 @@
+# RUN: python %s 2>&1 | filecheck %s
+# REQUIRES: module_xvs
+"""
+Test strategy PPRPRP with interchange on matmul
+"""
+
+import utils
+from xtc.search.strategies import Strategy_Descript as Strategy
+
+graph = utils.get_graph_matmul()
+backend = utils.get_backend(graph)
+spec = """
+- P:
+- P:
+- U:
+- R:
+- P:"""
+strategy = Strategy(graph, spec, initialize=False,)
+
+for x in sorted(strategy._constraints):
+    print(x)
+print(sum(1 for _ in strategy.sample(100)))
+
+# CHECK: 1 <= prt_interchange_u_0 <= 6
+# CHECK-NEXT: prt_i_0 || {21}
+# CHECK-NEXT: prt_i_1 || {21, prt_i_0}
+# CHECK-NEXT: prt_i_2 || {21, prt_i_0, prt_i_1}
+# CHECK-NEXT: prt_j_0 || {32}
+# CHECK-NEXT: prt_j_1 || {32, prt_j_0}
+# CHECK-NEXT: prt_j_2 || {32, prt_j_0, prt_j_1}
+# CHECK-NEXT: prt_k_0 || {12}
+# CHECK-NEXT: 100

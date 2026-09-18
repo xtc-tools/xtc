@@ -21,10 +21,17 @@ spec = {
 constraint = ["iR * jR <= 56"]
 strategy = Strategy(graph, spec, constraints=constraint, initialize=False)
 
-print(sorted(strategy._constraints))
+for x in sorted(strategy._constraints):
+    print(x)
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK:       Traceback (most recent call last):
-# CHECK-NEXT:    File "/home/cguillon/work/xtc-future/xtc/tests/filecheck/search/test_matmul_descript_goto.py", line 8, in <module>
-# CHECK-NEXT:      from xtc.search.strategies import Strategy_Descript as Strategy
-# CHECK-NEXT:  ImportError: cannot import name 'Strategy_Descript' from 'xtc.search.strategies' (/home/cguillon/work/xtc-future/xtc/src/xtc/search/strategies.py)
+# CHECK: iL2 || {21}
+# CHECK-NEXT: iR * jR <= 56
+# CHECK-NEXT: iR || {21, iL2}
+# CHECK-NEXT: jL3 || {32}
+# CHECK-NEXT: jR || {32, jL3}
+# CHECK-NEXT: j_parallel in {0, 1}
+# CHECK-NEXT: j_vectorise in {0, 1}
+# CHECK-NEXT: kL1 || {12}
+# CHECK-NEXT: k_unroll || kL1
+# CHECK-NEXT: 100
