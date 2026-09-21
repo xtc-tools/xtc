@@ -4,7 +4,7 @@
 Test simple schedule on matmul
 """
 
-import utils.search as utils
+import utils
 from xtc.search.strategies import Strategy_Descript as Strategy
 
 graph = utils.get_graph_matmul()
@@ -13,8 +13,8 @@ spec = {
     "k": {},
     "i": {},
     "j": {},
-    "i#i1": {},
-    "j#j1": {},
+    "i#i1": {"interchange": "int"},
+    "j#j1": {"interchange": "int"},
     "j#j2": {}
 }
 
@@ -24,7 +24,8 @@ for x in sorted(strategy._constraints):
     print(x)
 print(sum(1 for _ in strategy.sample(100)))
 
-# CHECK: i1 || {21}
+# CHECK: 1 <= int <= 2
+# CHECK-NEXT: i1 || {21}
 # CHECK-NEXT: j1 || {32}
 # CHECK-NEXT: j2 || {32, j1}
-# CHECK-NEXT: 84
+# CHECK-NEXT: 100

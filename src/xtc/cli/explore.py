@@ -101,6 +101,11 @@ def main():
         help="path to a descript yaml specification. Ignores --strategy if used.",
     )
     parser.add_argument(
+        "--functions",
+        type=str,
+        help="path to a python file with functions to use in the descript constraints",
+    )
+    parser.add_argument(
         "--search",
         type=str,
         choices=["random", "exhaustive", "data", "iterative"],
