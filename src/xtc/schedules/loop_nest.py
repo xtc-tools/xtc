@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Generic, TypeVar
 from dataclasses import dataclass, field
+from itertools import combinations
 
 from .exceptions import ScheduleValidationError
 
@@ -385,6 +386,7 @@ class LoopNest:
         self._check_external_consistency()
         self._check_tiling_consistency(info)
         self._check_sizes(info)
+        self._check_gpu_consistency()
 
     def _check_use_defined_dims(self, info: LoopInfo):
         for dim in self.abstract_dims:
@@ -504,6 +506,33 @@ class LoopNest:
                         raise ScheduleValidationError(
                             f'`{{"unroll" = {unroll_factor}}}`: unroll factor should be smaller than {loop_size}.'
                         )
+
+    def _check_gpu_consistency(self) -> None:
+        for sched in self.nodes:
+            gpu_sets = {
+                "gpu_block": set(sched.gpu_block.keys()),
+                "gpu_thread": set(sched.gpu_thread.keys()),
+                "gpu_lane": set(sched.gpu_lane.keys()),
+                "gpu_warp": set(sched.gpu_warp.keys()),
+            }
+
+            primitive_names = list(gpu_sets.keys())
+            for prim1, prim2 in combinations(primitive_names, 2):
+                overlap = gpu_sets[prim1] & gpu_sets[prim2]
+                if overlap:
+                    loops_str = ", ".join(sorted(overlap))
+                    raise ScheduleValidationError(
+                        f"Loops {loops_str} appear in both {prim1} and {prim2}."
+                    )
+
+            has_block = bool(sched.gpu_block)
+            has_thread_or_lane_or_warp = (
+                bool(sched.gpu_thread) or bool(sched.gpu_lane) or bool(sched.gpu_warp)
+            )
+            if has_block and not has_thread_or_lane_or_warp:
+                raise ScheduleValidationError(
+                    "gpu_block requires either gpu_thread or gpu_lane or gpu_warp to be specified."
+                )
 
     @staticmethod
     def _must_be_smaller_routine(
