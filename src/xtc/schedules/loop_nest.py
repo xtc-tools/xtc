@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Generic, TypeVar
 from dataclasses import dataclass, field
+from itertools import combinations
 
 from .exceptions import ScheduleValidationError
 
@@ -105,6 +106,10 @@ class LoopNestNode(Node["LoopNestNode"]):
         fuse_producer_at: Producer fusion configuration per axis. Maps axis
             names to producer indices.
         fuse_consumer_at: List of axes where the output consumer is fused.
+        gpu_block: List of loops to map to gpu block
+        gpu_thread: List of loops to map to gpu thread
+        gpu_warp: List of loops to map to gpu warp
+        gpu_lane: List of loops to map to gpu lane
     """
 
     root: str
@@ -119,6 +124,10 @@ class LoopNestNode(Node["LoopNestNode"]):
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
     fuse_consumer_at: list[str] = field(default_factory=list)
     external_at: dict[str, str] = field(default_factory=dict)
+    gpu_block: dict[str, int] = field(default_factory=dict)
+    gpu_thread: dict[str, int] = field(default_factory=dict)
+    gpu_warp: dict[str, int] = field(default_factory=dict)
+    gpu_lane: dict[str, int] = field(default_factory=dict)
 
     def pretty_print(self, indent: int = 0) -> str:
         """Return a human-readable representation of the loop nest.
@@ -248,6 +257,14 @@ class LoopNestNode(Node["LoopNestNode"]):
             annotations.append("fuse_consumer")
         if loop_name in self.external_at:
             annotations.append(f"external({self.external_at[loop_name]})")
+        if loop_name in self.gpu_block:
+            annotations.append(f"gpu_block({self.gpu_block[loop_name]})")
+        if loop_name in self.gpu_thread:
+            annotations.append(f"gpu_thread({self.gpu_thread[loop_name]})")
+        if loop_name in self.gpu_warp:
+            annotations.append(f"gpu_warp({self.gpu_warp[loop_name]})")
+        if loop_name in self.gpu_lane:
+            annotations.append(f"gpu_lane({self.gpu_lane[loop_name]})")
         if annotations:
             line += "  // " + ", ".join(annotations)
         return line
@@ -369,6 +386,7 @@ class LoopNest:
         self._check_external_consistency()
         self._check_tiling_consistency(info)
         self._check_sizes(info)
+        self._check_gpu_consistency()
 
     def _check_use_defined_dims(self, info: LoopInfo):
         for dim in self.abstract_dims:
@@ -488,6 +506,33 @@ class LoopNest:
                         raise ScheduleValidationError(
                             f'`{{"unroll" = {unroll_factor}}}`: unroll factor should be smaller than {loop_size}.'
                         )
+
+    def _check_gpu_consistency(self) -> None:
+        for sched in self.nodes:
+            gpu_sets = {
+                "gpu_block": set(sched.gpu_block.keys()),
+                "gpu_thread": set(sched.gpu_thread.keys()),
+                "gpu_lane": set(sched.gpu_lane.keys()),
+                "gpu_warp": set(sched.gpu_warp.keys()),
+            }
+
+            primitive_names = list(gpu_sets.keys())
+            for prim1, prim2 in combinations(primitive_names, 2):
+                overlap = gpu_sets[prim1] & gpu_sets[prim2]
+                if overlap:
+                    loops_str = ", ".join(sorted(overlap))
+                    raise ScheduleValidationError(
+                        f"Loops {loops_str} appear in both {prim1} and {prim2}."
+                    )
+
+            has_block = bool(sched.gpu_block)
+            has_thread_or_lane_or_warp = (
+                bool(sched.gpu_thread) or bool(sched.gpu_lane) or bool(sched.gpu_warp)
+            )
+            if has_block and not has_thread_or_lane_or_warp:
+                raise ScheduleValidationError(
+                    "gpu_block requires either gpu_thread or gpu_lane or gpu_warp to be specified."
+                )
 
     @staticmethod
     def _must_be_smaller_routine(

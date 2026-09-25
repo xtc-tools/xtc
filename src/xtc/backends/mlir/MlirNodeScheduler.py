@@ -109,6 +109,18 @@ class MlirNodeScheduler:
     def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
         self._plain_sch.fuse_consumer_at(axis, root)
 
+    def map_gpu_threads(self, axes: list[str], root: str = DEFAULT_ROOT):
+        self._plain_sch.gpu_thread(axes, root)
+
+    def map_gpu_blocks(self, axes: list[str], root: str = DEFAULT_ROOT):
+        self._plain_sch.gpu_block(axes, root)
+
+    def map_gpu_lanes(self, axes: list[str], root: str = DEFAULT_ROOT):
+        self._plain_sch.gpu_lane(axes, root)
+
+    def map_gpu_warps(self, axes: list[str], root: str = DEFAULT_ROOT):
+        self._plain_sch.gpu_warp(axes, root)
+
     def get_node_schedule(self) -> MlirNodeSchedule:
         plain_schedule = self._plain_sch.get_plain_schedule()
         return MlirNodeSchedule(**asdict(plain_schedule))
