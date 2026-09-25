@@ -73,19 +73,24 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.annotate %loops_7 "./j" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_8, %loops_9 = transform.structured.tile_using_for %tiled_linalg_op_6 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_9 "./i1" : !transform.any_op
-# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_8) : (!transform.any_op) -> ()
-# CHECK-NEXT:      transform.loop.unroll %loops_9 {factor = 2 : i64} : !transform.any_op
-# CHECK-NEXT:      %2 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %2 = transform.get_parent_op %tiled_linalg_op_8 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:        transform.apply_patterns.xtc.fold_unit_extent_dims_via_slices_for_vectorization
+# CHECK-NEXT:      } : !transform.any_op
+# CHECK-NEXT:      %3 = transform.structured.match interface{LinalgOp} in %2 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%3) : (!transform.any_op) -> ()
+# CHECK-NEXT:      transform.loop.unroll %loops_9 {factor = 2 : i64} : !transform.any_op
+# CHECK-NEXT:      %4 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %4 {
 # CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
 # CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 # CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:      transform.apply_patterns to %4 {
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 # CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      %3 = transform.structured.match attributes {__xtc_id_relu_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %3 tile_sizes [1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %5 = transform.structured.match attributes {__xtc_id_relu_} in %arg0 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %5 tile_sizes [1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_11 "./i" : !transform.any_op
 # CHECK-NEXT:      transform.yield 
 # CHECK-NEXT:    }

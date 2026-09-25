@@ -80,20 +80,30 @@ print(f"CODE: {code}")
 # CHECK-NEXT:      transform.annotate %loops_9 "C/i[0]/i0" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %tiled_linalg_op_8 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_11 "C/i[0]/k0" : !transform.any_op
-# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_10) : (!transform.any_op) -> ()
+# CHECK-NEXT:      %4 = transform.get_parent_op %tiled_linalg_op_10 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %4 {
+# CHECK-NEXT:        transform.apply_patterns.xtc.fold_unit_extent_dims_via_slices_for_vectorization
+# CHECK-NEXT:      } : !transform.any_op
+# CHECK-NEXT:      %5 = transform.structured.match interface{LinalgOp} in %4 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%5) : (!transform.any_op) -> ()
 # CHECK-NEXT:      %tiled_linalg_op_12, %loops_13 = transform.structured.tile_using_for %3#1 tile_sizes [32, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_13 "C/i[1]/i" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_14, %loops_15 = transform.structured.tile_using_for %tiled_linalg_op_12 tile_sizes [1, 0, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_15 "C/i[1]/i0" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_16, %loops_17 = transform.structured.tile_using_for %tiled_linalg_op_14 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_17 "C/i[1]/k0" : !transform.any_op
-# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_16) : (!transform.any_op) -> ()
-# CHECK-NEXT:      %4 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %4 {
+# CHECK-NEXT:      %6 = transform.get_parent_op %tiled_linalg_op_16 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %6 {
+# CHECK-NEXT:        transform.apply_patterns.xtc.fold_unit_extent_dims_via_slices_for_vectorization
+# CHECK-NEXT:      } : !transform.any_op
+# CHECK-NEXT:      %7 = transform.structured.match interface{LinalgOp} in %6 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%7) : (!transform.any_op) -> ()
+# CHECK-NEXT:      %8 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %8 {
 # CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
 # CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 # CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %4 {
+# CHECK-NEXT:      transform.apply_patterns to %8 {
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 # CHECK-NEXT:      } : !transform.any_op

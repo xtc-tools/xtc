@@ -33,6 +33,7 @@ from mlir.ir import (
 )
 from mlir.passmanager import PassManager
 from mlir.ir import Module
+import warnings
 
 import xtc.backends.mlir.MlirBindingsExtensions as binding_extensions
 
@@ -594,18 +595,25 @@ class MlirProgramInsertTransformPass:
             return
         assert self._named_sequence is not None
 
-        if self._using_tensors:
-            parent_op = get_parent_op(
-                transform.AnyOpType.get(),
-                sched_state.handle,
+        xtc_transform = binding_extensions.module("mlir.xtc_transform")
+        parent_op = get_parent_op(
+            transform.AnyOpType.get(),
+            sched_state.handle,
+        )
+        if xtc_transform is None:
+            warnings.warn(
+                "mlir.xtc_transform module not installed, falling back to normal unit folding"
             )
             with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
                 ApplyFoldUnitExtentDimsViaSlicesPatternsOp()
-            sched_state.handle = structured_match(
-                results_=transform.AnyOpType.get(),
-                target=parent_op,
-                interface=MatchInterfaceEnum.LinalgOp,
-            )
+        else:
+            with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
+                xtc_transform.ApplyFoldUnitExtentDimsViaSlicesForVectorizationPatternsOp()
+        sched_state.handle = structured_match(
+            results_=transform.AnyOpType.get(),
+            target=parent_op,
+            interface=MatchInterfaceEnum.LinalgOp,
+        )
 
         if self._target.has_custom_vectorize():
             self._target.apply_custom_vectorize(sched_state.handle)

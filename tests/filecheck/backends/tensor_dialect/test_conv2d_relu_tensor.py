@@ -104,7 +104,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.annotate %loops_21 "./i" : !transform.any_op
 # CHECK-NEXT:      %3 = transform.get_parent_op %tiled_linalg_op_20 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.apply_patterns to %3 {
-# CHECK-NEXT:        transform.apply_patterns.linalg.fold_unit_extent_dims_via_slices
+# CHECK-NEXT:        transform.apply_patterns.xtc.fold_unit_extent_dims_via_slices_for_vectorization
 # CHECK-NEXT:      } : !transform.any_op
 # CHECK-NEXT:      %4 = transform.structured.match interface{LinalgOp} in %3 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.include @_vecto failures(suppress) (%4) : (!transform.any_op) -> ()

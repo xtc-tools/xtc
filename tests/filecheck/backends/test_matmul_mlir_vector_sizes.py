@@ -32,7 +32,7 @@ executor = module.get_executor(validate=True)
 res = executor.execute()
 print(f"CODE: {res}")
 
-# CHECK:  // -----// IR Dump Before transform //----- //
+# CHECK:       // -----// IR Dump Before transform //----- //
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:    func.func @matmul_vector_sizes(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x30xf32> {llvm.noalias}, %arg2: memref<4x30xf32> {llvm.noalias}) {
 # CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
@@ -57,20 +57,26 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      transform.annotate %loops_5 "./i" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 16, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_7 "./j" : !transform.any_op
-# CHECK-NEXT:      transform.structured.vectorize %tiled_linalg_op_6 vector_sizes [1, 16, 1] : !transform.any_op
-# CHECK-NEXT:      %2 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %2 = transform.get_parent_op %tiled_linalg_op_6 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:        transform.apply_patterns.xtc.fold_unit_extent_dims_via_slices_for_vectorization
+# CHECK-NEXT:      } : !transform.any_op
+# CHECK-NEXT:      %3 = transform.structured.match interface{LinalgOp} in %2 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.structured.vectorize %3 vector_sizes [1, 16, 1] : !transform.any_op
+# CHECK-NEXT:      %4 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %4 {
 # CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
 # CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 # CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:      transform.apply_patterns to %4 {
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 # CHECK-NEXT:      } : !transform.any_op
 # CHECK-NEXT:      transform.yield 
 # CHECK-NEXT:    }
 # CHECK-NEXT:  }
-# CHECK:  // -----// IR Dump After transform //----- //
+# CHECK-NEXT:  
+# CHECK-NEXT:  // -----// IR Dump After transform //----- //
 # CHECK-NEXT:  #map = affine_map<(d0) -> (-d0 + 30, 16)>
 # CHECK-NEXT:  #map1 = affine_map<(d0, d1) -> (0, d1, d0)>
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
@@ -127,4 +133,5 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      return
 # CHECK-NEXT:    }
 # CHECK-NEXT:  }
-# CHECK:  CODE: 0
+# CHECK-NEXT:  
+# CHECK-NEXT:  CODE: 0

@@ -35,13 +35,18 @@ func.func @myfun(
 // CHECK-NEXT:      transform.annotate %loops "__node0__/I" : !transform.any_op
 // CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %tiled_linalg_op tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_1 "__node0__/K" : !transform.any_op
-// CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_0) : (!transform.any_op) -> ()
-// CHECK-NEXT:      %1 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+// CHECK-NEXT:      %1 = transform.get_parent_op %tiled_linalg_op_0 : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.apply_patterns to %1 {
+// CHECK-NEXT:        transform.apply_patterns.xtc.fold_unit_extent_dims_via_slices_for_vectorization
+// CHECK-NEXT:      } : !transform.any_op
+// CHECK-NEXT:      %2 = transform.structured.match interface{LinalgOp} in %1 : (!transform.any_op) -> !transform.any_op
+// CHECK-NEXT:      transform.include @_vecto failures(suppress) (%2) : (!transform.any_op) -> ()
+// CHECK-NEXT:      %3 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+// CHECK-NEXT:      transform.apply_patterns to %3 {
 // CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
 // CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 // CHECK-NEXT:      } : !transform.any_op
-// CHECK-NEXT:      transform.apply_patterns to %1 {
+// CHECK-NEXT:      transform.apply_patterns to %3 {
 // CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
 // CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 // CHECK-NEXT:      } : !transform.any_op

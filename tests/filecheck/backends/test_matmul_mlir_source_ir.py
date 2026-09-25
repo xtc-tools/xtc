@@ -35,7 +35,7 @@ assert "scf.for" not in source_ir, "the transform must not be applied"
 
 print(source_ir)
 
-# CHECK:  module attributes {transform.with_named_sequence} {
+# CHECK:       module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:    func.func @matmul(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
 # CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:      linalg.fill {__xtc_id_C_0_} ins(%cst : f32) outs(%arg2 : memref<4x32xf32>)
@@ -59,13 +59,18 @@ print(source_ir)
 # CHECK-NEXT:      transform.annotate %loops_5 "./i" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_linalg_op_4 tile_sizes [0, 16, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_7 "./j" : !transform.any_op
-# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_6) : (!transform.any_op) -> ()
-# CHECK-NEXT:      %2 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      %2 = transform.get_parent_op %tiled_linalg_op_6 : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:        transform.apply_patterns.xtc.fold_unit_extent_dims_via_slices_for_vectorization
+# CHECK-NEXT:      } : !transform.any_op
+# CHECK-NEXT:      %3 = transform.structured.match interface{LinalgOp} in %2 : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.include @_vecto failures(suppress) (%3) : (!transform.any_op) -> ()
+# CHECK-NEXT:      %4 = transform.get_parent_op %loops_3 {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+# CHECK-NEXT:      transform.apply_patterns to %4 {
 # CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
 # CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 # CHECK-NEXT:      } : !transform.any_op
-# CHECK-NEXT:      transform.apply_patterns to %2 {
+# CHECK-NEXT:      transform.apply_patterns to %4 {
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 # CHECK-NEXT:      } : !transform.any_op

@@ -41,16 +41,26 @@ func.func @myfun(
 // CHECK-NEXT:      %2:2 = transform.split_handle %1 {fail_on_payload_too_small = false} : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %2#0 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_1 "__node0__/K[0]/K" : !transform.any_op
-// CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_0) : (!transform.any_op) -> ()
+// CHECK-NEXT:      %3 = transform.get_parent_op %tiled_linalg_op_0 : (!transform.any_op) -> !transform.any_op
+// CHECK-NEXT:      transform.apply_patterns to %3 {
+// CHECK-NEXT:        transform.apply_patterns.xtc.fold_unit_extent_dims_via_slices_for_vectorization
+// CHECK-NEXT:      } : !transform.any_op
+// CHECK-NEXT:      %4 = transform.structured.match interface{LinalgOp} in %3 : (!transform.any_op) -> !transform.any_op
+// CHECK-NEXT:      transform.include @_vecto failures(suppress) (%4) : (!transform.any_op) -> ()
 // CHECK-NEXT:      %tiled_linalg_op_2, %loops_3 = transform.structured.tile_using_for %2#1 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 // CHECK-NEXT:      transform.annotate %loops_3 "__node0__/K[1]/K" : !transform.any_op
-// CHECK-NEXT:      transform.include @_vecto failures(suppress) (%tiled_linalg_op_2) : (!transform.any_op) -> ()
-// CHECK-NEXT:      %3 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
-// CHECK-NEXT:      transform.apply_patterns to %3 {
+// CHECK-NEXT:      %5 = transform.get_parent_op %tiled_linalg_op_2 : (!transform.any_op) -> !transform.any_op
+// CHECK-NEXT:      transform.apply_patterns to %5 {
+// CHECK-NEXT:        transform.apply_patterns.xtc.fold_unit_extent_dims_via_slices_for_vectorization
+// CHECK-NEXT:      } : !transform.any_op
+// CHECK-NEXT:      %6 = transform.structured.match interface{LinalgOp} in %5 : (!transform.any_op) -> !transform.any_op
+// CHECK-NEXT:      transform.include @_vecto failures(suppress) (%6) : (!transform.any_op) -> ()
+// CHECK-NEXT:      %7 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
+// CHECK-NEXT:      transform.apply_patterns to %7 {
 // CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
 // CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 // CHECK-NEXT:      } : !transform.any_op
-// CHECK-NEXT:      transform.apply_patterns to %3 {
+// CHECK-NEXT:      transform.apply_patterns to %7 {
 // CHECK-NEXT:        transform.apply_patterns.vector.lower_outerproduct
 // CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 // CHECK-NEXT:      } : !transform.any_op
