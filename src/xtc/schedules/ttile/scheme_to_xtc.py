@@ -816,6 +816,10 @@ def launch_and_measure_scheme_graph_interf(
         from xtc.backends.tvm import Backend as TVMBackend
 
         impl_backend = TVMBackend(graph)
+    elif backend == "iree":
+        from xtc.backends.iree import Backend as IREEBackend
+
+        impl_backend = IREEBackend(graph)
     else:
         raise ValueError(f"Unrecognized backend: {backend}")
 

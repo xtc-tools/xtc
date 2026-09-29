@@ -157,6 +157,61 @@ def get_cuda_prefix(prefix: Path | str | None = None) -> Path:
     return prefix
 
 
+def get_iree_prefix(prefix: Path | str | None = None) -> Path:
+    """
+    Tentatively return the IREE runtime prefix built from sources by
+    ``scripts/iree/build_runtime.sh``, a self-contained C SDK where
+    ``{prefix}/include`` holds the IREE runtime headers and ``{prefix}/lib`` the
+    IREE static archives (``*.a``). The ``xtc_iree_shim`` shared library is
+    compiled lazily from this SDK and cached under ``{prefix}/lib``.
+    Raise on error.
+    Defined in order as:
+    - passed prefix if not None
+    - env var IREE_RUNTIME_DIR
+    - default ~/.cache/xtc/iree-runtime
+    """
+    if prefix is None:
+        prefix_var = os.environ.get("IREE_RUNTIME_DIR")
+        if prefix_var:
+            prefix = Path(prefix_var)
+        else:
+            prefix = Path.home() / ".cache" / "xtc" / "iree-runtime"
+    else:
+        prefix = Path(prefix)
+    if not prefix.exists():
+        raise RuntimeError(
+            f"could not find IREE runtime prefix at: {prefix}; "
+            "build it with scripts/iree/build_runtime.sh or set IREE_RUNTIME_DIR"
+        )
+    return prefix
+
+
+def get_iree_sdk(prefix: Path | str | None = None) -> tuple[Path, list[Path]]:
+    """
+    Return ``(include_dir, archives)`` of the IREE C SDK under the runtime prefix:
+    the header include directory and the list of static archives ``xtc`` links
+    the shim against. Raise if the SDK is missing.
+    """
+    prefix = get_iree_prefix(prefix)
+    include_dir = prefix / "include"
+    archives = sorted((prefix / "lib").glob("*.a"))
+    if not include_dir.is_dir() or not archives:
+        raise RuntimeError(
+            f"could not find the IREE C SDK under {prefix} (need include/ headers "
+            "and lib/*.a archives); build it with scripts/iree/build_runtime.sh"
+        )
+    return include_dir, archives
+
+
+def has_iree_runtime(prefix: Path | str | None = None) -> bool:
+    """Return whether the IREE C SDK (headers + archives) has been installed."""
+    try:
+        get_iree_sdk(prefix)
+        return True
+    except RuntimeError:
+        return False
+
+
 def check_compile(code: str, libs: str | list[str] | None = None):
     """
     Attempt to compile (and link) a small C program.
