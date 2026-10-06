@@ -386,7 +386,7 @@ class LoopNest:
         self._check_external_consistency()
         self._check_tiling_consistency(info)
         self._check_sizes(info)
-        self._check_gpu_consistency()
+        self._check_gpu_consistency(info)
 
     def _check_use_defined_dims(self, info: LoopInfo):
         for dim in self.abstract_dims:
@@ -507,7 +507,7 @@ class LoopNest:
                             f'`{{"unroll" = {unroll_factor}}}`: unroll factor should be smaller than {loop_size}.'
                         )
 
-    def _check_gpu_consistency(self) -> None:
+    def _check_gpu_consistency(self, info: LoopInfo) -> None:
         for sched in self.nodes:
             gpu_sets = {
                 "gpu_block": set(sched.gpu_block.keys()),
@@ -529,10 +529,28 @@ class LoopNest:
             has_thread_or_lane_or_warp = (
                 bool(sched.gpu_thread) or bool(sched.gpu_lane) or bool(sched.gpu_warp)
             )
-            if has_block and not has_thread_or_lane_or_warp:
+            if not has_block and has_thread_or_lane_or_warp:
                 raise ScheduleValidationError(
-                    "gpu_block requires either gpu_thread or gpu_lane or gpu_warp to be specified."
+                    "Need gpu_block to be specified for either gpu_thread or gpu_lane or gpu_warp."
                 )
+            gpu_block_set = gpu_sets["gpu_block"]
+            if not all(prim in info.dims for prim in gpu_block_set):
+                raise ScheduleValidationError(
+                    "Need gpu_block to be an axis and not a tile"
+                )
+
+            for gpu_name in primitive_names[1:]:
+                if not all(
+                    info.tiles_to_axis.get(prim, None) is not None
+                    for prim in gpu_sets[gpu_name]
+                ):
+                    raise ScheduleValidationError(f"{gpu_name} need to be a tile")
+            # We need to check if there is a loop above the generated kernel
+            for prim in gpu_block_set:
+                if sched.interchange.index(prim) >= len(gpu_block_set):
+                    raise ScheduleValidationError(
+                        "gpu_block needs to be in the most outermost loop"
+                    )
 
     @staticmethod
     def _must_be_smaller_routine(
