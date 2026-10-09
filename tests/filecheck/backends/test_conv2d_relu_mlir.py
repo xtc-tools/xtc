@@ -25,7 +25,7 @@ sched = sch.schedule()
 
 comp = impl.get_compiler(
     shared_lib=True,
-    dump_file="conv2d_relu_mlir_tensor",
+    dump_file="conv2d_relu_mlir",
     print_source_ir=True,
     print_transformed_ir=True,
 )
