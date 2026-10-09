@@ -129,14 +129,15 @@ class MlirProgramToLLVMDialectPass:
         return cpu_frontend_lowering(
             self._mlir_program.mlir_extensions, uplift_fma=True
         ) + [
-            "convert-scf-to-cf",
-            "canonicalize",
-            "cse",
-            "sccp",
             # Memory accesses to LLVM
             "buffer-results-to-out-params",
             "convert-func-to-llvm{use-bare-ptr-memref-call-conv=true}",
             "finalize-memref-to-llvm",
+            "canonicalize",
+            "cse",
+            "sccp",
+            # SCF to CF
+            "convert-scf-to-cf",
             "canonicalize",
             "cse",
             "sccp",
@@ -155,6 +156,7 @@ class MlirProgramToLLVMDialectPass:
             "canonicalize",
             "cse",
             "sccp",
+            "reconcile-unrealized-casts",
         ]
 
     def run(self) -> None:
