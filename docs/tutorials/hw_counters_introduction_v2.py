@@ -352,12 +352,357 @@ def _(mo, platform, plot_upipe):
 
 @app.cell(hide_code=True)
 def _(mo):
+    def _hint(meaning, causes, check, experiment, caution="", deeper=""):
+        _paragraphs = [
+            f"**Meaning:** {meaning}",
+            f"**Possible causes:** {causes}",
+            f"**Check:** {check}",
+            f"**Try:** {experiment}",
+        ]
+        if caution:
+            _paragraphs.append(f"**Keep in mind:** {caution}")
+        if deeper:
+            _paragraphs.append(f"**Optional deeper clues:** {deeper}")
+        return mo.md("\n\n".join(_paragraphs))
+
+    _memory = mo.vstack([
+        mo.md(r"""
+        **Memory Bound:** execution is waiting for loads or stores. Ask whether the
+        schedule reuses data before it leaves a nearby cache, and whether it moves
+        more data than necessary.
+
+        A **cache line** is the unit transferred between caches (often 64 bytes).
+        Contiguous accesses use more of each line than widely spaced accesses.
+        **Latency** is the time to obtain data; **bandwidth** is how much data can
+        be transferred per second. A schedule can suffer from either.
+
+        For cache tiling, estimate the combined active data, not just one matrix:
+        `4 * (Ti * Tk + Tk * Tj + Ti * Tj)` bytes for float32 A, B, and C tiles.
+        Three 64×64 tiles total **48 KiB**, before packing buffers and other data.
+        This is not guaranteed to fit in L1. Leave headroom: cache organization
+        and other activity can cause eviction even below the advertised capacity.
+        """),
+        mo.accordion({
+            "L1 Bound (`l1_bound`) is high — even nearby data causes stalls": _hint(
+                "Load-related stalls occur without an L1 data-cache miss; this is not an L1 miss rate.",
+                "A load feeds the next operation immediately; repeated accumulator loads; limited load throughput or store-to-load dependencies.",
+                "In the assembly, is C loaded inside every k iteration? Are temporary values stored on the stack (register spills)? Are loads immediately used in a dependent chain?",
+                "Keep C accumulators in registers (Step 4), reuse loaded operands, or add independent accumulators (Step 3). Reduce the register tile if it causes spills.",
+                "A larger cache tile will not necessarily fix a dependency or load-throughput problem.",
+                "`l1_latency_dependency`, `store_fwd_blk`, `split_loads`, and load-port metrics, if supported.",
+            ),
+            "L2 Bound (`l2_bound`) is high — data is not reused in L1": _hint(
+                "Loads missing L1 and served by L2 contribute to waiting.",
+                "The active tiles exceed useful L1 capacity; loop order delays reuse; strided accesses use only part of each cache line.",
+                "Estimate the active A/B/C data and inspect which operand is reused by consecutive inner-loop iterations. Include any packed buffers.",
+                "Reduce the cache tile or change loop order to reuse data sooner (Step 5). Try packing strided operands (Step 7), measuring the copying cost too.",
+                "L2 hits are better than fetching from farther away. Minimize total runtime, not this percentage in isolation.",
+                "`l2_hit_latency`, `dtlb_load`, and `split_loads` can help distinguish latency, address translation, and access-layout problems.",
+            ),
+            "L3 Bound (`l3_bound`) is high — data is not reused in closer caches": _hint(
+                "Loads missing the closer caches and served by L3 contribute to waiting; shared-cache contention may also matter.",
+                "Tiles exceed useful L1/L2 capacity; loop order delays reuse; large strides waste cache lines; other activity competes for cache resources.",
+                "Consider A, B, and C together. How much data is accessed between two uses of the same tile? Is the machine running other memory-intensive work?",
+                "Reduce cache-tile sizes or reorder loops to reuse a tile sooner (Step 5). Test packing for strided accesses (Step 7). Repeat on a less busy machine.",
+                "This does not simply mean that L3 is too small. L3 hits are still preferable to DRAM accesses.",
+                "`l3_hit_latency`, `contested_accesses`, and `data_sharing`, where available.",
+            ),
+            "DRAM Bound (`dram_bound`) is high — data comes from main memory": _hint(
+                "Loads reaching main memory contribute to stalls.",
+                "Little reuse before eviction; a large working set; strided accesses; insufficient independent loads to hide latency; competition for memory bandwidth.",
+                "Does the loop repeatedly scan a matrix before reusing it? Is a cache line mostly unused? Compare smaller problem sizes and repeat measurements to assess sensitivity to cache residency.",
+                "Use cache tiling and better loop order (Step 5), and test packing (Step 7). Reuse each loaded A/B value for more arithmetic rather than increasing data traffic.",
+                "A high value alone cannot distinguish memory latency from bandwidth saturation. Warm-up and cache residency can change the result.",
+                "`mem_latency` versus `mem_bandwidth`; `local_mem` / `remote_mem` on multi-socket NUMA machines.",
+            ),
+            "Store Bound (`store_bound`) is high — writing data holds up execution": _hint(
+                "Store-related resources or obtaining ownership of cache lines contribute to stalls.",
+                "C is written during every reduction iteration; register spills; scattered stores; packed buffers are copied too often.",
+                "Count stores in the inner loop and inspect stack accesses. Check whether each output vector can be accumulated before writing it once.",
+                "Hoist accumulator loads/stores out of the reduction (Step 4). Reduce an oversized register tile and avoid unnecessary packing copies.",
+                "Stores may require fetching a cache line for ownership (RFO), so writing can also generate reads. Packing adds stores and is not always beneficial.",
+                "`store_latency`, `split_stores`, `store_fwd_blk`, and `dtlb_store`. False sharing matters if multiple threads write the same cache line, not normally in a single-thread kernel.",
+            ),
+            "PMM Bound (`pmm_bound`) is reported — check hardware support first": _hint(
+                "This metric concerns accesses to persistent-memory modules, such as Intel Optane, rather than ordinary DRAM.",
+                "Data may reside in persistent memory on a supported system, or the metric may be unavailable or reconstructed differently on your CPU.",
+                "Check whether the system actually has persistent memory and how this metric is collected. A zero or unavailable result is not evidence of a scheduling improvement.",
+                "If applicable, increase data reuse and compare with allocation in ordinary DRAM. Otherwise, focus on the supported cache/DRAM metrics.",
+                "This notebook's native Skylake implementation reports this metric as zero; it is not a meaningful diagnosis there.",
+            ),
+        }),
+    ])
+
+    _core = mo.vstack([
+        mo.md(r"""
+        **Core Bound:** execution is limited by computational resources or
+        dependencies between instructions rather than primarily by fetching data.
+        An **execution port** routes operations to units such as arithmetic or
+        load/store units. Independent instructions can overlap; a dependent
+        accumulator update must wait for its input.
+
+        A fast matrix multiplication may legitimately become compute-bound.
+        Check whether the bottleneck is useful SIMD arithmetic or avoidable overhead.
+        """),
+        mo.accordion({
+            "Ports Util. (`ports_utilization`) is high — investigate resources and dependencies": _hint(
+                "This points toward core execution limits, but is not a direct measurement of every port's occupancy. Some implementations estimate it from remaining core stalls.",
+                "Instructions compete for execution resources; too many loads or address calculations; too few independent accumulator chains.",
+                "Inspect assembly for SIMD/FMA instructions, repeated loads, address arithmetic, and spills. Does each FMA wait for the previous update of the same accumulator?",
+                "Reuse loaded operands or modestly increase independent register accumulators (Steps 3 and 6). Sweep register-tile sizes rather than assuming that larger is better.",
+                "High arithmetic-unit utilization can be desirable. More unrolling can instead cause spills or a larger instruction footprint; accept a change only if runtime improves.",
+                "`ports_utilized_0/1/2/3m`, `alu/load/store_op_utilization`, and individual `port_*` metrics. Port assignments depend on the CPU.",
+            ),
+            "Divider (`divider`) activity is high — expensive division is present": _hint(
+                "The divider is active; activity alone does not prove division is the main bottleneck.",
+                "Integer division or remainder in indexing; floating-point division; setup or helper code included in the measurement.",
+                "Look for division instructions in the measured kernel. Plain matrix multiplication should mostly use multiply/add, loads, stores, and loop bookkeeping.",
+                "Test tile sizes or indexing that the compiler can simplify, and move invariant calculations outside inner loops where possible.",
+                "Do not replace division with an approximate reciprocal without considering numerical correctness.",
+            ),
+            "Serializing (`serializing_operation`) is high — overlap is restricted": _hint(
+                "Operations that restrict overlapping execution contribute to issue stalls.",
+                "Fences, special serializing instructions, synchronization, or helper/instrumentation code in the measured region.",
+                "Inspect assembly for fences and special instructions. Determine whether the result comes from the kernel or measurement/setup overhead.",
+                "Repeat with enough kernel work to assess overhead, and keep unnecessary setup outside the timed region. Only remove synchronization if correctness is preserved.",
+                "Ordinary dependence between successive FMAs is not the same as an explicitly serializing instruction.",
+            ),
+        }),
+    ])
+
+    _fetch_latency = mo.vstack([
+        mo.md("**Fetch Latency:** instruction delivery stops for periods of time. Check code footprint and transitions between instruction-delivery mechanisms."),
+        mo.accordion({
+            "ICache Miss (`icache_misses`) is high — instructions are not nearby": _hint(
+                "Instruction-cache misses contribute to frontend stalls. This cache holds code, not A/B/C data.",
+                "Aggressive unrolling produces a large kernel; many code paths or helper calls increase the active code footprint.",
+                "Compare assembly size across schedules. Does extra unrolling duplicate large blocks of instructions?",
+                "Reduce unrolling or the register tile and compare runtime. Favor a compact, repeatedly executed inner loop.",
+                "Cache tiling of matrix data does not directly solve instruction-cache misses.",
+            ),
+            "ITLB Miss (`itlb_misses`) is high — code-address translation is costly": _hint(
+                "The instruction Translation Lookaside Buffer (ITLB), which caches code-address translations, misses.",
+                "Code spans many pages; large generated kernels or scattered helper calls expand the instruction working set.",
+                "Inspect code size and call structure, especially after increasing unrolling.",
+                "Reduce code expansion and compare a smaller register tile or unroll factor.",
+                "ITLB concerns instructions. Data packing may help data-TLB misses, but does not directly fix ITLB misses.",
+                "`code_stlb_hit` / `code_stlb_miss` distinguish hits in a second-level translation cache from page-table walks.",
+            ),
+            "MS Switches (`ms_switches`) is high — instruction delivery changes to microcode": _hint(
+                "Switching to the Microcode Sequencer (MS), which supplies operations for certain complex instructions, contributes to stalls.",
+                "Complex instructions or exceptional cases interrupt the usual instruction-delivery path.",
+                "Inspect assembly and compare Heavy Ops and Microcode. If supported, check assist metrics and whether unusual floating-point inputs trigger slow paths.",
+                "Compare schedules that generate simpler hot-loop instructions. If assists are suspected, test representative normal inputs without changing the algorithm's correctness requirements.",
+                "The switching cost and the amount of microcode-delivered work are different metrics.",
+                "`assists` and `fp_assists`, where supported.",
+            ),
+        }),
+    ])
+
+    _fetch_bandwidth = mo.vstack([
+        mo.md("**Fetch Bandwidth:** the frontend delivers instructions, but not fast enough. Too much loop/indexing overhead or expanded code can leave execution units underfed."),
+        mo.accordion({
+            "MITE / DSB (`mite`, `dsb`) is prominent — inspect instruction delivery": _hint(
+                "MITE is the legacy instruction decoder; DSB is the Decoded Stream Buffer (a cache of already-decoded micro-operations, or uops).",
+                "A hot loop may not fit the decoded-instruction cache well; its layout or instruction mix may constrain delivery; excessive unrolling may enlarge it.",
+                "First confirm Fetch Bandwidth is high. Compare instruction count and code size across schedules, and inspect repeated loop/indexing work.",
+                "Test moderate unrolling and SIMD to do more arithmetic per instruction, keeping the hot loop compact.",
+                "Some implementations report MITE/DSB delivery activity rather than lost capacity. A large DSB or MITE value alone is not proof of a bottleneck.",
+                "`decoder0_alone` can help identify legacy-decoder restrictions, where available.",
+            ),
+            "DSB Swit. (`dsb_switches`) is high — delivery sources keep changing": _hint(
+                "Transitions between the decoded-uop cache and legacy decoder contribute to stalls.",
+                "The hot loop does not remain well served by the uop cache; code size, layout, or branches cause delivery-source transitions.",
+                "Compare code footprint and branch structure before and after unrolling. Look for a regression as the register tile grows.",
+                "Reduce unrolling or simplify the hot loop, then measure again. Exact uop-cache capacity and layout rules are CPU-specific.",
+            ),
+            "LCP (`lcp`) is high — an instruction-encoding decode penalty appears": _hint(
+                "Length-changing instruction prefixes cause legacy-decoder stalls on CPUs that report this metric.",
+                "Particular instruction encodings in compiler-generated code; this is usually not a matrix-data locality issue.",
+                "Inspect instruction encodings in the assembly and verify that the metric is supported on your CPU.",
+                "Compare another schedule or compiler configuration that changes the hot-loop instruction mix. Prioritize larger, actionable bottlenecks first.",
+                "This is a specialized diagnosis; students need not hand-edit assembly to proceed with the tutorial.",
+            ),
+        }),
+    ])
+
+    _branches = mo.vstack([
+        mo.md("**Branch Mispredicts:** the CPU predicts which instructions come next incorrectly, then discards work. Regular matrix-multiplication loops are usually predictable, so a large result deserves investigation."),
+        mo.accordion({
+            "Branch Rest. (`branch_resteers`) is high — control flow redirects execution": _hint(
+                "Execution is redirected and instruction fetching recovers. Exact attribution of this metric varies by implementation.",
+                "Mispredicted branches, many short loops, or irregular boundary/remainder paths.",
+                "Inspect branches in the assembly, including cleanup for dimensions not divisible by tile sizes. Compare with the parent Branch Mispredicts result.",
+                "Compare tile sizes with and without remainder handling, or modestly unroll short hot loops to reduce branch overhead.",
+                "Do not assume every redirect is an unpredictable data-dependent branch. Loop exits and measurement overhead can also contribute.",
+                "`mispredicts_resteers` and `unknown_branches`, if available.",
+            ),
+            "Other Misp. (`other_mispredicts`) is high — speculation needs more evidence": _hint(
+                "A residual speculation category captures cases not explained by the other reported components.",
+                "Additional recovery cases or approximation/noise in reconstructed metrics.",
+                "Repeat the measurement and inspect the parent category before assigning a specific cause. Check whether the result is stable across runs.",
+                "Simplify hot-loop control flow or compare a schedule with fewer cleanup paths, then check both runtime and speculation metrics.",
+                "A residual category is not a precise diagnosis; do not optimize an unstable percentage.",
+            ),
+        }),
+    ])
+
+    _clears = mo.vstack([
+        mo.md("**Machine Clears:** the CPU restarts its pipeline for reasons other than an ordinary branch misprediction, such as memory-ordering recovery. This is not the same as a cache miss."),
+        mo.accordion({
+            "Other Nukes (`other_nukes`) is high — investigate pipeline restarts": _hint(
+                "This reports remaining machine-clear cases after the implementation's other accounted causes; 'nuke' means a pipeline restart.",
+                "Exceptional execution conditions, code modification, or residual/approximate accounting; the exact cause is CPU-specific.",
+                "Repeat measurements, inspect the measured code, and consult CPU-specific events if the parent Machine Clears category remains substantial.",
+                "Compare a simpler schedule to isolate when restarts appear. Treat this as a secondary diagnosis rather than immediately changing cache tiles.",
+                "Memory-ordering clears belong to the parent investigation and are not necessarily explained by Other Nukes. Never remove required synchronization just to reduce this metric.",
+                "`clears_resteers` and CPU-specific memory-ordering clear events, where available.",
+            ),
+        }),
+    ])
+
+    _light = mo.vstack([
+        mo.md("**Light Ops:** ordinary completed operations dominate. They may implement useful arithmetic, but also loads, stores, branches, and address calculations. Retiring does not mean that every instruction advances the matrix multiplication efficiently."),
+        mo.accordion({
+            "Mem Ops (`memory_operations`) is high — many instructions move data": _hint(
+                "Many retired operations are loads or stores. This is an instruction-mix metric, not itself a memory-stall metric.",
+                "Repeated C loads/stores; limited reuse of A/B; register spills; packing copies.",
+                "Inspect the inner-loop assembly: is C read and written every k iteration? Are values spilled to the stack? Interpret this together with Memory Bound.",
+                "Keep accumulators in registers (Step 4), reuse operands, or shrink an oversized register tile. Include packing overhead when judging Step 7.",
+                "Necessary, efficient loads can produce a high value. The objective is more useful arithmetic per byte and lower runtime, not zero memory operations.",
+            ),
+            "FP Arith (`fp_arith`) is prominent — verify how much arithmetic each instruction does": _hint(
+                "Floating-point arithmetic is being completed; this is generally expected for matrix multiplication.",
+                "Useful SIMD arithmetic, or scalar/narrow-vector operations that retire successfully but achieve little of the CPU's arithmetic peak.",
+                "Inspect vector width and FMA use in assembly. Are there multiple independent accumulator chains? Check the actual SIMD capabilities of your CPU.",
+                "Compare vectorization (Step 2) and register-tile sizes (Steps 3 and 6), using widths supported by the target.",
+                "A high FP instruction share is not a FLOP count or proof of peak throughput. Wider vectors and FMAs do more arithmetic per instruction; frequency and dependencies also matter.",
+                "`fp_scalar` / `fp_vector`, `fp_vector_128b/256b/512b`, and `x87_use`, if supported.",
+            ),
+            "Fused / Non-Fused (`fused_instructions`, `non_fused_branches`) is prominent": _hint(
+                "These metrics concern instruction fusion, such as a comparison and branch handled together, and branches not fused that way.",
+                "Loop-control instructions occupy a significant share of the work; the instruction sequence may or may not permit fusion on this CPU.",
+                "Inspect comparisons and branches in the hot loop. Are very short loops doing little arithmetic per branch?",
+                "Use SIMD or modest unrolling to amortize loop control over more useful work; compare runtime and code size.",
+                "This fusion is not fused multiply-add (FMA). High fused-instruction activity is not inherently bad, and non-fused branches are not necessarily mispredicted.",
+            ),
+            "Other Light (`other_light_ops`) is high — bookkeeping may dominate": _hint(
+                "Completed light operations are not explained by the listed sibling metrics.",
+                "Address arithmetic, loop counters, moves, conversions, or residual accounting.",
+                "Inspect how many non-arithmetic instructions occur per FMA in the hot loop. Check whether indexing expressions are recomputed unnecessarily.",
+                "Compare SIMD, operand reuse, simpler indexing, and modest unrolling to amortize bookkeeping.",
+                "This residual category alone does not identify an instruction. Confirm the hypothesis in assembly and runtime.",
+                "`nop_instructions` and ALU-port metrics, where supported.",
+            ),
+        }),
+    ])
+
+    _heavy = mo.vstack([
+        mo.md("**Heavy Ops:** instructions expand into multiple uops or use microcode. 'Heavy' does not automatically mean inefficient; investigate their cost and purpose in this kernel."),
+        mo.accordion({
+            "Few Uops (`few_uops_instructions`) is high — inspect multi-operation instructions": _hint(
+                "This category represents instructions accounted as multiple micro-operations, although native reconstruction may be approximate.",
+                "Complex instructions or an instruction mix that requires more internal work than its assembly instruction count suggests.",
+                "Inspect the hot-loop instruction mix alongside Heavy Ops. A short assembly listing can still require many internal operations.",
+                "Compare schedules that generate simpler indexing and arithmetic sequences, and retain the faster one.",
+                "Do not treat this metric as an exact instruction count or replace a useful instruction merely because it expands into multiple uops.",
+            ),
+            "Microcode (`microcode_sequencer`) is high — complex or assisted execution": _hint(
+                "The Microcode Sequencer supplies a substantial amount of internal operations.",
+                "Complex instructions, helper code, or floating-point assists for exceptional input cases, depending on the CPU.",
+                "Inspect the measured assembly, compare MS Switches, and check supported assist metrics. Plain matrix-multiplication FMAs should not normally require persistent assisted execution.",
+                "Compare a simpler generated kernel and test whether representative input values change the result. Investigate correctness and numerical requirements before changing floating-point behavior.",
+                "Microcode activity is not synonymous with a stall, and this percentage alone cannot identify the responsible instruction.",
+                "`assists`, `fp_assists`, and `cisc`, where available.",
+            ),
+        }),
+    ])
+
+    mo.vstack([
+        mo.md(r"""
+        ---
+        ## Why is my schedule slow? A hardware-counter troubleshooting guide
+
+        A low percentage of peak performance tells you that your schedule has room
+        for improvement, but not why. Hardware counters provide **clues, not a
+        definitive diagnosis**. Results depend on the CPU, compiler, matrix sizes,
+        cache residency, and other activity on the machine. The examples below
+        suggest hypotheses to test, not percentages every computer should produce.
+
+        **How to use this guide:**
+
+        1. Start with a substantial **Level 1** category in the diagram, then inspect
+           its **Level 2** children and the detailed metrics below. Use the largest
+           stall category as a starting point, not as a verdict that the schedule is bad.
+        2. Open **View Generated Assembly** to check whether the proposed cause
+           actually appears in the compiled inner loop.
+        3. Change **one scheduling decision at a time**, repeat measurements under
+           similar conditions, and keep a change only if **execution time improves**.
+           A smaller percentage can hide more absolute time in a slower program.
+        4. Validate numerical correctness when experimenting (the sandbox enables
+           validation). A faster schedule is only useful if it still computes the result.
+
+        **Vocabulary:** the **frontend** fetches and decodes instructions; the
+        **backend** executes them and accesses data. A **uop** is an internal
+        micro-operation. **Retiring** means execution has completed and its result
+        is committed, not that the instruction was necessary for an efficient algorithm.
+        SIMD performs arithmetic on multiple elements per instruction; independent
+        accumulator chains let the CPU overlap work.
+
+        **Important distinctions:** Top-down **Levels 1, 2, and 3 are analysis depths**,
+        not the L1/L2/L3 data caches. Retiring and instruction-delivery activity are
+        not themselves wasted work. Formulas, denominators, and availability vary
+        by architecture; reconstructed metrics and separate measurement passes need
+        not form exact parent/child percentage partitions. Do not add all leaf values
+        as if they were mutually exclusive, or use a universal "bad" threshold.
+        Unsupported metrics are not evidence that a bottleneck is absent.
+
+        Expand the symptom that matches your result. Titles include the diagram
+        label and the raw metric name; optional deeper clues refer to counters that
+        may be available separately, not extra counters automatically collected here.
+        """),
+        mo.accordion({
+            "Backend Bound dominates — waiting for data or execution resources": mo.vstack([
+                mo.md("**Backend Bound:** instructions cannot make progress because data or execution resources are unavailable. Distinguish Memory Bound from Core Bound before choosing between cache tiling and register/SIMD changes."),
+                mo.accordion({
+                    "Mem Bound (`memory_bound`) dominates — investigate data movement": _memory,
+                    "Core Bound (`core_bound`) dominates — investigate resources and dependencies": _core,
+                }),
+            ]),
+            "Frontend Bound dominates — instructions do not arrive fast enough": mo.vstack([
+                mo.md("**Frontend Bound:** the execution machinery is underfed. A larger unrolled kernel can hurt instruction delivery even when it improves data reuse. Distinguish interruptions in delivery (latency) from insufficient delivery rate (bandwidth)."),
+                mo.accordion({
+                    "Fetch Lat (`fetch_latency`) is high — delivery pauses": _fetch_latency,
+                    "Fetch BW (`fetch_bandwidth`) is high — delivery rate is insufficient": _fetch_bandwidth,
+                }),
+            ]),
+            "Bad Speculation dominates — speculative work is discarded": mo.vstack([
+                mo.md("**Bad Speculation:** the CPU starts work before knowing it is needed, then discards it or restarts execution. Separate incorrect branch predictions from other pipeline clears; changing cache tiles is not a general cure."),
+                mo.accordion({
+                    "Branch Misp (`branch_mispredicts`) is high — predictions fail": _branches,
+                    "Clears (`machine_clears`) is high — the pipeline restarts": _clears,
+                }),
+            ]),
+            "Retiring is high, but peak performance remains low — inspect completed work": mo.vstack([
+                mo.md("**Retiring:** many execution slots complete operations. This is usually better than stalling, but scalar arithmetic, loads/stores, and bookkeeping also retire. A scalar instruction can retire efficiently while computing far fewer elements than SIMD. Check work per instruction and avoidable overhead, rather than trying to minimize Retiring."),
+                mo.accordion({
+                    "Light Ops (`light_operations`) dominates — inspect arithmetic versus overhead": _light,
+                    "Heavy Ops (`heavy_operations`) dominates — inspect complex instructions": _heavy,
+                }),
+            ]),
+        }),
+    ])
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
     btn_ex1 = mo.ui.run_button(label="Run Step 1", kind="neutral")
 
     mo.md(f"""
     ---
     ## Step 1: Naive Implementation
-    A standard, unoptimized Matrix Multiplication. The CPU executes instructions sequentially.
+    A standard, unoptimized Matrix Multiplication. The inner reduction has a dependent accumulator chain, and accesses to `B[k, j]` are strided for row-major data. The CPU can still overlap independent instructions; a scalar loop does not imply strictly sequential hardware execution.
 
     ```python
     for i in 512:
@@ -365,7 +710,7 @@ def _(mo):
         for k in 512:
           C[i, j] += A[i, k] * B[k, j]
     ```
-    *Expectation: High Backend Bound (Memory latency).*
+    *Hypothesis to test: Backend Bound may be substantial due to data-access costs or the dependent accumulation. Use Memory Bound versus Core Bound to distinguish them; the dominant cache level depends on your CPU.*
 
     {btn_ex1}
     """)
@@ -393,7 +738,7 @@ def _(mo):
     ---
     ## Step 2: Vectorization
     Processing multiple elements per instruction using SIMD (Single Instruction, Multiple Data).
-    The inner loop disappears completely: the CPU computes 16 elements at once in a single clock cycle.
+    A SIMD instruction can operate on 16 float32 elements with AVX-512; the supported width and instruction throughput depend on your CPU. The scalar loop over those elements is replaced by vector operations, but the reduction loop remains.
 
     ```python
     for i in range(512):
@@ -405,7 +750,7 @@ def _(mo):
                 C[i, j : j+16] += A[i, k] * B[k, j : j+16]
     ```
 
-    *Expectation: Higher Retiring, but still heavily bottlenecked by memory loads since `C` is read and written 512 times for nothing.*
+    *Hypothesis to test: SIMD may improve runtime by doing more arithmetic per instruction, without necessarily increasing Retiring. Check whether the compiler still loads/stores `C` inside the reduction and whether Memory Bound or Core Bound remains substantial.*
 
     {btn_ex2}
     """)
@@ -446,7 +791,7 @@ def _(mo):
                 C[i + 1, j : j+16] += A[i + 1, k] * B[k, j : j+16]
     ```
 
-    *Expectation: Retiring improves (Instruction-Level Parallelism), but the CPU still re-loads the accumulator `C` at every `k` iteration.*
+    *Hypothesis to test: Independent accumulators may hide arithmetic latency and improve runtime. Inspect the assembly to see whether `C` stays in registers or is repeatedly loaded/stored; Retiring need not increase.*
 
     {btn_ex3}
     """)
@@ -504,7 +849,7 @@ def _(mo):
             C[i + 1, j : j+16] = C_vec_1
     ```
 
-    *Expectation: Massive drop in L1 Bound since C is no longer repeatedly spilled to the cache.*
+    *Hypothesis to test: Moving accumulator loads/stores out of the reduction may reduce memory-operation overhead and L1/store-related stalls. Confirm register residency in assembly; ordinary accumulator stores are not necessarily register spills.*
 
     {btn_ex4}
     """)
@@ -534,7 +879,7 @@ def _(mo):
     ---
     ## Step 5: Cache Tiling
 
-    Large matrices evict each other from L1/L2 caches. We tile the problem into 64x64 blocks to ensure data perfectly fits in the fast cache hierarchy.
+    Large active working sets can evict reused data from L1/L2 caches. We try 64x64 blocks to shorten the distance between uses. This size is a starting point, not a guarantee of fitting: three float32 64x64 tiles occupy 48 KiB before other data and buffers.
 
 
     ```python
@@ -568,7 +913,7 @@ def _(mo):
                         C[i + 1, j : j+16] = C_reg_1
     ```
 
-    *Expectation: Memory Bound drops significantly. Computation is now purely limited by execution units.*
+    *Hypothesis to test: Better reuse may reduce stalls associated with farther caches or DRAM. Sweep tile sizes for your CPU and inspect the remaining bottleneck; tiling does not guarantee purely compute-bound execution.*
 
     {btn_ex5}
     """)
@@ -600,7 +945,7 @@ def _(mo):
     mo.md(f"""
     ---
     ## Step 6: Peak Optimization (3x16)
-    We maximize physical register usage. A 3x16 tile uses 3 AVX-512 registers for `C`, maximizing Instruction-Level Parallelism without spilling to the L1 cache.
+    We test another register tile. With AVX-512, a 3x16 float32 tile needs three vector accumulators for `C`, plus registers for operands and bookkeeping. More independent accumulators may improve overlap, but this is not necessarily the optimal tile for your CPU and compiler.
 
     ```python
     # Global navigation (RAM / L3 Cache)
@@ -638,6 +983,8 @@ def _(mo):
                         C[i + 2, j : j+16] = C_reg_2
     ```
 
+    *Hypothesis to test: The extra accumulator may improve arithmetic throughput. Compare runtime and inspect spills, dependencies, and code size; a larger register tile can also make the schedule slower.*
+
     {btn_ex6}
     """)
     return btn_ex6,
@@ -669,8 +1016,8 @@ def _():
     mo.md(f"""
     ---
     ## Step 7: Data Packing (Memory Layout Optimization)
-    Even with cache tiling, reading original matrices `A` and `B` with large memory strides causes cache line fragmentation and TLB (Translation Lookaside Buffer) misses.
-    By **packing** the data, the compiler copies the required blocks into contiguous temporary buffers before the inner loops, ensuring perfect linear memory access for the micro-kernel.
+    Even with cache tiling, large strides can waste cache-line data and increase data-TLB (Translation Lookaside Buffer) pressure. A TLB caches virtual-to-physical address translations.
+    By **packing** the data, the compiler copies blocks into contiguous temporary buffers before the inner loops. This can improve the micro-kernel's access pattern, but copying adds work and the benefit depends on layout and reuse.
 
     ```python
     # Global navigation (RAM / L3 Cache)
@@ -707,7 +1054,7 @@ def _():
                         C[i + 1, j : j+16] = C_vec_1
                         C[i + 2, j : j+16] = C_vec_2
     ```
-    *Expectation: TLB misses drop significantly. Memory Bound achieves its lowest possible value.*
+    *Hypothesis to test: Packing may improve locality and reduce data-TLB pressure enough to offset copying costs. Compare total runtime and memory metrics. The default Level 3 diagram does not directly report data-TLB misses; ITLB Miss concerns code, not matrix data.*
 
     {btn_ex7}
     """)
