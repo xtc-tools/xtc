@@ -539,6 +539,8 @@ def _(mo, platform, plot_upipe):
 
 @app.cell(hide_code=True)
 def _(mo):
+    import re
+
     def _counter_warning(limitation):
         return mo.callout(mo.md(
             "**Verify counter support and implementation before interpreting.**\n\n"
@@ -548,24 +550,53 @@ def _(mo):
             "An incorrect event or formula is not merely measurement noise."
         ), kind="warn")
 
+    _step_anchors = {
+        2: "step-2-vectorization",
+        3: "step-3-register-tiling-2x16",
+        4: "step-4-loadstore-hoisting",
+        5: "step-5-cache-tiling",
+        6: "step-6-register-tile-exploration-3x16",
+        7: "step-7-data-packing-memory-layout-optimization",
+    }
+
     def _hint(meaning, causes, check, experiment, caution="", deeper="", native_warning=""):
-        _paragraphs = [
-            f"**Meaning:** {meaning}",
-            f"**Possible causes:** {causes}",
-            f"**Check:** {check}",
-            f"**Try:** {experiment}",
+        def _link_steps(match):
+            _steps = [match.group(1)]
+            if match.group(2):
+                _steps.append(match.group(2))
+            return " and ".join(
+                f"[Step {step}](#{_step_anchors[int(step)]})" for step in _steps
+            )
+
+        _experiment = re.sub(
+            r"\bSteps? ([2-7])(?: and ([2-7]))?\b",
+            _link_steps,
+            experiment,
+        )
+        _sections = [
+            f"#### What it means\n\n{meaning}",
+            f"#### Possible causes\n\n{causes}",
+            f"#### Check the generated assembly\n\n{check}",
+            f"#### Scheduling experiment\n\n{_experiment}",
         ]
         if caution:
-            _paragraphs.append(f"**Keep in mind:** {caution}")
+            _sections.append(f"#### Interpretation limits\n\n{caution}")
         if deeper:
-            _paragraphs.append(f"**Optional deeper clues:** {deeper}")
-        _content = mo.md("\n\n".join(_paragraphs))
+            _sections.append(f"#### Additional counters\n\n{deeper}")
+        _content = mo.md("\n\n".join(_sections))
         if native_warning:
             return mo.vstack([_counter_warning(native_warning), _content])
         return _content
 
-    _memory = mo.vstack([
-        mo.md(r"""
+    def _metric_records(group, overview, metrics):
+        """Prefix a Level 2 group onto its overview and metric records."""
+        records = {f"{group} · Overview": overview}
+        records.update({f"{group} · {label}": content for label, content in metrics.items()})
+        return records
+
+    _memory = _metric_records(
+        "Memory Bound",
+        overview=mo.md(r"""
         **Memory Bound:** execution is waiting for loads or stores. Ask whether the
         schedule reuses data before it leaves a nearby cache, and whether it moves
         more data than necessary.
@@ -581,8 +612,8 @@ def _(mo):
         This is not guaranteed to fit in L1. Leave headroom: cache organization
         and other activity can cause eviction even below the advertised capacity.
         """),
-        mo.accordion({
-            "L1 Bound (`l1_bound`) is high — investigate loads, translation, and dependencies": _hint(
+        metrics={
+            "L1 Bound · l1_bound": _hint(
                 "This estimates load-related stalls without an L1 data-cache miss. It is not an L1 miss rate, and does not prove that all the waiting is for L1 hits.",
                 "Repeated accumulator loads; dependent load/use chains; address-translation delays (data-TLB misses); loads blocked by earlier stores; limited load throughput.",
                 "In the assembly, is C loaded inside every k iteration? Are temporary values stored on the stack (register spills)? Are loads immediately used in a dependent chain?",
@@ -590,7 +621,7 @@ def _(mo):
                 "A larger cache tile will not necessarily fix dependencies, translation delays, or load-throughput limits. Packing is an experiment to consider if independent evidence suggests data-TLB pressure.",
                 "`dtlb_load`, `l1_latency_dependency`, `store_fwd_blk`, `split_loads`, and load-port metrics, if supported.",
             ),
-            "L2 Bound (`l2_bound`) is high — stalls associated with L2 accesses": _hint(
+            "L2 Bound · l2_bound": _hint(
                 "This estimates stalls associated with loads accessing L2, typically after an L1 miss.",
                 "Unavoidable first accesses; active tiles exceed useful L1 capacity; cache conflicts; loop order delays reuse; strided accesses waste cache-line data.",
                 "Estimate the active A/B/C data and inspect which operand is reused by consecutive inner-loop iterations. Include any packed buffers.",
@@ -598,7 +629,7 @@ def _(mo):
                 "This does not prove that reuse is poor or that the tile is too large. L2 generally serves data faster than farther caches or DRAM; minimize total runtime, not this percentage in isolation.",
                 "`l2_hit_latency`, `dtlb_load`, and `split_loads` can help distinguish latency, address translation, and access-layout problems.",
             ),
-            "L3 Bound (`l3_bound`) is high — stalls associated with L3 accesses": _hint(
+            "L3 Bound · l3_bound": _hint(
                 "This estimates stalls associated with loads accessing L3 or inter-core contention, typically after misses in closer caches.",
                 "Unavoidable first accesses; tiles exceed useful L1/L2 capacity; cache conflicts; loop order delays reuse; large strides waste cache lines; contention with other activity.",
                 "Consider A, B, and C together. How much data is accessed between two uses of the same tile? Is the machine running other memory-intensive work?",
@@ -606,7 +637,7 @@ def _(mo):
                 "This proves neither poor reuse nor that L3 is too small. L3 generally serves data faster than DRAM; investigate the access pattern before attributing a cause.",
                 "`l3_hit_latency`, `contested_accesses`, and `data_sharing`, where available.",
             ),
-            "DRAM Bound (`dram_bound`) is high — data comes from main memory": _hint(
+            "DRAM Bound · dram_bound": _hint(
                 "Loads reaching main memory contribute to stalls.",
                 "Little reuse before eviction; a large working set; strided accesses; insufficient independent loads to hide latency; competition for memory bandwidth.",
                 "Does the loop repeatedly scan a matrix before reusing it? Is a cache line mostly unused? Compare smaller problem sizes and repeat measurements to assess sensitivity to cache residency.",
@@ -614,7 +645,7 @@ def _(mo):
                 "A high value alone cannot distinguish memory latency from bandwidth saturation. Warm-up and cache residency can change the result.",
                 "`mem_latency` versus `mem_bandwidth`; `local_mem` / `remote_mem` on multi-socket NUMA machines.",
             ),
-            "Store Bound (`store_bound`) is high — writing data holds up execution": _hint(
+            "Store Bound · store_bound": _hint(
                 "Store-related resources or obtaining ownership of cache lines contribute to stalls.",
                 "C is written during every reduction iteration; register spills; scattered stores; packed buffers are copied too often.",
                 "Count stores in the inner loop and inspect stack accesses. Check whether each output vector can be accumulated before writing it once.",
@@ -622,18 +653,19 @@ def _(mo):
                 "Stores may require fetching a cache line for ownership (RFO), so writing can also generate reads. Packing adds stores and is not always beneficial.",
                 "`store_latency`, `split_stores`, `store_fwd_blk`, and `dtlb_store`. False sharing matters if multiple threads write the same cache line, not normally in a single-thread kernel.",
             ),
-            "PMM Bound (`pmm_bound`) is reported — check hardware support first": _hint(
+            "PMM Bound · pmm_bound": _hint(
                 "This metric concerns accesses to persistent-memory modules, such as Intel Optane, rather than ordinary DRAM.",
                 "Data may reside in persistent memory on a supported system, or the metric may be unavailable or reconstructed differently on your CPU.",
                 "Check whether the system actually has persistent memory and how this metric is collected. A zero or unavailable result is not evidence of a scheduling improvement.",
                 "If applicable, increase data reuse and compare with allocation in ordinary DRAM. Otherwise, focus on the supported cache/DRAM metrics.",
                 "The current native Intel implementation reports this metric as zero; it is not a meaningful diagnosis on that path.",
             ),
-        }),
-    ])
+        },
+    )
 
-    _core = mo.vstack([
-        mo.md(r"""
+    _core = _metric_records(
+        "Core Bound",
+        overview=mo.md(r"""
         **Core Bound:** execution is limited by computational resources or
         dependencies between instructions rather than primarily by fetching data.
         An **execution port** routes operations to units such as arithmetic or
@@ -643,8 +675,8 @@ def _(mo):
         A fast matrix multiplication may legitimately become compute-bound.
         Check whether the bottleneck is useful SIMD arithmetic or avoidable overhead.
         """),
-        mo.accordion({
-            "Ports Util. (`ports_utilization`) is reported — verify core-limit evidence": _hint(
+        metrics={
+            "Ports Util. · ports_utilization": _hint(
                 "When collected correctly, this suggests core-resource or dependency limits, not a direct measurement of every port's occupancy. The native calculation is a residual estimate.",
                 "Instructions compete for execution resources; too many loads or address calculations; too few independent accumulator chains.",
                 "Verify the counter first. Inspect assembly for SIMD/FMA instructions, repeated loads, address arithmetic, and spills. Does each FMA wait for the previous update of the same accumulator?",
@@ -653,7 +685,7 @@ def _(mo):
                 "`ports_utilized_0/1/2/3m`, `alu/load/store_op_utilization`, and individual `port_*` metrics. Port assignments depend on the CPU.",
                 native_warning="The modern Intel event array does not match the shared calculation's core-stall/scoreboard input order. The resulting Ports Util. value is not a reliable diagnosis there; the older Intel path is also only a rough core-stall proxy.",
             ),
-            "Divider (`divider`) is reported — verify division or square-root activity": _hint(
+            "Divider · divider": _hint(
                 "A correctly collected divider metric indicates divide/square-root unit activity; activity alone does not prove these operations are the bottleneck.",
                 "Division, remainder, or square-root instructions; setup or helper code included in the measurement. The operations covered depend on the CPU and event.",
                 "Verify the event encoding first, then look for division or square-root instructions in the measured kernel. Plain matrix multiplication should mostly use multiply/add, loads, stores, and loop bookkeeping.",
@@ -661,7 +693,7 @@ def _(mo):
                 "Do not replace division with an approximate reciprocal without considering numerical correctness.",
                 native_warning="The native divider event encoding differs from documented Intel divider events. Until it is verified for the CPU, this value cannot establish that division or square roots are present.",
             ),
-            "Serializing (`serializing_operation`) is reported — verify overlap restrictions": _hint(
+            "Serializing · serializing_operation": _hint(
                 "When collected correctly, this indicates issue stalls associated with operations that restrict overlapping execution.",
                 "Fences, special serializing instructions, synchronization, or helper/instrumentation code in the measured region.",
                 "Verify the event and calculation first, then inspect assembly for fences and special instructions. Determine whether any confirmed activity comes from the kernel or measurement/setup overhead.",
@@ -669,20 +701,21 @@ def _(mo):
                 "Ordinary dependence between successive FMAs is not the same as an explicitly serializing instruction.",
                 native_warning="The native Skylake scoreboard event encoding needs verification, and the modern Intel event array does not match the shared calculation's input order. Do not use this native value as evidence that the kernel contains serializing instructions.",
             ),
-        }),
-    ])
+        },
+    )
 
-    _fetch_latency = mo.vstack([
-        mo.md("**Fetch Latency:** instruction delivery pauses. Possible causes include code fetch, branch recovery, and transitions between instruction-delivery mechanisms. These clues can overlap; check the actual instruction stream before assigning a cause."),
-        mo.accordion({
-            "ICache Miss (`icache_misses`) is prominent — inspect code-fetch activity": _hint(
+    _fetch_latency = _metric_records(
+        "Fetch Latency",
+        overview=mo.md("**Fetch Latency:** instruction delivery pauses. Possible causes include code fetch, branch recovery, and transitions between instruction-delivery mechanisms. These clues can overlap; check the actual instruction stream before assigning a cause."),
+        metrics={
+            "ICache Miss · icache_misses": _hint(
                 "Instruction-cache activity can be associated with frontend delays. This cache holds code, not A/B/C data; the native metric does not uniformly measure stall cycles.",
                 "Aggressive unrolling produces a large kernel; many code paths or helper calls increase the active code footprint.",
                 "Compare assembly size across schedules. Does extra unrolling duplicate large blocks of instructions?",
                 "Reduce unrolling or the register tile and compare runtime. Favor a compact, repeatedly executed inner loop.",
                 "Cache tiling of matrix data does not directly solve instruction-cache misses. The native older-Intel path counts tag misses per cycle, whereas the modern path uses a stall event; neither is a cache miss rate, and they are not directly comparable.",
             ),
-            "ITLB Miss (`itlb_misses`) is reported — verify code-address translation evidence": _hint(
+            "ITLB Miss · itlb_misses": _hint(
                 "A correctly collected instruction-TLB metric concerns code-address translation. The ITLB caches these translations; a miss count alone does not establish a large time cost.",
                 "Code spans many pages; large generated kernels or scattered helper calls expand the instruction working set.",
                 "Verify which event the label represents, then inspect code size and call structure, especially after increasing unrolling.",
@@ -691,7 +724,7 @@ def _(mo):
                 "`code_stlb_hit` / `code_stlb_miss` distinguish hits in a second-level translation cache from page-table walks.",
                 native_warning="The native modern Intel ITLB label currently uses an instruction-cache tag-stall event, not an ITLB event. The older Intel path counts completed instruction page walks per cycle, not translation-stall cycles. Do not infer costly translation from the label or percentage alone.",
             ),
-            "MS Switches (`ms_switches`) is reported — verify microcode transitions": _hint(
+            "MS Switches · ms_switches": _hint(
                 "A correctly collected metric estimates the cost of switching to the Microcode Sequencer (MS), which supplies operations for certain complex instructions.",
                 "Complex instructions or exceptional cases interrupt the usual instruction-delivery path.",
                 "Verify the event encoding first, then inspect assembly and compare Heavy Ops and Microcode. If supported, check assist metrics and whether unusual floating-point inputs trigger slow paths.",
@@ -700,7 +733,7 @@ def _(mo):
                 "`assists` and `fp_assists`, where supported.",
                 native_warning="The native MS Switches event encoding differs from Intel's documented event, and counting transitions alone is not the same as measuring their stall cost. Treat this value as unverified.",
             ),
-            "Branch Rest. (`branch_resteers`) is high — fetching resumes on a redirected path": _hint(
+            "Branch Rest. · branch_resteers": _hint(
                 "This estimates frontend delay while fetching from a redirected instruction path. It is a Fetch Latency clue, not a direct branch-misprediction count.",
                 "Branch mispredictions, other pipeline clears, or branch-target prediction issues; short loops and remainder paths are possibilities to inspect, not proven causes.",
                 "Inspect branches and cleanup paths in the assembly. Compare with Branch Mispredicts and Machine Clears rather than assuming every redirect has the same cause.",
@@ -708,26 +741,27 @@ def _(mo):
                 "Recovery costs can appear in both frontend and speculation metrics. These are overlapping clues, not independent percentages to add. Native collection does not cover every component of Intel's full metric.",
                 "`mispredicts_resteers`, `clears_resteers`, and `unknown_branches`, if available.",
             ),
-            "DSB Swit. (`dsb_switches`) is high — instruction-delivery transitions add latency": _hint(
+            "DSB Swit. · dsb_switches": _hint(
                 "This estimates exposed delay when switching from the decoded-uop cache to the legacy decoder; it is a Fetch Latency clue.",
                 "Code size, layout, or control flow causes delivery-source transitions; a larger unrolled loop is one possible contributor.",
                 "Compare code footprint and branch structure before and after unrolling. Look for a runtime regression as the register tile grows.",
                 "Reduce unrolling or simplify the hot loop, then measure again. Exact uop-cache capacity and layout rules are CPU-specific.",
             ),
-            "LCP (`lcp`) is high — an instruction-encoding decode penalty appears": _hint(
+            "LCP · lcp": _hint(
                 "Length-changing instruction prefixes can cause legacy-decoder delay on CPUs that report this metric; Intel groups this under Fetch Latency.",
                 "Particular instruction encodings in compiler-generated code; this is usually not a matrix-data locality issue.",
                 "Inspect instruction encodings in the assembly and verify that the metric is supported on your CPU.",
                 "Compare another schedule or compiler configuration that changes the hot-loop instruction mix. Prioritize larger, actionable bottlenecks first.",
                 "This is a specialized diagnosis; students need not hand-edit assembly to proceed with the tutorial.",
             ),
-        }),
-    ])
+        },
+    )
 
-    _fetch_bandwidth = mo.vstack([
-        mo.md("**Fetch Bandwidth:** the frontend delivers instructions, but not fast enough. Too much loop/indexing overhead or expanded code can leave execution units underfed."),
-        mo.accordion({
-            "MITE / DSB (`mite`, `dsb`) is prominent — inspect instruction delivery": _hint(
+    _fetch_bandwidth = _metric_records(
+        "Fetch Bandwidth",
+        overview=mo.md("**Fetch Bandwidth:** the frontend delivers instructions, but not fast enough. Too much loop/indexing overhead or expanded code can leave execution units underfed."),
+        metrics={
+            "MITE / DSB · mite, dsb": _hint(
                 "MITE is the legacy instruction decoder; DSB is the Decoded Stream Buffer (a cache of already-decoded micro-operations, or uops).",
                 "A hot loop may not fit the decoded-instruction cache well; its layout or instruction mix may constrain delivery; excessive unrolling may enlarge it.",
                 "First confirm Fetch Bandwidth is high. Compare instruction count and code size across schedules, and inspect repeated loop/indexing work.",
@@ -735,38 +769,41 @@ def _(mo):
                 "The current native Intel implementation reports MITE/DSB delivery activity rather than Intel's estimated lost capacity. A large DSB or MITE value alone is not proof of a bottleneck.",
                 "`decoder0_alone` can help identify legacy-decoder restrictions, where available.",
             ),
-        }),
-    ])
+        },
+    )
 
-    _branches = mo.vstack([
-        mo.md("**Branch Mispredicts:** the CPU predicts which instructions come next incorrectly, then discards work. Regular matrix-multiplication loops are often predictable, so inspect branches, short loops, and remainder paths if a verified metric indicates substantial misprediction cost. Test modest unrolling or different tile sizes only after checking the assembly. Related fetching delays appear under **Frontend Bound → Fetch Latency → Branch Rest.**; do not add these overlapping clues as separate costs."),
-        mo.accordion({
-            "Other Misp. (`other_mispredicts`) is reported — native diagnosis is unreliable": _counter_warning(
+    _branches = _metric_records(
+        "Branch Mispredicts",
+        overview=mo.md("**Branch Mispredicts:** the CPU predicts which instructions come next incorrectly, then discards work. Regular matrix-multiplication loops are often predictable, so inspect branches, short loops, and remainder paths if a verified metric indicates substantial misprediction cost. Test modest unrolling or different tile sizes only after checking the assembly. Related fetching delays appear under **Frontend Bound → Fetch Latency → Branch Rest.**; do not add these overlapping clues as separate costs."),
+        metrics={
+            "Other Misp. · other_mispredicts": _counter_warning(
                 "This is intended as a residual speculation category. The current native Intel calculation uses an instruction-cache input as a machine-clear input. Its value cannot reliably identify misprediction cases; repeating measurements does not fix an incorrect formula.",
             ),
-        }),
-    ])
+        },
+    )
 
-    _clears = mo.vstack([
-        mo.md("**Machine Clears:** the CPU restarts its pipeline for reasons other than an ordinary branch misprediction, such as memory-ordering recovery. This is not the same as a cache miss."),
-        mo.accordion({
-            "Other Nukes (`other_nukes`) is reported — native diagnosis is unreliable": _counter_warning(
+    _clears = _metric_records(
+        "Machine Clears",
+        overview=mo.md("**Machine Clears:** the CPU restarts its pipeline for reasons other than an ordinary branch misprediction, such as memory-ordering recovery. This is not the same as a cache miss."),
+        metrics={
+            "Other Nukes · other_nukes": _counter_warning(
                 "The standard metric concerns machine clears unrelated to memory ordering; 'nuke' means a pipeline restart. The current native Intel calculation uses an instruction-cache input as a machine-clear input, so this value cannot establish that such restarts occur. If independent evidence indicates clears, investigate CPU-specific events; never remove required synchronization merely to reduce a metric.",
             ),
-        }),
-    ])
+        },
+    )
 
-    _light = mo.vstack([
-        mo.md("**Light Ops:** ordinary completed operations dominate. They may implement useful arithmetic, but also loads, stores, branches, and address calculations. Retiring does not mean that every instruction advances the matrix multiplication efficiently."),
-        mo.accordion({
-            "Mem Ops (`memory_operations`) is high — many instructions move data": _hint(
+    _light = _metric_records(
+        "Light Ops",
+        overview=mo.md("**Light Ops:** ordinary completed operations dominate. They may implement useful arithmetic, but also loads, stores, branches, and address calculations. Retiring does not mean that every instruction advances the matrix multiplication efficiently."),
+        metrics={
+            "Mem Ops · memory_operations": _hint(
                 "Many retired operations are loads or stores. This is an instruction-mix metric, not itself a memory-stall metric.",
                 "Repeated C loads/stores; limited reuse of A/B; register spills; packing copies.",
                 "Inspect the inner-loop assembly: is C read and written every k iteration? Are values spilled to the stack? Interpret this together with Memory Bound.",
                 "Keep accumulators in registers (Step 4), reuse operands, or shrink an oversized register tile. Include packing overhead when judging Step 7.",
                 "Necessary, efficient loads can produce a high value. The objective is more useful arithmetic per byte and lower runtime, not zero memory operations.",
             ),
-            "FP Arith (`fp_arith`) is prominent — verify how much arithmetic each instruction does": _hint(
+            "FP Arith · fp_arith": _hint(
                 "Floating-point arithmetic is being completed; this is generally expected for matrix multiplication.",
                 "Useful SIMD arithmetic, or scalar/narrow-vector operations that retire successfully but achieve little of the CPU's arithmetic peak.",
                 "Inspect vector width and FMA use in assembly. Are there multiple independent accumulator chains? Check the actual SIMD capabilities of your CPU.",
@@ -774,14 +811,14 @@ def _(mo):
                 "A high FP activity value is not a FLOP count or proof of peak throughput; event weighting can include FMA double-counting. Wider vectors and FMAs do more arithmetic per instruction; frequency and dependencies also matter.",
                 "`fp_scalar` / `fp_vector`, `fp_vector_128b/256b/512b`, and `x87_use`, if supported.",
             ),
-            "Fused / Non-Fused (`fused_instructions`, `non_fused_branches`) is prominent": _hint(
+            "Fused / Non-Fused · fused_instructions, non_fused_branches": _hint(
                 "These metrics concern instruction fusion, such as a comparison and branch handled together, and branches not fused that way.",
                 "Loop-control instructions occupy a significant share of the work; the instruction sequence may or may not permit fusion on this CPU.",
                 "Inspect comparisons and branches in the hot loop. Are very short loops doing little arithmetic per branch?",
                 "Use SIMD or modest unrolling to amortize loop control over more useful work; compare runtime and code size.",
                 "This fusion is not fused multiply-add (FMA). High fused-instruction activity is not inherently bad, and non-fused branches are not necessarily mispredicted.",
             ),
-            "Other Light (`other_light_ops`) is high — bookkeeping may dominate": _hint(
+            "Other Light · other_light_ops": _hint(
                 "Completed light operations are not explained by the listed sibling metrics.",
                 "Address arithmetic, loop counters, moves, conversions, or residual accounting.",
                 "Inspect how many non-arithmetic instructions occur per FMA in the hot loop. Check whether indexing expressions are recomputed unnecessarily.",
@@ -789,16 +826,17 @@ def _(mo):
                 "This residual category alone does not identify an instruction. Confirm the hypothesis in assembly and runtime.",
                 "`nop_instructions` and ALU-port metrics, where supported.",
             ),
-        }),
-    ])
+        },
+    )
 
-    _heavy = mo.vstack([
-        mo.md("**Heavy Ops:** instructions expand into multiple uops or use microcode. 'Heavy' does not automatically mean inefficient; investigate their cost and purpose in this kernel."),
-        mo.accordion({
-            "Few Uops (`few_uops_instructions`) is reported — native diagnosis is unreliable": _counter_warning(
+    _heavy = _metric_records(
+        "Heavy Ops",
+        overview=mo.md("**Heavy Ops:** instructions expand into multiple uops or use microcode. 'Heavy' does not automatically mean inefficient; investigate their cost and purpose in this kernel."),
+        metrics={
+            "Few Uops · few_uops_instructions": _counter_warning(
                 "The standard metric concerns retired instructions decoded into multiple uops. The current native Intel formula instead subtracts fused operations from total retired slots and does not isolate multi-uop instructions. Do not infer complex instructions, excess internal work, or an inefficient schedule from this value.",
             ),
-            "Microcode (`microcode_sequencer`) is high — complex or assisted execution": _hint(
+            "Microcode · microcode_sequencer": _hint(
                 "The Microcode Sequencer supplies a substantial amount of internal operations.",
                 "Complex instructions, helper code, or floating-point assists for exceptional input cases, depending on the CPU.",
                 "Inspect the measured assembly, compare MS Switches, and check supported assist metrics. Plain matrix-multiplication FMAs should not normally require persistent assisted execution.",
@@ -806,106 +844,185 @@ def _(mo):
                 "Microcode activity is not synonymous with a stall, and this percentage alone cannot identify the responsible instruction.",
                 "`assists`, `fp_assists`, and `cisc`, where available.",
             ),
-        }),
-    ])
+        },
+    )
+
+    guide_categories = {
+        "Backend Bound": {
+            "summary": "**Backend Bound:** instructions cannot make progress because data or execution resources are unavailable. Distinguish Memory Bound from Core Bound before choosing between cache tiling and register/SIMD changes.",
+            "metrics": {**_memory, **_core},
+        },
+        "Frontend Bound": {
+            "summary": "**Frontend Bound:** the execution machinery is underfed. A larger unrolled kernel can hurt instruction delivery even when it improves data reuse. Distinguish interruptions in delivery (latency) from insufficient delivery rate (bandwidth).",
+            "metrics": {**_fetch_latency, **_fetch_bandwidth},
+        },
+        "Bad Speculation": {
+            "summary": "**Bad Speculation:** the CPU starts work before knowing it is needed, then discards it or restarts execution. Separate incorrect branch predictions from other pipeline clears; changing cache tiles is not a general cure.",
+            "metrics": {**_branches, **_clears},
+        },
+        "Retiring": {
+            "summary": "**Retiring:** many execution slots complete operations. This is usually better than stalling, but scalar arithmetic, loads/stores, and bookkeeping also retire. A scalar instruction can retire efficiently while computing far fewer elements than SIMD. Check work per instruction and avoidable overhead, rather than trying to minimize Retiring.",
+            "metrics": {**_light, **_heavy},
+        },
+    }
+
+    backend_metric_selector = mo.ui.dropdown(
+        options=list(guide_categories["Backend Bound"]["metrics"]),
+        value=next(iter(guide_categories["Backend Bound"]["metrics"])),
+        searchable=True,
+        label="Choose a Level 2 group or metric",
+        full_width=True,
+    )
+    frontend_metric_selector = mo.ui.dropdown(
+        options=list(guide_categories["Frontend Bound"]["metrics"]),
+        value=next(iter(guide_categories["Frontend Bound"]["metrics"])),
+        searchable=True,
+        label="Choose a Level 2 group or metric",
+        full_width=True,
+    )
+    speculation_metric_selector = mo.ui.dropdown(
+        options=list(guide_categories["Bad Speculation"]["metrics"]),
+        value=next(iter(guide_categories["Bad Speculation"]["metrics"])),
+        searchable=True,
+        label="Choose a Level 2 group or metric",
+        full_width=True,
+    )
+    retiring_metric_selector = mo.ui.dropdown(
+        options=list(guide_categories["Retiring"]["metrics"]),
+        value=next(iter(guide_categories["Retiring"]["metrics"])),
+        searchable=True,
+        label="Choose a Level 2 group or metric",
+        full_width=True,
+    )
+
+    return (
+        guide_categories,
+        backend_metric_selector,
+        frontend_metric_selector,
+        speculation_metric_selector,
+        retiring_metric_selector,
+    )
+
+
+@app.cell(hide_code=True)
+def _(
+    mo,
+    guide_categories,
+    backend_metric_selector,
+    frontend_metric_selector,
+    speculation_metric_selector,
+    retiring_metric_selector,
+):
+    def _category_panel(category_name, selector):
+        category = guide_categories[category_name]
+        selected = selector.value
+        group_name, selected_item = selected.split(" · ", 1)
+        detail = category["metrics"][selected]
+
+        if selected_item == "Overview":
+            heading = mo.md(f"### {group_name} overview")
+        else:
+            metric_name, counter_names = selected_item.rsplit(" · ", 1)
+            heading = mo.md(
+                f"### {metric_name}\n\n"
+                f"**Level 2:** {group_name} · **Counter:** `{counter_names}`"
+            )
+
+        return mo.vstack([
+            mo.md(category["summary"]),
+            mo.hstack(
+                [selector, mo.vstack([heading, detail], justify="start")],
+                widths=[1, 3],
+                justify="start",
+                gap=1,
+                wrap=True,
+            ),
+        ])
+
+    category_tabs = mo.ui.tabs({
+        "Backend Bound": _category_panel("Backend Bound", backend_metric_selector),
+        "Frontend Bound": _category_panel("Frontend Bound", frontend_metric_selector),
+        "Bad Speculation": _category_panel("Bad Speculation", speculation_metric_selector),
+        "Retiring": _category_panel("Retiring", retiring_metric_selector),
+    })
+
+    _how_to_use = mo.md(r"""
+    ### How to use this guide
+
+    1. Start with a substantial **Level 1** category in the Sankey, then select a
+       Level 2 overview or metric. Treat the largest stall category as a starting
+       point, not a verdict that the schedule is bad.
+    2. Check **View Generated Assembly** to see whether the proposed cause appears
+       in the compiled inner loop.
+    3. Change **one scheduling decision at a time**, repeat measurements under similar
+       conditions, and keep a change only if **execution time improves**. A smaller
+       percentage can hide more absolute time in a slower program.
+    4. Validate numerical correctness when experimenting. A faster schedule is only
+       useful if it still computes the right result.
+
+    Low throughput relative to the reference is a reason to investigate, not proof
+    that a schedule can approach that reference.
+    The throughput bar compares matrix multiplication with a **measured arithmetic
+    microbenchmark**, not a theoretical hardware maximum. Its colors are illustrative,
+    not universal performance thresholds. Hardware counters are clues, not a diagnosis;
+    results vary with the CPU, compiler, matrix size, cache residency, and system activity.
+    """)
+
+    _vocabulary = mo.md(r"""
+    ### Vocabulary
+
+    The **frontend** fetches and decodes instructions; the **backend** executes them
+    and accesses data. A **uop** is an internal micro-operation. **Retiring** means
+    execution has completed and its result is committed—not that the instruction was
+    necessary for an efficient algorithm. **SIMD** performs arithmetic on multiple
+    elements per instruction; independent accumulator chains let the CPU overlap work.
+
+    Top-down **Levels 1, 2, and 3 are analysis depths**, not the L1/L2/L3 data caches.
+    Retiring and instruction-delivery activity are not themselves wasted work.
+    """)
+
+    _counter_limits = mo.md(r"""
+    ### Counter interpretation and limitations
+
+    Formulas, denominators, and availability vary by architecture. Reconstructed
+    metrics and separate measurement passes need not form exact parent/child percentage
+    partitions. Do not add leaf values as if they were mutually exclusive or use a
+    universal "bad" threshold. Unsupported metrics are not evidence that a bottleneck
+    is absent. The hierarchy uses Intel's conventional grouping as a navigation aid;
+    it does not make approximate or unverified values a valid percentage partition.
+
+    Some Level 3 event mappings and formulas in the current runtime are not reliable
+    implementations of Intel's standard metrics. Verify **Few Uops, Other Misp., Other
+    Nukes, Divider, MS Switches, Ports Util., Serializing, and ITLB Miss** before
+    interpreting them. Repeated measurements cannot validate an incorrect event or
+    formula. MITE/DSB and ICache values also require care because activity or event
+    counts are not necessarily stall percentages. These warnings concern the native
+    path; independently verify fallback metrics against your CPU's definitions too.
+
+    Optional deeper clues refer to counters that may be available separately, not
+    counters automatically collected here. Step examples are schematic pseudocode, not
+    guaranteed generated instructions; boundary and remainder handling is omitted.
+    For authoritative definitions, see [Intel's performance-monitoring metrics](https://github.com/intel/perfmon).
+    """)
 
     mo.vstack([
         mo.md(r"""
         ---
-        ## Why is my schedule slow? A hardware-counter troubleshooting guide
+        ## Diagnose a schedule bottleneck
 
-        A low percentage of the measured arithmetic reference is a reason to
-        investigate, not proof that a particular schedule can approach that reference.
-        The bar compares matrix-multiplication throughput with **a measured arithmetic
-        microbenchmark**, not a theoretical hardware maximum. Its colors are
-        illustrative, not universal performance thresholds.
-
-        Hardware counters provide **clues, not a definitive diagnosis**. Results
-        depend on the CPU, compiler, matrix sizes, cache residency, and other
-        activity on the machine. The examples below suggest hypotheses to test,
-        not percentages every computer should produce.
-
-        **How to use this guide:**
-
-        1. Start with a substantial **Level 1** category in the diagram, then inspect
-           its **Level 2** children and the detailed metrics below. Use the largest
-           stall category as a starting point, not as a verdict that the schedule is bad.
-        2. Open **View Generated Assembly** to check whether the proposed cause
-           actually appears in the compiled inner loop.
-        3. Change **one scheduling decision at a time**, repeat measurements under
-           similar conditions, and keep a change only if **execution time improves**.
-           A smaller percentage can hide more absolute time in a slower program.
-        4. Validate numerical correctness when experimenting (the sandbox enables
-           validation). A faster schedule is only useful if it still computes the result.
-
-        **Vocabulary:** the **frontend** fetches and decodes instructions; the
-        **backend** executes them and accesses data. A **uop** is an internal
-        micro-operation. **Retiring** means execution has completed and its result
-        is committed, not that the instruction was necessary for an efficient algorithm.
-        SIMD performs arithmetic on multiple elements per instruction; independent
-        accumulator chains let the CPU overlap work.
-
-        **Important distinctions:** Top-down **Levels 1, 2, and 3 are analysis depths**,
-        not the L1/L2/L3 data caches. Retiring and instruction-delivery activity are
-        not themselves wasted work. Formulas, denominators, and availability vary
-        by architecture; reconstructed metrics and separate measurement passes need
-        not form exact parent/child percentage partitions. Do not add all leaf values
-        as if they were mutually exclusive, or use a universal "bad" threshold.
-        Unsupported metrics are not evidence that a bottleneck is absent.
-
-        **Native-counter limitations:** some Level 3 event mappings and formulas in
-        the current runtime are not reliable implementations of Intel's standard
-        metrics. In particular, verify **Few Uops, Other Misp., Other Nukes, Divider,
-        MS Switches, Ports Util., Serializing, and ITLB Miss** before interpreting
-        them. Their entries explain the limitations; repeatability does not make an
-        incorrect event or formula valid. MITE/DSB and ICache values also require
-        care because activity or event counts are not necessarily stall percentages.
-        These warnings concern the native path; independently verify any fallback
-        metric against the definitions for your CPU too.
-
-        The hierarchy uses Intel's conventional grouping as a navigation aid;
-        it does not turn approximate or unverified native values into a valid
-        percentage partition. For authoritative definitions, see
-        [Intel's performance-monitoring metrics](https://github.com/intel/perfmon).
-
-        Expand the symptom that matches your result. Titles include the diagram
-        label and the raw metric name; optional deeper clues refer to counters that
-        may be available separately, not extra counters automatically collected here.
-        The step snippets are schematic loop pseudocode, not guaranteed generated
-        instructions; boundary/remainder handling is omitted for readability.
+        Choose a Level 1 category from the diagram, then search by metric label or raw
+        counter name. Open a Level 2 overview for context or select a metric for
+        targeted advice about assembly checks and scheduling experiments.
         """),
-        mo.accordion({
-            "Backend Bound dominates — waiting for data or execution resources": mo.vstack([
-                mo.md("**Backend Bound:** instructions cannot make progress because data or execution resources are unavailable. Distinguish Memory Bound from Core Bound before choosing between cache tiling and register/SIMD changes."),
-                mo.accordion({
-                    "Mem Bound (`memory_bound`) dominates — investigate data movement": _memory,
-                    "Core Bound (`core_bound`) dominates — investigate resources and dependencies": _core,
-                }),
-            ]),
-            "Frontend Bound dominates — instructions do not arrive fast enough": mo.vstack([
-                mo.md("**Frontend Bound:** the execution machinery is underfed. A larger unrolled kernel can hurt instruction delivery even when it improves data reuse. Distinguish interruptions in delivery (latency) from insufficient delivery rate (bandwidth)."),
-                mo.accordion({
-                    "Fetch Lat (`fetch_latency`) is high — delivery pauses": _fetch_latency,
-                    "Fetch BW (`fetch_bandwidth`) is high — delivery rate is insufficient": _fetch_bandwidth,
-                }),
-            ]),
-            "Bad Speculation dominates — speculative work is discarded": mo.vstack([
-                mo.md("**Bad Speculation:** the CPU starts work before knowing it is needed, then discards it or restarts execution. Separate incorrect branch predictions from other pipeline clears; changing cache tiles is not a general cure."),
-                mo.accordion({
-                    "Branch Misp (`branch_mispredicts`) is high — predictions fail": _branches,
-                    "Clears (`machine_clears`) is high — the pipeline restarts": _clears,
-                }),
-            ]),
-            "Retiring is high, but throughput relative to the reference is low — inspect completed work": mo.vstack([
-                mo.md("**Retiring:** many execution slots complete operations. This is usually better than stalling, but scalar arithmetic, loads/stores, and bookkeeping also retire. A scalar instruction can retire efficiently while computing far fewer elements than SIMD. Check work per instruction and avoidable overhead, rather than trying to minimize Retiring."),
-                mo.accordion({
-                    "Light Ops (`light_operations`) dominates — inspect arithmetic versus overhead": _light,
-                    "Heavy Ops (`heavy_operations`) dominates — inspect complex instructions": _heavy,
-                }),
-            ]),
+        category_tabs,
+        mo.md("## Reference"),
+        mo.ui.tabs({
+            "How to use this guide": _how_to_use,
+            "Vocabulary": _vocabulary,
+            "Counter limitations": _counter_limits,
         }),
     ])
-    return
+    return category_tabs,
 
 
 @app.cell(hide_code=True)
