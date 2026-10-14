@@ -76,9 +76,189 @@ def _(mo):
             return mo.md("⚠️ **TMA Data not available.**")
 
         try:
-            import plotly.graph_objects as go
+            import json
+            import pandas as pd
+            from d3blocks import D3Blocks
         except ImportError:
-            return mo.callout(mo.md(" **Please install `plotly` (`pip install plotly`) to visualize the Sankey diagram**"), kind="warn")
+            return mo.callout(mo.md(" **Please install `d3blocks` (`pip install d3blocks`) to visualize the Sankey diagram**"), kind="warn")
+
+        def _render_sankey_html(graph_links, node_info, node_colors, chart_height, synthetic_root):
+            """Render D3Blocks output and adapt its browser interactions for Marimo."""
+            chart_width = 1024
+            title_height = 40
+            synthetic_root_id = "xtcroot"
+
+            d3 = D3Blocks()
+            html = d3.sankey(
+                pd.DataFrame(graph_links, columns=["source", "target", "weight"]),
+                color=node_colors,
+                node={"align": "justify", "width": 20, "padding": 15, "color": "black"},
+                link={"color": "source-target", "stroke_opacity": 0.4},
+                fontsize=12,
+                title="Top-down Microarchitecture Pipeline µpipe",
+                filepath=None,
+                figsize=[chart_width, chart_height - title_height],
+                showfig=False,
+                notebook=False,
+                save_button=False,
+                show_side_panel=False,
+                show_top_panel=False,
+                dark_mode=False,
+                return_html=True,
+            )
+
+            # D3Blocks does not expose all tooltip and label options through
+            # sankey(). Append an adapter after its own script rather than
+            # patching implementation-specific JavaScript fragments.
+            node_info_json = json.dumps(node_info, ensure_ascii=True)
+            node_info_json = (
+                node_info_json.replace("&", r"\u0026")
+                .replace("<", r"\u003c")
+                .replace(">", r"\u003e")
+            )
+            adapter_script = r"""
+(() => {
+    const nodeInfo = __NODE_INFO__;
+    const hasSyntheticRoot = __HAS_SYNTHETIC_ROOT__;
+    const syntheticRootId = __SYNTHETIC_ROOT_ID__;
+    const svg = document.querySelector("#sankey-main svg");
+    if (!svg || !svg.computed) return;
+
+    // D3Blocks adds its own tooltip and native SVG title tooltips. Remove
+    // both so only the bounded, description-aware tooltip below is visible.
+    if (window.Tooltip) window.Tooltip.remove();
+    svg.querySelectorAll("title").forEach((title) => title.remove());
+
+    const tooltip = document.createElement("div");
+    tooltip.setAttribute("role", "tooltip");
+    tooltip.style.cssText = [
+        "position:fixed", "z-index:200", "pointer-events:none", "visibility:hidden",
+        "opacity:0", "max-width:min(360px, calc(100vw - 24px))",
+        "max-height:calc(100vh - 16px)", "overflow-y:auto", "overflow-wrap:anywhere",
+        "box-sizing:border-box", "white-space:normal", "padding:6px 9px",
+        "border:1px solid rgba(0,0,0,.18)", "border-radius:5px",
+        "background:#fff", "color:#111", "font:12px/1.4 Helvetica,Arial,sans-serif",
+        "box-shadow:0 2px 8px rgba(0,0,0,.18)", "transition:opacity .1s"
+    ].join(";");
+    document.body.appendChild(tooltip);
+
+    svg.querySelectorAll(".sankey-node-label").forEach((label) => {
+        const index = Number(label.getAttribute("data-node-index"));
+        const node = svg.computed.nodes[index];
+        if (nodeInfo[node.id]) label.textContent = nodeInfo[node.id].label;
+    });
+    svg.querySelectorAll(".sankey-link").forEach((link) => {
+        link.style.mixBlendMode = "normal";
+    });
+    svg.querySelectorAll(".sankey-node").forEach((node) => {
+        node.style.strokeWidth = "0.5px";
+    });
+
+    if (hasSyntheticRoot) {
+        const root = svg.computed.nodes.find((node) => node.id === syntheticRootId);
+        svg.querySelectorAll(".sankey-link").forEach((link) => {
+            link.style.display = "none";
+        });
+        if (root) {
+            [".sankey-node", ".sankey-node-label"].forEach((selector) => {
+                const element = svg.querySelector(
+                    `${selector}[data-node-index="${root.index}"]`
+                );
+                if (element) element.style.display = "none";
+            });
+        }
+    }
+
+    function hideTooltip() {
+        tooltip.style.opacity = "0";
+        tooltip.style.visibility = "hidden";
+    }
+
+    function showTooltip(event, lines) {
+        tooltip.replaceChildren(...lines);
+        tooltip.style.left = "0px";
+        tooltip.style.top = "0px";
+        tooltip.style.visibility = "hidden";
+
+        const bounds = tooltip.getBoundingClientRect();
+        const margin = 8;
+        const gap = 14;
+        let left = event.clientX + gap;
+        let top = event.clientY + gap;
+        if (left + bounds.width > window.innerWidth - margin) {
+            left = event.clientX - gap - bounds.width;
+        }
+        if (top + bounds.height > window.innerHeight - margin) {
+            top = event.clientY - gap - bounds.height;
+        }
+        left = Math.max(margin, Math.min(left, window.innerWidth - bounds.width - margin));
+        top = Math.max(margin, Math.min(top, window.innerHeight - bounds.height - margin));
+
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+        tooltip.style.visibility = "visible";
+        tooltip.style.opacity = "1";
+    }
+
+    window.__sankeyNodeHover__ = (node, event) => {
+        const info = nodeInfo[node.id];
+        if (!info) return;
+        const label = document.createElement("strong");
+        label.textContent = info.label;
+        const description = document.createElement("div");
+        description.textContent = info.description;
+        showTooltip(event, [label, description]);
+    };
+    window.__sankeyNodeMove__ = window.__sankeyNodeHover__;
+    window.__sankeyNodeLeave__ = hideTooltip;
+    window.__sankeyLinkHover__ = (link, event) => {
+        const source = nodeInfo[link.source.id];
+        const target = nodeInfo[link.target.id];
+        if (!source || !target) return;
+        const labels = document.createElement("div");
+        labels.textContent = `${source.label} → ${target.label}`;
+        const value = document.createElement("div");
+        value.textContent = `Value: ${Number(link.value).toFixed(1)}%`;
+        showTooltip(event, [labels, value]);
+    };
+    window.__sankeyLinkMove__ = window.__sankeyLinkHover__;
+    window.__sankeyLinkLeave__ = hideTooltip;
+    window.__sankeyNodeClick__ = (_node, event) => event.stopPropagation();
+})();
+"""
+            adapter_script = (
+                adapter_script.replace("__NODE_INFO__", node_info_json)
+                .replace("__HAS_SYNTHETIC_ROOT__", json.dumps(synthetic_root))
+                .replace("__SYNTHETIC_ROOT_ID__", json.dumps(synthetic_root_id))
+            )
+
+            def replace_once(source, old, new):
+                if source.count(old) != 1:
+                    raise RuntimeError("Unexpected D3Blocks Sankey HTML structure")
+                return source.replace(old, new, 1)
+
+            html = replace_once(
+                html,
+                '<div id="sankey-main"></div>',
+                '<div class="xtc-sankey-title">Top-down Microarchitecture Pipeline µpipe</div>\n'
+                '<div id="sankey-main"></div>',
+            )
+            html = replace_once(
+                html,
+                "</head>",
+                "<style>\n"
+                "    html, body { height: auto; overflow: hidden; background: #fff; color: #111; }\n"
+                "    .xtc-sankey-title { height: 40px; box-sizing: border-box; padding: 10px 20px 0; text-align: center; color: #111; font: 600 12px/20px Helvetica, Arial, sans-serif; }\n"
+                "    #sankey-main { margin-top: 0; padding-bottom: 0; }\n"
+                "    .sankey-node-label { fill: #111; font-size: 12px; }\n"
+                "</style>\n</head>",
+            )
+            html = replace_once(
+                html,
+                "</body>",
+                f"<script>\n{adapter_script}\n</script>\n</body>",
+            )
+            return mo.iframe(html, height=f"{chart_height}px")
 
         try:
             # Color palettes (L1, L2, L3)
@@ -138,11 +318,6 @@ def _(mo):
             links_source = []
             links_target = []
             links_value = []
-            links_color = []
-
-            def hex_to_rgba(hex_color, alpha=0.4):
-                h = hex_color.lstrip('#')
-                return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {alpha})"
 
             def add_node(name, pct, color, desc=""):
                 nodes_label.append(f"{name} ({pct:.1f}%)")
@@ -150,11 +325,10 @@ def _(mo):
                 nodes_desc.append(desc)
                 return len(nodes_label) - 1
 
-            def add_link(source, target, value, color):
+            def add_link(source, target, value):
                 links_source.append(source)
                 links_target.append(target)
                 links_value.append(max(value, 0.1)) # 0.1 ensures 0% metrics remain visible as thin lines
-                links_color.append(hex_to_rgba(color, 0.4))
 
             # TopdownL1
             n_ret = add_node("Retiring", l1_res[0], c_ret, desc_l1["Retiring"])
@@ -167,7 +341,7 @@ def _(mo):
                 def process_l2(l2_name, l2_idx, parent_node, color, desc, l3_mappings=None):
                     l2_val = l2_res[l2_idx]
                     n_l2 = add_node(l2_name, l2_val, color, desc)
-                    add_link(parent_node, n_l2, l2_val, color)
+                    add_link(parent_node, n_l2, l2_val)
 
                     if l3_res and l3_mappings and len(l3_res) > 0 and l3_res[0] >= 0:
                         for l3_name, l3_idx in l3_mappings:
@@ -175,7 +349,7 @@ def _(mo):
                                 l3_val = l3_res[l3_idx]
                                 desc_text = desc_l3[l3_idx] if len(desc_l3) > l3_idx else ""
                                 n_l3 = add_node(l3_name, l3_val, color, desc_text)
-                                add_link(n_l2, n_l3, l3_val, color)
+                                add_link(n_l2, n_l3, l3_val)
 
                 map_light = map_heavy = map_clears = map_misp = map_fbw = map_flat = map_core = map_mem = None
 
@@ -200,33 +374,46 @@ def _(mo):
                 process_l2("Core Bound", 6, n_be, c_be, desc_l2["Core Bound"], map_core)
                 process_l2("Mem Bound", 7, n_be, c_be, desc_l2["Mem Bound"], map_mem)
 
-            fig = go.Figure(data=[go.Sankey(
-                node = dict(
-                  pad = 15,
-                  thickness = 20,
-                  line = dict(color = "black", width = 0.5),
-                  label = nodes_label,
-                  color = nodes_color,
-                  customdata = nodes_desc,
-                  hovertemplate = "<b>%{label}</b><br>%{customdata}<extra></extra>"
-                ),
-                link = dict(
-                  source = links_source,
-                  target = links_target,
-                  value = links_value,
-                  color = links_color,
-                  hovertemplate = "%{source.label} → %{target.label}<br>Value: %{value:.1f}%<extra></extra>"
-                )
-            )])
+            # D3Blocks cleans source/target labels, so use stable internal IDs
+            # and keep the original display labels and descriptions separately.
+            node_ids = [f"n{i}" for i in range(len(nodes_label))]
+            node_info = {
+                node_id: {
+                    "label": label,
+                    "description": description,
+                }
+                for node_id, label, description in zip(node_ids, nodes_label, nodes_desc)
+            }
+            node_colors = dict(zip(node_ids, nodes_color))
+            graph_links = [
+                {
+                    "source": node_ids[source],
+                    "target": node_ids[target],
+                    "weight": value,
+                }
+                for source, target, value in zip(links_source, links_target, links_value)
+            ]
 
-            fig.update_layout(
-                title_text="Top-down Microarchitecture Pipeline µpipe",
-                font_size=12,
-                height=650 if (l3_res and len(l3_res) > 5) else 450,
-                margin=dict(t=40, l=20, r=20, b=20)
+            # D3's Sankey layout needs at least one link. Keep a Level-1-only
+            # result visible by adding hidden links to an internal helper node.
+            synthetic_root = not graph_links
+            synthetic_root_id = "xtcroot"
+            if synthetic_root:
+                node_info[synthetic_root_id] = {"label": "", "description": ""}
+                node_colors[synthetic_root_id] = "#ffffff"
+                graph_links = [
+                    {
+                        "source": node_ids[index],
+                        "target": synthetic_root_id,
+                        "weight": max(l1_res[index], 0.1),
+                    }
+                    for index in range(4)
+                ]
+
+            chart_height = 650 if (l3_res and len(l3_res) > 5) else 450
+            return _render_sankey_html(
+                graph_links, node_info, node_colors, chart_height, synthetic_root
             )
-
-            return fig
 
         except Exception as e:
             import traceback
