@@ -5,6 +5,7 @@
 from typing_extensions import override
 
 from xtc.utils.ext_tools import (
+    get_openmp_cflags,
     xtctranslate_opts,
     target_cc_bin,
     target_cc_opts,
@@ -55,6 +56,7 @@ class MlirCTarget(MlirCpuTarget):
         cc_pic = ["-fPIC"] if self._config.shared_lib else []
         cc_crt_inc = [f"-I{self._config.mlir_install_dir}/runtime/include"]
         cc_arch = [f"-march={self._config.cpu}", f"-mtune={self._config.cpu}"]
+        cc_omp = get_openmp_cflags(target_cc_bin)
         # FIXME Some options may change between a GCC and a LLVM based compiler
         # This works for GCC 12 for x86
         cc_cmd = (
@@ -63,6 +65,7 @@ class MlirCTarget(MlirCpuTarget):
             + cc_arch
             + cc_pic
             + cc_crt_inc
+            + cc_omp
             + ["-c", c_dump_file, "-o", obj_dump_file]
         )
         cc_process = self.execute_command(cmd=cc_cmd)

@@ -8,13 +8,18 @@ import platform
 import re
 import shutil
 import subprocess
+from functools import cache
 from pathlib import Path
+
+from xtc.utils.tools import check_compile
+
+homebrew_libomp_prefix = "/opt/homebrew/opt/libomp"
 
 
 def get_library_path(libname: str) -> str:
     # Check Homebrew path for macOS first
     if platform.system() == "Darwin":
-        homebrew_path = f"/opt/homebrew/opt/libomp/lib/lib{libname}.dylib"
+        homebrew_path = f"{homebrew_libomp_prefix}/lib/lib{libname}.dylib"
         if os.path.exists(homebrew_path):
             return homebrew_path
 
@@ -59,6 +64,33 @@ def get_library_path(libname: str) -> str:
     raise RuntimeError(
         f"could not resolve {libfile} for {libname}; searched: {searched}"
     )
+
+
+@cache
+def get_openmp_cflags(compiler: str) -> list[str]:
+    """
+    Returns the flags enabling OpenMP for the given C compiler.
+    Apple clang rejects -fopenmp in the driver, hence the -Xpreprocessor
+    fallback with Homebrew libomp headers.
+    Returns an empty list when OpenMP is unavailable, in which case
+    omp pragmas are ignored and the code is compiled sequentially.
+    """
+    code = (
+        "#include <omp.h>\n#ifndef _OPENMP\n#error\n#endif\nint main() { return 0; }\n"
+    )
+    candidates = [["-fopenmp"]]
+    if platform.system() == "Darwin":
+        candidates.append(
+            [
+                "-Xpreprocessor",
+                "-fopenmp",
+                f"-I{homebrew_libomp_prefix}/include",
+            ]
+        )
+    for flags in candidates:
+        if check_compile(code, flags=flags, link=False, compiler=compiler):
+            return flags
+    return []
 
 
 def get_shlib_extension():

@@ -486,7 +486,7 @@ class MlirProgramInsertTransformPass:
             target=self._named_sequence.bodyTarget,
             op_attrs={consumer_id: UnitAttr.get()},
         )
-        op = xtc_transform.FuseConsumerOp(consumer_handle, fuse_loops)
+        op = xtc_transform.FuseConsumerOp(consumer_handle, fuse_loops, in_place=True)
         # re-annotate the loops that were touched by the fusion
         for i, loop_dim in enumerate(schedule.permutation[fuse_root]):
             sched_state.all_loops[loop_dim] = op.new_loops[i]

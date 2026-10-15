@@ -157,17 +157,27 @@ def get_cuda_prefix(prefix: Path | str | None = None) -> Path:
     return prefix
 
 
-def check_compile(code: str, libs: str | list[str] | None = None):
+def check_compile(
+    code: str,
+    libs: str | list[str] | None = None,
+    flags: list[str] | None = None,
+    link: bool = True,
+    compiler: str | None = None,
+):
     """
-    Attempt to compile (and link) a small C program.
+    Attempt to compile (and link if link is True) a small C program.
     """
-    compiler = shutil.which("cc") or shutil.which("gcc")
+    if compiler is None:
+        compiler = shutil.which("cc") or shutil.which("gcc")
+    else:
+        compiler = shutil.which(compiler)
     if compiler is None:
         return False
 
     if isinstance(libs, str):
         libs = [libs]
     libs = libs or []
+    flags = flags or []
 
     with tempfile.TemporaryDirectory() as tmpdir:
         src_path = os.path.join(tmpdir, "test.c")
@@ -176,7 +186,12 @@ def check_compile(code: str, libs: str | list[str] | None = None):
         with open(src_path, "w") as f:
             f.write(code)
 
-        cmd = [compiler, src_path, "-o", exe_path] + [f"-l{lib}" for lib in libs]
+        if link:
+            cmd = [compiler, *flags, src_path, "-o", exe_path] + [
+                f"-l{lib}" for lib in libs
+            ]
+        else:
+            cmd = [compiler, *flags, "-c", src_path, "-o", f"{exe_path}.o"]
 
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return result.returncode == 0
