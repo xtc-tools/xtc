@@ -574,15 +574,15 @@ def _(mo):
             experiment,
         )
         _sections = [
-            f"#### What it means\n\n{meaning}",
-            f"#### Possible causes\n\n{causes}",
-            f"#### Check the generated assembly\n\n{check}",
-            f"#### Scheduling experiment\n\n{_experiment}",
+            f"### What it means\n\n<div style=\"background:#f5f5f5;padding:12px 16px;border-radius:6px;border-left:4px solid #60a5fa\">{meaning}</div>",
+            f"### Possible causes\n\n<div style=\"background:#f5f5f5;padding:12px 16px;border-radius:6px;border-left:4px solid #60a5fa\">{causes}</div>",
+            f"### Check the generated assembly\n\n<div style=\"background:#f5f5f5;padding:12px 16px;border-radius:6px;border-left:4px solid #60a5fa\">{check}</div>",
+            f"### Scheduling experiment\n\n<div style=\"background:#f5f5f5;padding:12px 16px;border-radius:6px;border-left:4px solid #60a5fa\">{_experiment}</div>",
         ]
         if caution:
-            _sections.append(f"#### Interpretation limits\n\n{caution}")
+            _sections.append(f"### Interpretation limits\n\n<div style=\"background:#fff8e1;padding:12px 16px;border-radius:6px;border-left:4px solid #f59e0b\">{caution}</div>")
         if deeper:
-            _sections.append(f"#### Additional counters\n\n{deeper}")
+            _sections.append(f"### Additional counters\n\n{deeper}")
         _content = mo.md("\n\n".join(_sections))
         if native_warning:
             return mo.vstack([_counter_warning(native_warning), _content])
@@ -597,7 +597,7 @@ def _(mo):
     _memory = _metric_records(
         "Memory Bound",
         overview=mo.md(r"""
-        **Memory Bound:** execution is waiting for loads or stores. Ask whether the
+        Execution is waiting for loads or stores. Ask whether the
         schedule reuses data before it leaves a nearby cache, and whether it moves
         more data than necessary.
 
@@ -666,7 +666,7 @@ def _(mo):
     _core = _metric_records(
         "Core Bound",
         overview=mo.md(r"""
-        **Core Bound:** execution is limited by computational resources or
+        Execution is limited by computational resources or
         dependencies between instructions rather than primarily by fetching data.
         An **execution port** routes operations to units such as arithmetic or
         load/store units. Independent instructions can overlap; a dependent
@@ -706,7 +706,7 @@ def _(mo):
 
     _fetch_latency = _metric_records(
         "Fetch Latency",
-        overview=mo.md("**Fetch Latency:** instruction delivery pauses. Possible causes include code fetch, branch recovery, and transitions between instruction-delivery mechanisms. These clues can overlap; check the actual instruction stream before assigning a cause."),
+        overview=mo.md("Instruction delivery pauses. Possible causes include code fetch, branch recovery, and transitions between instruction-delivery mechanisms. These clues can overlap; check the actual instruction stream before assigning a cause."),
         metrics={
             "ICache Miss · icache_misses": _hint(
                 "Instruction-cache activity can be associated with frontend delays. This cache holds code, not A/B/C data; the native metric does not uniformly measure stall cycles.",
@@ -759,7 +759,7 @@ def _(mo):
 
     _fetch_bandwidth = _metric_records(
         "Fetch Bandwidth",
-        overview=mo.md("**Fetch Bandwidth:** the frontend delivers instructions, but not fast enough. Too much loop/indexing overhead or expanded code can leave execution units underfed."),
+        overview=mo.md("The **frontend** delivers instructions, but not fast enough. Too much loop/indexing overhead or expanded code can leave execution units underfed."),
         metrics={
             "MITE / DSB · mite, dsb": _hint(
                 "MITE is the legacy instruction decoder; DSB is the Decoded Stream Buffer (a cache of already-decoded micro-operations, or uops).",
@@ -774,7 +774,7 @@ def _(mo):
 
     _branches = _metric_records(
         "Branch Mispredicts",
-        overview=mo.md("**Branch Mispredicts:** the CPU predicts which instructions come next incorrectly, then discards work. Regular matrix-multiplication loops are often predictable, so inspect branches, short loops, and remainder paths if a verified metric indicates substantial misprediction cost. Test modest unrolling or different tile sizes only after checking the assembly. Related fetching delays appear under **Frontend Bound → Fetch Latency → Branch Rest.**; do not add these overlapping clues as separate costs."),
+        overview=mo.md("The CPU predicts which instructions come next incorrectly, then discards work. Regular matrix-multiplication loops are often predictable, so inspect branches, short loops, and remainder paths if a verified metric indicates substantial misprediction cost. Test modest unrolling or different tile sizes only after checking the assembly. Related fetching delays appear under **Frontend Bound → Fetch Latency → Branch Rest.**; do not add these overlapping clues as separate costs."),
         metrics={
             "Other Misp. · other_mispredicts": _counter_warning(
                 "This is intended as a residual speculation category. The current native Intel calculation uses an instruction-cache input as a machine-clear input. Its value cannot reliably identify misprediction cases; repeating measurements does not fix an incorrect formula.",
@@ -784,7 +784,7 @@ def _(mo):
 
     _clears = _metric_records(
         "Machine Clears",
-        overview=mo.md("**Machine Clears:** the CPU restarts its pipeline for reasons other than an ordinary branch misprediction, such as memory-ordering recovery. This is not the same as a cache miss."),
+        overview=mo.md("The CPU restarts its pipeline for reasons other than an ordinary branch misprediction, such as memory-ordering recovery. This is not the same as a cache miss."),
         metrics={
             "Other Nukes · other_nukes": _counter_warning(
                 "The standard metric concerns machine clears unrelated to memory ordering; 'nuke' means a pipeline restart. The current native Intel calculation uses an instruction-cache input as a machine-clear input, so this value cannot establish that such restarts occur. If independent evidence indicates clears, investigate CPU-specific events; never remove required synchronization merely to reduce a metric.",
@@ -794,7 +794,7 @@ def _(mo):
 
     _light = _metric_records(
         "Light Ops",
-        overview=mo.md("**Light Ops:** ordinary completed operations dominate. They may implement useful arithmetic, but also loads, stores, branches, and address calculations. Retiring does not mean that every instruction advances the matrix multiplication efficiently."),
+        overview=mo.md("Ordinary completed operations dominate. They may implement useful arithmetic, but also loads, stores, branches, and address calculations. Retiring does not mean that every instruction advances the matrix multiplication efficiently."),
         metrics={
             "Mem Ops · memory_operations": _hint(
                 "Many retired operations are loads or stores. This is an instruction-mix metric, not itself a memory-stall metric.",
@@ -831,10 +831,14 @@ def _(mo):
 
     _heavy = _metric_records(
         "Heavy Ops",
-        overview=mo.md("**Heavy Ops:** instructions expand into multiple uops or use microcode. 'Heavy' does not automatically mean inefficient; investigate their cost and purpose in this kernel."),
+        overview=mo.md("Instructions expand into multiple uops or use microcode. 'Heavy' does not automatically mean inefficient; investigate their cost and purpose in this kernel."),
         metrics={
-            "Few Uops · few_uops_instructions": _counter_warning(
-                "The standard metric concerns retired instructions decoded into multiple uops. The current native Intel formula instead subtracts fused operations from total retired slots and does not isolate multi-uop instructions. Do not infer complex instructions, excess internal work, or an inefficient schedule from this value.",
+            "Few Uops · few_uops_instructions is high — inspect multi-operation instructions": _hint(
+                "This category represents instructions accounted as multiple micro-operations, although native reconstruction may be approximate.",
+                "Complex instructions or an instruction mix that requires more internal work than its assembly instruction count suggests.",
+                "Inspect the hot-loop instruction mix alongside Heavy Ops. A short assembly listing can still require many internal operations.",
+                "Compare schedules that generate simpler indexing and arithmetic sequences, and retain the faster one.",
+                "The standard metric concerns retired instructions decoded into multiple uops. The current native Intel formula instead subtracts fused operations from total retired slots and does not isolate multi-uop instructions. Do not infer complex instructions, excess internal work, or an inefficient schedule from this value."
             ),
             "Microcode · microcode_sequencer": _hint(
                 "The Microcode Sequencer supplies a substantial amount of internal operations.",
@@ -849,19 +853,19 @@ def _(mo):
 
     guide_categories = {
         "Backend Bound": {
-            "summary": "**Backend Bound:** instructions cannot make progress because data or execution resources are unavailable. Distinguish Memory Bound from Core Bound before choosing between cache tiling and register/SIMD changes.",
+            "summary": "Backend Bound: instructions cannot make progress because data or execution resources are unavailable. Distinguish Memory Bound from Core Bound before choosing between cache tiling and register/SIMD changes.",
             "metrics": {**_memory, **_core},
         },
         "Frontend Bound": {
-            "summary": "**Frontend Bound:** the execution machinery is underfed. A larger unrolled kernel can hurt instruction delivery even when it improves data reuse. Distinguish interruptions in delivery (latency) from insufficient delivery rate (bandwidth).",
+            "summary": "Frontend Bound: the execution machinery is underfed. A larger unrolled kernel can hurt instruction delivery even when it improves data reuse. Distinguish interruptions in delivery (latency) from insufficient delivery rate (bandwidth).",
             "metrics": {**_fetch_latency, **_fetch_bandwidth},
         },
         "Bad Speculation": {
-            "summary": "**Bad Speculation:** the CPU starts work before knowing it is needed, then discards it or restarts execution. Separate incorrect branch predictions from other pipeline clears; changing cache tiles is not a general cure.",
+            "summary": "Bad Speculation: the CPU starts work before knowing it is needed, then discards it or restarts execution. Separate incorrect branch predictions from other pipeline clears; changing cache tiles is not a general cure.",
             "metrics": {**_branches, **_clears},
         },
         "Retiring": {
-            "summary": "**Retiring:** many execution slots complete operations. This is usually better than stalling, but scalar arithmetic, loads/stores, and bookkeeping also retire. A scalar instruction can retire efficiently while computing far fewer elements than SIMD. Check work per instruction and avoidable overhead, rather than trying to minimize Retiring.",
+            "summary": "Retiring: many execution slots complete operations. This is usually better than stalling, but scalar arithmetic, loads/stores, and bookkeeping also retire. A scalar instruction can retire efficiently while computing far fewer elements than SIMD. Check work per instruction and avoidable overhead, rather than trying to minimize Retiring.",
             "metrics": {**_light, **_heavy},
         },
     }
@@ -929,7 +933,7 @@ def _(
             )
 
         return mo.vstack([
-            mo.md(category["summary"]),
+            mo.md(f"<div style=\"background:#e8f4fd;padding:10px 14px;border-radius:6px;border-left:4px solid #60a5fa\">{category['summary']}</div>"),
             mo.hstack(
                 [selector, mo.vstack([heading, detail], justify="start")],
                 widths=[1, 3],
@@ -1006,6 +1010,12 @@ def _(
     """)
 
     mo.vstack([
+        mo.md("## Reference"),
+        mo.ui.tabs({
+            "How to use this guide": _how_to_use,
+            "Vocabulary": _vocabulary,
+            "Counter limitations": _counter_limits,
+        }),
         mo.md(r"""
         ---
         ## Diagnose a schedule bottleneck
@@ -1015,12 +1025,6 @@ def _(
         targeted advice about assembly checks and scheduling experiments.
         """),
         category_tabs,
-        mo.md("## Reference"),
-        mo.ui.tabs({
-            "How to use this guide": _how_to_use,
-            "Vocabulary": _vocabulary,
-            "Counter limitations": _counter_limits,
-        }),
     ])
     return category_tabs,
 

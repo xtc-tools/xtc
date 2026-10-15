@@ -23,7 +23,7 @@ dev = [
     "marimo>=0.20.0",
     "ruff==0.14.10",
     "matplotlib",
-    "plotly"
+    "d3blocks==2.1.0"
 ]
 
 [tool.setuptools]
