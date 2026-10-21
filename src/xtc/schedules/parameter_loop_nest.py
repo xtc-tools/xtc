@@ -128,7 +128,9 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
     parallelize_parameters: dict[str, str] = field(default_factory=dict)
     unroll: dict[str, literal] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
-    pack_at: dict[str, tuple[int, str | None, bool | str]] = field(default_factory=dict)
+    pack_at: dict[str, list[tuple[int, str | None, bool | str]]] = field(
+        default_factory=dict
+    )
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
     fuse_consumer_at: list[str] = field(default_factory=list)
     constraints: list[str] = field(default_factory=list)
@@ -171,8 +173,11 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
         }
         buffer_at = self.buffer_at
         pack_at = {
-            a: (a1, a2, bool(sample[a3]) if isinstance(a3, str) else a3)
-            for a, (a1, a2, a3) in self.pack_at.items()
+            a: [
+                (a1, a2, bool(sample[a3]) if isinstance(a3, str) else a3)
+                for (a1, a2, a3) in v
+            ]
+            for a, v in self.pack_at.items()
         }
         fuse_producer_at = self.fuse_producer_at
         fuse_consumer_at = self.fuse_consumer_at
@@ -321,13 +326,16 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             else:
                 annotations.append("buffer")
         if loop_name in self.pack_at:
-            input_idx, mtype, pad = self.pack_at[loop_name]
-            parts = [str(input_idx)]
-            if mtype is not None:
-                parts.append(mtype)
-            if pad:
-                parts.append("pad")
-            annotations.append(f"pack({', '.join(parts)})")
+            parts = []
+            for input_idx, mtype, pad in self.pack_at[loop_name]:
+                part = "(" + str(input_idx)
+                if mtype is not None:
+                    part += ", " + str(mtype)
+                if pad:
+                    part += ", pad"
+                part += ")"
+                parts.append(part)
+            annotations.append(f"pack([{', '.join(parts)}])")
         if loop_name in self.fuse_producer_at:
             prod_idx = self.fuse_producer_at[loop_name]
             annotations.append(f"fuse_producer({prod_idx})")

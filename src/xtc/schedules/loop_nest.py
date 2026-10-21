@@ -120,7 +120,7 @@ class LoopNestNode(Node["LoopNestNode"]):
     parallelize: list[str] = field(default_factory=list)
     unroll: dict[str, int] = field(default_factory=dict)
     buffer_at: dict[str, str | None] = field(default_factory=dict)
-    pack_at: dict[str, tuple[int, str | None, bool]] = field(default_factory=dict)
+    pack_at: dict[str, list[tuple[int, str | None, bool]]] = field(default_factory=dict)
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
     fuse_consumer_at: list[str] = field(default_factory=list)
     external_at: dict[str, str] = field(default_factory=dict)
@@ -243,13 +243,16 @@ class LoopNestNode(Node["LoopNestNode"]):
             else:
                 annotations.append("buffer")
         if loop_name in self.pack_at:
-            input_idx, mtype, pad = self.pack_at[loop_name]
-            parts = [str(input_idx)]
-            if mtype is not None:
-                parts.append(mtype)
-            if pad:
-                parts.append("pad")
-            annotations.append(f"pack({', '.join(parts)})")
+            parts = []
+            for input_idx, mtype, pad in self.pack_at[loop_name]:
+                part = "(" + str(input_idx)
+                if mtype is not None:
+                    part += ", " + str(mtype)
+                if pad:
+                    part += ", pad"
+                part += ")"
+                parts.append(part)
+            annotations.append(f"pack([{', '.join(parts)}])")
         if loop_name in self.fuse_producer_at:
             prod_idx = self.fuse_producer_at[loop_name]
             annotations.append(f"fuse_producer({prod_idx})")

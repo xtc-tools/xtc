@@ -79,9 +79,8 @@ class LoopNestBuilder:
             for axis, v in node_sched.write_buffers.items()
             if is_node_axis(axis)
         }
-        # TODO: loop nest supports only one pack per axis
         pack_at = {
-            basename(axis): v[0]
+            basename(axis): v
             for axis, v in node_sched.packed_buffers.items()
             if is_node_axis(axis)
         }

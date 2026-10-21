@@ -26,6 +26,8 @@ from .TVMOps import TVMOperation
 # from op name to the TVM schedule string
 ScheduleImpl: TypeAlias = dict[str, str]
 _GPU_DIM = {0: "x", 1: "y", 2: "z"}
+# Storage scopes accepted by tvm cache_read/cache_write
+_TVM_MEM_SCOPES = {"global", "shared", "local", "warp", "shared.dyn"}
 
 
 class TVMScheduleEmitter(ABC):
@@ -71,14 +73,20 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
         if node.fuse_consumer_at:
             print(f"O_F0 = {sch}.get_consumers({block})[0]", file=outf)
         if node.pack_at:
-            inputs = list({inp[0]: None for inp in node.pack_at.values()})
-            for inp_idx in inputs:
+            scope_of = {
+                inp_idx: (mtype if mtype is not None else "global")
+                for inp in node.pack_at.values()
+                for inp_idx, mtype, _ in inp
+            }
+            for inp_idx, scope in scope_of.items():
                 print(
-                    f'I_R{inp_idx} = {sch}.cache_read({block}, {inp_idx}, "global")',
+                    f'I_R{inp_idx} = {sch}.cache_read({block}, {inp_idx}, "{scope}")',
                     file=outf,
                 )
         if node.buffer_at:
-            print(f'O_W0 = {sch}.cache_write({block}, 0, "global")', file=outf)
+            wscope = next(iter(node.buffer_at.values()))
+            wscope = wscope if wscope is not None else "global"
+            print(f'O_W0 = {sch}.cache_write({block}, 0, "{wscope}")', file=outf)
         if node.fuse_producer_at:
             producers = list({idx: None for idx in node.fuse_producer_at.values()})
             for prod_idx in producers:
@@ -121,17 +129,18 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
             for axis in node.buffer_at:
                 print(f"{sch}.reverse_compute_at(O_W0, {axis})", file=outf)
         if node.pack_at:
-            for axis, (inp_idx, mtype, pad) in node.pack_at.items():
-                print(f"{sch}.compute_at(I_R{inp_idx}, {axis})", file=outf)
-                dim, factor, offset = tvm_cache_read_factor_offset(
-                    self._op, inp_idx, pad
-                )
-                if factor != 0:
-                    print(
-                        f"{sch}.storage_align(I_R{inp_idx}, 0, ",
-                        f"axis={dim}, factor={factor}, offset={offset})",
-                        file=outf,
+            for axis, v in node.pack_at.items():
+                for inp_idx, mtype, pad in v:
+                    print(f"{sch}.compute_at(I_R{inp_idx}, {axis})", file=outf)
+                    dim, factor, offset = tvm_cache_read_factor_offset(
+                        self._op, inp_idx, pad
                     )
+                    if factor != 0:
+                        print(
+                            f"{sch}.storage_align(I_R{inp_idx}, 0, ",
+                            f"axis={dim}, factor={factor}, offset={offset})",
+                            file=outf,
+                        )
         if node.fuse_producer_at:
             for axis, prod_idx in node.fuse_producer_at.items():
                 print(f"{sch}.compute_at(I_F{prod_idx}, {axis})", file=outf)
@@ -358,7 +367,7 @@ class TVMScheduler(itf.schd.Scheduler):
     def buffer_at(
         self, axis: str, mtype: str | None = None, root: str = DEFAULT_ROOT
     ) -> None:
-        assert mtype is None or mtype == "global"
+        assert mtype is None or mtype in _TVM_MEM_SCOPES
         self._plain_sch.buffer_at(axis, mtype, root)
 
     @override
@@ -370,7 +379,7 @@ class TVMScheduler(itf.schd.Scheduler):
         pad: bool = False,
         root: str = DEFAULT_ROOT,
     ) -> None:
-        assert mtype is None or mtype == "global"
+        assert mtype is None or mtype in _TVM_MEM_SCOPES
         assert input_idx >= 0 and input_idx < len(self._op.np_inputs_spec())
         self._plain_sch.pack_at(axis, input_idx, mtype, pad, root)
 

@@ -156,8 +156,8 @@ elif "--gpu-warp-lane" in sys.argv:
 # CHECK-BUFFER-NEXT:         ...
 
 # CHECK-PACK:      loop i  // parallelized
-# CHECK-PACK-NEXT:   loop k  // pack(0)
-# CHECK-PACK-NEXT:     loop j  // pack(1, shared, pad)
+# CHECK-PACK-NEXT:   loop k  // pack([(0)])
+# CHECK-PACK-NEXT:     loop j  // pack([(1, shared, pad)])
 # CHECK-PACK-NEXT:       tile(j, 16)  // vectorized
 # CHECK-PACK-NEXT:         ...
 

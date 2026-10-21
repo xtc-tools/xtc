@@ -24,17 +24,17 @@ sch = impl.get_scheduler()
 sch.tile("i", {"i1": 128, "i2": 16})
 sch.tile("j", {"j1": 64, "j2": 4})
 sch.tile("k", {"k1": 16})
-# sch.unroll({"i2": 2})
 sch.gpu_block(["j", "i"])
 sch.gpu_thread(["j1", "i1"])
 sch.interchange(["i", "j","k", "i1", "j1", "k1", "i2", "j2"])
+# TVM Limitation vectorise on f32 can only be 4 max
 sch.vectorize(["j2"])
 sched = sch.schedule()
 
 comp = impl.get_compiler(
     target=gpu,
     shared_lib=True,
-    dump_file="gpu_matmul_tensor_vectorise",
+    dump_file="gpu_matmul_tvm_vectorise",
     print_source_ir=True,
     print_transformed_ir=True,
 )

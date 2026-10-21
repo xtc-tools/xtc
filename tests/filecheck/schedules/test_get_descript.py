@@ -55,7 +55,7 @@ print(loop_nest.root_node.pretty_print())
 # CHECK-MLIR-NEXT:                 ...
 
 # CHECK-TVM:      loop J // parallelized, buffer, fuse_consumer
-# CHECK-TVM-NEXT:   loop K  // pack(1, pad)
+# CHECK-TVM-NEXT:   loop K  // pack([(1, pad)])
 # CHECK-TVM-NEXT:     loop I  // fuse_producer(0)
 # CHECK-TVM-NEXT:       tile(J, 128)
 # CHECK-TVM-NEXT:         tile(I, 64)

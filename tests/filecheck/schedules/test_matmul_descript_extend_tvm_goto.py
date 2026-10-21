@@ -90,11 +90,13 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                  C[v_i, v_j] = C[v_i, v_j] + _0[v_i, v_k] * _1[v_k, v_j]
 # CHECK-NEXT:  O = sch.get_sblock("C")
 # CHECK-NEXT:  i, j, k, = sch.get_loops(O)
+# CHECK-NEXT:  I_R1 = sch.cache_read(O, 1, "global")
 # CHECK-NEXT:  I_R0 = sch.cache_read(O, 0, "global")
 # CHECK-NEXT:  i, i0, i1, = sch.split(i, factors=[None, 64, 2])
 # CHECK-NEXT:  j, j0, j1, __v_j1, = sch.split(j, factors=[None, 6, 3, 2])
 # CHECK-NEXT:  k, k0, __u_k0, = sch.split(k, factors=[None, 8, 2])
 # CHECK-NEXT:  sch.reorder(j, k, i, j0, i0, k0, __u_k0, i1, j1, __v_j1)
+# CHECK-NEXT:  sch.compute_at(I_R1, i)
 # CHECK-NEXT:  sch.compute_at(I_R0, i)
 # CHECK-NEXT:  sch.unroll(__u_k0)
 # CHECK-NEXT:  sch.unroll(i1)
@@ -113,6 +115,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      def matmul(_0: T.Buffer((512, 512), "float32"), _1: T.Buffer((512, 512), "float32"), C: T.Buffer((512, 512), "float32")):
 # CHECK-NEXT:          T.func_attr({"tirx.noalias": True})
 # CHECK-NEXT:          # with T.sblock("root"):
+# CHECK-NEXT:          _1_global = T.sblock_alloc_buffer((512, 512))
 # CHECK-NEXT:          _0_global = T.sblock_alloc_buffer((512, 512))
 # CHECK-NEXT:          for j_0 in T.parallel(15):
 # CHECK-NEXT:              for i_0_init, j_1_init, i_1_init in T.grid(4, 6, 64):
@@ -127,6 +130,14 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                  T.writes(C[v_i, v_j])
 # CHECK-NEXT:                                  C[v_i, v_j] = T.float32(0.0)
 # CHECK-NEXT:              for k_0, i_0 in T.grid(32, 4):
+# CHECK-NEXT:                  for ax0, ax1 in T.grid(16, 36):
+# CHECK-NEXT:                      with T.sblock("_1_global"):
+# CHECK-NEXT:                          v0 = T.axis.spatial(512, k_0 * 16 + ax0)
+# CHECK-NEXT:                          v1 = T.axis.spatial(512, j_0 * 36 + ax1)
+# CHECK-NEXT:                          T.where(j_0 * 36 + ax1 < 512)
+# CHECK-NEXT:                          T.reads(_1[v0, v1])
+# CHECK-NEXT:                          T.writes(_1_global[v0, v1])
+# CHECK-NEXT:                          _1_global[v0, v1] = _1[v0, v1]
 # CHECK-NEXT:                  for ax0, ax1 in T.grid(128, 16):
 # CHECK-NEXT:                      with T.sblock("_0_global"):
 # CHECK-NEXT:                          v0 = T.axis.spatial(512, i_0 * 128 + ax0)
@@ -144,7 +155,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:                                          v_j = T.axis.spatial(512, j_0 * 36 + j_1 * 6 + j_2 * 2 + j_3)
 # CHECK-NEXT:                                          v_k = T.axis.reduce(512, k_0 * 16 + k_1 * 2 + k_2)
 # CHECK-NEXT:                                          T.where(((j_0 * 6 + j_1) * 3 + j_2) * 2 + j_3 < 512)
-# CHECK-NEXT:                                          T.reads(C[v_i, v_j], _0_global[v_i, v_k], _1[v_k, v_j])
+# CHECK-NEXT:                                          T.reads(C[v_i, v_j], _0_global[v_i, v_k], _1_global[v_k, v_j])
 # CHECK-NEXT:                                          T.writes(C[v_i, v_j])
-# CHECK-NEXT:                                          C[v_i, v_j] = C[v_i, v_j] + _0_global[v_i, v_k] * _1[v_k, v_j]
+# CHECK-NEXT:                                          C[v_i, v_j] = C[v_i, v_j] + _0_global[v_i, v_k] * _1_global[v_k, v_j]
 # CHECK-NEXT:  CODE: 0
