@@ -10,8 +10,6 @@ from xdsl.dialects import func, memref, tensor, bufferization
 from xdsl.dialects.builtin import (
     MemRefType,
     TensorType,
-    f32,
-    f64,
     ArrayAttr,
     UnitAttr,
     DictionaryAttr,
@@ -24,7 +22,7 @@ from xtc.graphs.xtc.graph import XTCGraph, XTCNode
 from xtc.graphs.xtc.data import XTCTensorType
 
 from .MlirNodeBackend import MlirNodeBackend
-from .MlirBackend import MlirBackend
+from .MlirBackend import MlirBackend, ELT_TYPES, TYPES_MAP
 from .MlirOps import MlirOperation
 
 
@@ -188,7 +186,7 @@ class MlirGraphBackend(MlirBackend):
         return payload, nodes_dict
 
     def _xdsl_elt_shape_from_tensortype(self, type: XTCTensorType) -> tuple[Any, Any]:
-        elt_type = {"float32": f32, "float64": f64}[type.constant_dtype]
+        elt_type = ELT_TYPES[type.constant_dtype]
         return (elt_type, type.constant_shape)
 
     def _xdsl_type_from_tensortype(
@@ -218,11 +216,10 @@ class MlirGraphBackend(MlirBackend):
     def _np_types_spec(
         self, types: list[MemRefType] | list[TensorType]
     ) -> list[dict[str, tuple[int, ...] | str]]:
-        types_map = {"f32": "float32", "f64": "float64"}
         types_spec: list[dict[str, tuple[int, ...] | str]] = [
             {
                 "shape": t.get_shape(),
-                "dtype": types_map[str(t.get_element_type())],
+                "dtype": TYPES_MAP[str(t.get_element_type())],
             }
             for t in types
         ]

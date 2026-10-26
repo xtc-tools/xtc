@@ -27,7 +27,7 @@ sch.tile("k", {"k1": 16})
 sch.pack_at("k", 0, "shared")
 sch.pack_at("k", 1, "shared", alignment=4)
 sch.buffer_at("k1", "local")
-sch.gpu_block(["j", "i"])
+sch.gpu_block(["i", "j"])
 sch.gpu_thread(["j1", "i1"])
 sch.interchange(["i", "j", "i1", "j1","k", "k1", "i2", "j2"])
 sched = sch.schedule()
@@ -80,8 +80,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  j, j1, j2, = sch.split(j, factors=[None, 16, 8])
 # CHECK-NEXT:  k, k1, = sch.split(k, factors=[None, 16])
 # CHECK-NEXT:  sch.reorder(i, j, i1, j1, k, k1, i2, j2)
-# CHECK-NEXT:  sch.bind(j, 'blockIdx.x')
-# CHECK-NEXT:  sch.bind(i, 'blockIdx.y')
+# CHECK-NEXT:  sch.bind(i, 'blockIdx.x')
+# CHECK-NEXT:  sch.bind(j, 'blockIdx.y')
 # CHECK-NEXT:  sch.bind(j1, 'threadIdx.x')
 # CHECK-NEXT:  sch.bind(i1, 'threadIdx.y')
 # CHECK-NEXT:  sch.reverse_compute_at(O_W0, k1)
@@ -106,8 +106,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:          _0_shared = T.sblock_alloc_buffer((1024, 1024), scope="shared")
 # CHECK-NEXT:          _1_shared = T.sblock_alloc_buffer((1024, 1024), scope="shared")
 # CHECK-NEXT:          C_local = T.sblock_alloc_buffer((1024, 1024), scope="local")
-# CHECK-NEXT:          for i_0 in T.thread_binding(16, thread="blockIdx.y"):
-# CHECK-NEXT:              for j_0 in T.thread_binding(8, thread="blockIdx.x"):
+# CHECK-NEXT:          for i_0 in T.thread_binding(16, thread="blockIdx.x"):
+# CHECK-NEXT:              for j_0 in T.thread_binding(8, thread="blockIdx.y"):
 # CHECK-NEXT:                  for i_1 in T.thread_binding(8, thread="threadIdx.y"):
 # CHECK-NEXT:                      for j_1 in T.thread_binding(16, thread="threadIdx.x"):
 # CHECK-NEXT:                          for i_2_init, j_2_init in T.grid(8, 8):

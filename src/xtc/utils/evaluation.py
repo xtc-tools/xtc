@@ -6,7 +6,7 @@ from typing import Any, Callable, cast
 from xtc.itf.graph import Graph
 import ctypes
 import numpy as np
-from xtc.utils.numpy import np_init
+from xtc.utils.numpy import np_init, np_allclose
 from xtc.runtimes.types.ndarray import NDArray
 from xtc.graphs.xtc.graph import XTCGraph
 from xtc.graphs.xtc.expr import XTCTensorExpr
@@ -140,7 +140,7 @@ def validate_outputs(
     CFunc(func)(*parameters[0], *parameters[1])
     # Compare
     for out_ref, out in zip(ref_outputs, [out.numpy() for out in parameters[1]]):
-        if not np.allclose(out_ref, out):
+        if not np_allclose(out_ref, out):
             return ([], 1, "Error in validation: outputs differ")
     return ([], 0, "")
 

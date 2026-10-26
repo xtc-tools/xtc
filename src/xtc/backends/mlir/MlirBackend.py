@@ -7,11 +7,30 @@ from typing import Any
 from typing_extensions import override
 
 from xdsl.dialects import func as xdslfunc
+from xdsl.dialects.builtin import (
+    BFloat16Type,
+    Float16Type,
+    Float32Type,
+    Float64Type,
+    bf16,
+    f16,
+    f32,
+    f64,
+)
 
 import xtc.itf as itf
 
 from .MlirCompiler import MlirCompiler
 from .MlirScheduler import MlirScheduler
+
+
+ELT_TYPES: dict[str, BFloat16Type | Float16Type | Float32Type | Float64Type] = {
+    "bfloat16": bf16,
+    "float16": f16,
+    "float32": f32,
+    "float64": f64,
+}
+TYPES_MAP = {"bf16": "bfloat16", "f16": "float16", "f32": "float32", "f64": "float64"}
 
 
 class MlirBackend(itf.back.Backend):

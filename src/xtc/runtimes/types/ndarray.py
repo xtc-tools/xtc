@@ -34,6 +34,8 @@ class NDArray:
         "uint16": (DLDataTypeCode.UINT, 16),
         "uint32": (DLDataTypeCode.UINT, 32),
         "uint64": (DLDataTypeCode.UINT, 64),
+        "bfloat16": (DLDataTypeCode.BFLOAT, 16),
+        "float16": (DLDataTypeCode.FLOAT, 16),
         "float32": (DLDataTypeCode.FLOAT, 32),
         "float64": (DLDataTypeCode.FLOAT, 64),
     }
