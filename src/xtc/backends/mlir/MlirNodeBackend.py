@@ -10,7 +10,7 @@ from xdsl.dialects.builtin import MemRefType, TensorType
 from xdsl.dialects.builtin import UnitAttr as xdslUnitAttr
 from xtc.utils.xdsl_aux import xdsl_operator_to_function
 
-from .MlirBackend import MlirBackend
+from .MlirBackend import MlirBackend, TYPES_MAP
 
 
 class MlirNodeBackend(MlirBackend):
@@ -52,11 +52,10 @@ class MlirNodeBackend(MlirBackend):
     def _np_types_spec(
         self, types: list[MemRefType | TensorType]
     ) -> list[dict[str, tuple[int, ...] | str]]:
-        types_map = {"f32": "float32", "f64": "float64"}
         types_spec: list[dict[str, tuple[int, ...] | str]] = [
             {
                 "shape": t.get_shape(),
-                "dtype": types_map[str(t.get_element_type())],
+                "dtype": TYPES_MAP[str(t.get_element_type())],
             }
             for t in types
         ]

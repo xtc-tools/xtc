@@ -16,7 +16,7 @@ from tvm.runtime import _tensor
 import xtc.itf as itf
 from xtc.runtimes.types.ndarray import NDArray
 import xtc.targets.accelerator.gpu as gpu
-from xtc.utils.numpy import np_init
+from xtc.utils.numpy import np_init, np_allclose
 
 __all__ = [
     "TVMGPUEvaluator",
@@ -145,7 +145,7 @@ class TVMGPUEvaluator(itf.exec.Evaluator):
             func(*args)
             dev.sync()
             for out_ref, out_dev in zip(ref_outputs, outputs_dev):
-                if not np.allclose(out_ref, out_dev.numpy()):
+                if not np_allclose(out_ref, out_dev.numpy()):
                     self._write_back(outputs_dev, outputs_np, raw_outputs)
                     return ([], 1, "Error in validation: outputs differ")
 

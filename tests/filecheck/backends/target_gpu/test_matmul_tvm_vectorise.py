@@ -24,7 +24,7 @@ sch = impl.get_scheduler()
 sch.tile("i", {"i1": 128, "i2": 16})
 sch.tile("j", {"j1": 64, "j2": 4})
 sch.tile("k", {"k1": 16})
-sch.gpu_block(["j", "i"])
+sch.gpu_block(["i", "j"])
 sch.gpu_thread(["j1", "i1"])
 sch.interchange(["i", "j","k", "i1", "j1", "k1", "i2", "j2"])
 # TVM Limitation vectorise on f32 can only be 4 max
@@ -76,8 +76,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  j, j1, j2, = sch.split(j, factors=[None, 16, 4])
 # CHECK-NEXT:  k, k1, = sch.split(k, factors=[None, 16])
 # CHECK-NEXT:  sch.reorder(i, j, k, i1, j1, k1, i2, j2)
-# CHECK-NEXT:  sch.bind(j, 'blockIdx.x')
-# CHECK-NEXT:  sch.bind(i, 'blockIdx.y')
+# CHECK-NEXT:  sch.bind(i, 'blockIdx.x')
+# CHECK-NEXT:  sch.bind(j, 'blockIdx.y')
 # CHECK-NEXT:  sch.bind(j1, 'threadIdx.x')
 # CHECK-NEXT:  sch.bind(i1, 'threadIdx.y')
 # CHECK-NEXT:  sch.vectorize(j2)
@@ -93,8 +93,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      def matmul(_0: T.Buffer((1024, 1024), "float32"), _1: T.Buffer((1024, 1024), "float32"), C: T.Buffer((1024, 1024), "float32")):
 # CHECK-NEXT:          T.func_attr({"tirx.noalias": True})
 # CHECK-NEXT:          # with T.sblock("root"):
-# CHECK-NEXT:          for i_0 in T.thread_binding(8, thread="blockIdx.y"):
-# CHECK-NEXT:              for j_0 in T.thread_binding(16, thread="blockIdx.x"):
+# CHECK-NEXT:          for i_0 in T.thread_binding(8, thread="blockIdx.x"):
+# CHECK-NEXT:              for j_0 in T.thread_binding(16, thread="blockIdx.y"):
 # CHECK-NEXT:                  for i_1_init in T.thread_binding(8, thread="threadIdx.y"):
 # CHECK-NEXT:                      for j_1_init in T.thread_binding(16, thread="threadIdx.x"):
 # CHECK-NEXT:                          for i_2_init in range(16):

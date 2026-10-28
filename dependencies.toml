@@ -1,6 +1,7 @@
 dependencies = [
     'jinja2',
     'matplotlib',
+    'ml_dtypes',
     'numpy<2.3',
     'ordered-set',
     'py-cpuinfo',
