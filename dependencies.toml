@@ -48,7 +48,7 @@ include = ["llvm"]
 dependencies = [
     'xtc-mlir-tools==22.1.8.3',
     'xtc-mlir-python-bindings==22.1.8.3',
-    'xtc-mlir-extra-tools==22.1.8.9',
+    'xtc-mlir-extra-tools==22.1.8.11',
 ]
 
 [groups.tvm]
