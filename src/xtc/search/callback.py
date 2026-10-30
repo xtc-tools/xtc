@@ -19,6 +19,33 @@ from xtc.cli.query_results import ResultsDB
 logger = logging.getLogger(__name__)
 
 
+def read_csv_results(
+    fname: str, sample_names: list[str], backend: str
+) -> list[tuple[list[int], float]]:
+    """Reads the (sample, time) pairs recorded for backend in a CSV output file.
+
+    Rows that cannot be parsed or have a non positive time are skipped.
+    """
+    in_path = Path(fname)
+    if not in_path.exists() or in_path.stat().st_size == 0:
+        return []
+    results: list[tuple[list[int], float]] = []
+    with open(in_path, newline="") as infile:
+        reader = csv.DictReader(infile, delimiter=",")
+        for row in reader:
+            if row.get("backend") != backend:
+                continue
+            try:
+                sample = [int(row[name]) for name in sample_names]
+                time = float(row["time"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if time <= 0:
+                continue
+            results.append((sample, time))
+    return results
+
+
 class ResultCallBack(ABC):
     @abstractmethod
     def __call__(self, result: Sequence) -> None: ...
@@ -134,6 +161,32 @@ class CSVCallback(ResultCallBack):
                 except (TypeError, ValueError, KeyError):
                     continue
                 self._seen_keys.add((backend, sample))
+
+    def drop_samples(self, samples: Sequence[Sample]) -> None:
+        """Removes the rows of the given samples from the output file.
+
+        Rows are removed for all backends, and the samples are recorded again
+        if evaluated later on.
+        """
+        drop = {tuple(int(v) for v in x) for x in samples}
+        num = len(self._sample_names)
+
+        def keep(row: list[str]) -> bool:
+            try:
+                return tuple(int(v) for v in row[:num]) not in drop
+            except ValueError:
+                return True
+
+        self._outf.close()
+        with open(self._fname, newline="") as infile:
+            rows = [row for row in csv.reader(infile, delimiter=",") if keep(row)]
+        tmp_fname = f"{self._fname}.tmp"
+        with open(tmp_fname, "w", newline="") as outf:
+            csv.writer(outf, delimiter=",").writerows(rows)
+        os.replace(tmp_fname, self._fname)
+        self._seen_keys = {key for key in self._seen_keys if key[1] not in drop}
+        self._outf = open(self._fname, "a", newline="")
+        self._writer = csv.writer(self._outf, delimiter=",")
 
     def _sample_key(self, x: Sample, backend: str) -> tuple[str, tuple[int, ...]]:
         return backend, tuple(int(v) for v in x)

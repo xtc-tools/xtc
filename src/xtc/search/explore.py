@@ -51,7 +51,13 @@ from xtc.artifacts import get_operation, list_operations
 from xtc.search.optimizers import Optimizers
 
 from .progress import SearchProgress, SearchProgressTQDM, SearchProgressMO
-from .callback import ResultCallBack, CSVCallback, DBCallback, MemoryCallback
+from .callback import (
+    ResultCallBack,
+    CSVCallback,
+    DBCallback,
+    MemoryCallback,
+    read_csv_results,
+)
 from .pipeline import CompileExecutePipeline
 
 logger = logging.getLogger(__name__)
@@ -538,15 +544,60 @@ class Exploration:
         peak_time: float = 0,
     ):
         args = self.config
+        restored_x: list[list[int]] = []
+        restored_y: list[float] = []
+        if args.resume and args.output:
+            # The optimizer observes a single value per sample, use the first backend
+            restored = read_csv_results(
+                args.output, strategy.sample_names, args.backends[0]
+            )
+            # Rewind an incomplete last batch, it is evaluated again from the
+            # same optimizer state so that the run continues as if not paused
+            n_partial = len(restored) % args.batch
+            if n_partial:
+                logger.info(
+                    "Resume: rewinding %d samples of the incomplete last batch",
+                    n_partial,
+                )
+                if args.csv_callback is not None:
+                    args.csv_callback.drop_samples(
+                        [x for x, _ in restored[-n_partial:]]
+                    )
+                restored = restored[:-n_partial]
+            restored_x = [x for x, _ in restored]
+            restored_y = [peak_time / time for _, time in restored]
+        n_restored = len(restored_x)
+        n_start = min(n_restored, args.trials)
+        if n_restored >= args.trials:
+            logger.info(
+                "Resume: %d samples already evaluated, nothing left for %d trials",
+                n_restored,
+                args.trials,
+            )
         optimizer = Optimizers.from_name(args.optimizer)
-        opt = optimizer(strategy.sample, args.batch, args.seed, args.optimizer_config)
+        opt = optimizer(
+            strategy.sample,
+            args.batch,
+            args.seed,
+            args.optimizer_config,
+        )
+        opt.restore(restored_x, restored_y)
         all_results = []
         progress = callbacks["search"]
-        progress.search_start(args.trials * len(args.backends))
+        progress.search_start(
+            args.trials * len(args.backends), initial=n_start * len(args.backends)
+        )
+        n_done = n_start
         try:
-            for step in range(0, args.trials, args.batch):
+            for step in range(n_start, args.trials, args.batch):
                 size = min(args.batch, args.trials - step)
                 in_x = opt.suggest()[:size]
+                if not in_x:
+                    logger.info(
+                        "No unevaluated sample left, stopping after %d samples", n_done
+                    )
+                    break
+                n_done += len(in_x)
                 results = self.evaluate_all_parallel(
                     strategy, np.array(in_x), graph, callbacks=callbacks
                 )
@@ -690,6 +741,12 @@ class Exploration:
             "platform": {"platform": sys.platform, "cwd": str(Path.cwd())},
             "args": self._args_to_metadata(args),
         }
+        if args.search == "iterative":
+            optimizer = Optimizers.from_name(args.optimizer)
+            payload["optimizer"] = {
+                "name": args.optimizer,
+                "config": optimizer.resolve_config(args.optimizer_config),
+            }
         with open(metadata_path, "w", encoding="utf-8") as metadata_file:
             json.dump(payload, metadata_file, indent=2, sort_keys=True)
             metadata_file.write("\n")

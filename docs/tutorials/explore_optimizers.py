@@ -25,11 +25,11 @@ def _():
         parser.add_argument("--batch", type=int, default=args.batch)
         args = parser.parse_args()
         args.progress_cls = "tqdm"
+    return args, explore, mo
 
-    return explore, mo, args
 
 @app.cell
-def _(mo, args):
+def _(args, mo):
     from xtc.artifacts import list_operations
     from xtc.search.strategies import Strategies
     from xtc.search.optimizers import Optimizers
@@ -72,7 +72,9 @@ def _(mo, args):
             if value is None:
                 value = batch_size
 
-            if isinstance(value, int):
+            if isinstance(value, bool):
+                widgets[key] = mo.ui.switch(value=value)
+            elif isinstance(value, int):
                 widgets[key] = mo.ui.number(value=value, step=1)
             elif isinstance(value, float):
                 widgets[key] = mo.ui.number(value=value, step=0.1)
@@ -99,8 +101,8 @@ def _(mo, args):
         optimizer_ui,
         search_select,
         seed_ui,
-        strategy_ui,
         strategy_param_ui,
+        strategy_ui,
         trials_ui,
     )
 
@@ -126,8 +128,8 @@ def _(
     optimizer_ui,
     search_select,
     seed_ui,
-    strategy_ui,
     strategy_param_ui,
+    strategy_ui,
     trials_ui,
 ):
     search_ui = [search_select]
@@ -170,8 +172,8 @@ def _(
     optimizer_ui,
     search_select,
     seed_ui,
-    strategy_ui,
     strategy_param_ui,
+    strategy_ui,
     trials_ui,
 ):
     import tempfile
@@ -245,7 +247,6 @@ def _(
     def run_loop_explore():
         best, best_info = loop_explore()
         return f"Best peak found is {best*100:.2f}% for {best_info}"
-
     return (run_loop_explore,)
 
 
@@ -268,6 +269,7 @@ def _(button, mo, run_loop_explore):
         explore_out = run_loop_explore()
     #mo.md(explore_out)
     return
+
 
 if __name__ == "__main__":
     app.run()

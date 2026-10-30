@@ -191,7 +191,9 @@ def main():
         "--resume",
         action=argparse.BooleanOptionalAction,
         default=defaults.resume,
-        help="resume from an existing output file and skip already recorded samples",
+        help="resume from an existing output file and skip already recorded samples, "
+        "for iterative search the optimizer is restored from the recorded samples "
+        "and --trials is the total number of trials including the recorded ones",
     )
     parser.add_argument(
         "--append",

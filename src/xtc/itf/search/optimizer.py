@@ -41,6 +41,21 @@ class Optimizer(ABC):
         ...
 
     @abstractmethod
+    def restore(self, x: list[VecSample], y: list[float]):
+        """Restores the optimizer state from previously evaluated samples.
+
+        Called once before the first suggest() when resuming an exploration,
+        so that the optimizer continues from the observations of a previous run.
+        With the same seed, the random draws of the previous run are replayed
+        so that the resumed run continues the same sequence of candidates.
+
+        Args:
+            x: the samples that were evaluated in the previous run
+            y: the evaluation result for each sample
+        """
+        ...
+
+    @abstractmethod
     def finished(self):
         """Gets called when the evaluation for all iterations has been completed
 

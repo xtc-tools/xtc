@@ -126,7 +126,7 @@ Setting the batch determines the number of guesses the model has per iteration.
 
 You can specify an optimizer preset to determine how aggressive the model converges.
 
-    loop-explore --backends mlir --batch 5 --search iterative --optimizer random-forest-explore --operator conv2d --op-name AlexNet_02 --strategy tile_ppwrprp_vr --output output.csv
+    loop-explore --backends mlir --batch 5 --search iterative --optimizer random-forest-ucb --operator conv2d --op-name AlexNet_02 --strategy tile_ppwrprp_vr --output output.csv
 
 To specify your own model parameters you can pass a yaml file.
 

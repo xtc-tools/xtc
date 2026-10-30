@@ -11,5 +11,5 @@ set -x
 python "$MARIMO" --search-type random --trials 8
 python "$MARIMO" --search-type iterative --batch 4 --trials 16 --opt-name random
 python "$MARIMO" --search-type iterative --batch 4 --trials 16 --opt-name random-forest-default
-python "$MARIMO" --search-type iterative --batch 4 --trials 16 --opt-name random-forest-explore
-python "$MARIMO" --search-type iterative --batch 4 --trials 16 --opt-name random-forest-aggressive
+python "$MARIMO" --search-type iterative --batch 4 --trials 16 --opt-name random-forest-ucb
+python "$MARIMO" --search-type iterative --batch 4 --trials 16 --opt-name random-forest-ucb-explore

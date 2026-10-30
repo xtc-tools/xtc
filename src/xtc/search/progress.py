@@ -8,7 +8,7 @@ import threading
 
 
 class SearchProgress:
-    def search_start(self, ntasks: int):
+    def search_start(self, ntasks: int, initial: int = 0):
         pass
 
     def batch_start(self, batch_ntasks: int):
@@ -74,10 +74,11 @@ class SearchProgressTQDM(SearchProgress):
         assert False, f"unknown progress class name: {progress_cls}"
 
     @override
-    def search_start(self, ntasks: int):
+    def search_start(self, ntasks: int, initial: int = 0):
         self.ntasks = ntasks
         tqdm_args = dict(
             total=self.ntasks,
+            initial=initial,
             miniters=0,
             mininterval=0,
             smoothing=0,
@@ -188,7 +189,7 @@ class SearchProgressMO(SearchProgress):
         assert False, f"unknown progress class name: {progress_cls}"
 
     @override
-    def search_start(self, ntasks: int):
+    def search_start(self, ntasks: int, initial: int = 0):
         self.ntasks = ntasks
         tqdm_args = dict(
             total=self.ntasks,
@@ -200,6 +201,11 @@ class SearchProgressMO(SearchProgress):
             title=f"{self.prefix} evaluate".strip(),
             **tqdm_args,  # type: ignore
         ).progress
+        if initial > 0:
+            self.ncomp = self.nexec = initial
+            self.allbar.update_progress(
+                initial, subtitle=f"Resumed at {initial}/{self.ntasks}"
+            )
 
     @override
     def compile_job_end(self):
