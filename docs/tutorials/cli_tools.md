@@ -62,6 +62,37 @@ Test a single tiling:
     ...
     INFO:__main__:Schedule: [4, 64, 8, 4]: time: 0.61 msecs, peak perf: 82.08%
 
+### Iterative Search
+
+An iterative search can take advantage of a model to try to learn better tile sizes as loop explore is ran.
+Setting the batch determines the number of guesses the model has per iteration.
+
+    loop-explore --search iterative --batch 5 --trials 100 --strategy tile_goto --output results.random.csv
+
+You can specify an optimizer preset to determine how aggressive the model converges.
+
+    loop-explore --backends mlir --batch 5 --search iterative --optimizer random-forest-explore --operator conv2d --op-name AlexNet_02 --strategy tile_ppwrprp_vr --output output.csv
+
+To specify your own model parameters you can pass a yaml file.
+
+For example lets say you have config.yaml containing:
+
+```
+batch_candidates: 5000
+beta: 2.5
+alpha: 0.7
+update_first: null
+update_period: null
+n_estimators: 300
+max_depth: 10
+min_samples_leaf: 4
+max_features: 0.8
+```
+
+You can use those parameters to set the model behavior
+
+    loop-explore --backends mlir --batch 5 --search iterative --optimizer-config config.yaml --strategy tile_goto --output output.csv
+    
 ### Display
 
 Result of exploration and display in `data/results.mm06-tile7d-all.svg` were generated with:
@@ -78,12 +109,13 @@ Comparative performance distribution on tile4dv tilings in `data/mlir_results.mm
 
 The ```mlir-loop``` tool provides a high-level syntax for
 controlling the scheduling of MLIR linear algebra (```linalg```)
-operators. For now, it only applies at ```memref``` level
-(not ```tensor```) and supports the following transformations:
+operators. It supports the following transformations:
 + Tiling
 + Loop interchange
 + Vectorization
 + Unrolling
++ Parallelize
++ Producer and Consumer Fusion (when using tensor dialect)
 
 See the code below. For the simplicity of the example, it is a
 single operator function, but the tool accepts multiple operator
@@ -117,34 +149,43 @@ Under the hood, this declarative "loop" attributes dialect is
 translated into the corresponding MLIR ```transform``` dialect
 command sequence through XTC API calls.
 
-## Iterative Search
-
-An iterative search can take advantage of a model to try to learn better tile sizes as loop explore is ran.
-Setting the batch determines the number of guesses the model has per iteration.
-
-    loop-explore --search iterative --batch 5 --trials 100 --strategy tile_goto --output results.random.csv
-
-You can specify an optimizer preset to determine how aggressive the model converges.
-
-    loop-explore --backends mlir --batch 5 --search iterative --optimizer random-forest-ucb --operator conv2d --op-name AlexNet_02 --strategy tile_ppwrprp_vr --output output.csv
-
-To specify your own model parameters you can pass a yaml file.
-
-For example lets say you have config.yaml containing:
+When using operator fusion, the tensor dialect needs to be used.
+Below is an example of fusing a relu into a matmul.
 
 ```
-batch_candidates: 5000
-beta: 2.5
-alpha: 0.7
-update_first: null
-update_period: null
-n_estimators: 300
-max_depth: 10
-min_samples_leaf: 4
-max_features: 0.8
+#map = affine_map<(d0, d1) -> (d0, d1)>
+#map1 = affine_map<(d0, d1) -> ()>
+  func.func @matmul_relu(%arg0: tensor<4x512xf32>, %arg1: tensor<512x32xf32>, %arg2: memref<4x32xf32>) {
+    %0 = tensor.empty() : tensor<4x32xf32>
+    %cst = arith.constant 0.000000e+00 : f32
+    %1 = linalg.fill {__xtc_id_matmul_0_} ins(%cst : f32) outs(%0 : tensor<4x32xf32>) -> tensor<4x32xf32>
+    %2 = linalg.matmul
+        {
+          loop.dims = ["I","J","K"],
+          loop.schedule = {
+            "I",
+              "J",
+                  "I#2",
+                      "J#16" = {"fuse_consumer"},
+                      "K"
+          }
+        }
+    	ins(%arg0, %arg1 : tensor<4x512xf32>, tensor<512x32xf32>) 
+    	outs(%1 : tensor<4x32xf32>) -> tensor<4x32xf32>
+
+    %3 = tensor.empty() : tensor<4x32xf32>
+    %cst_0 = arith.constant 0.000000e+00 : f32
+    %4 = linalg.generic {
+		indexing_maps = [#map, #map1, #map],
+		iterator_types = ["parallel", "parallel"]} 
+		ins(%2, %cst_0 : tensor<4x32xf32>, f32) 
+		outs(%3 : tensor<4x32xf32>) 
+		attrs =  {__xtc_id_relu_} {
+    ^bb0(%in: f32, %in_1: f32, %out: f32):
+      %5 = arith.maximumf %in, %in_1 : f32
+      linalg.yield %5 : f32
+    } -> tensor<4x32xf32>
+    bufferization.materialize_in_destination %4 in restrict writable %arg2 : (tensor<4x32xf32>, memref<4x32xf32>) -> ()
+    return
+  }
 ```
-
-You can use those parameters to set the model behavior
-
-    loop-explore --backends mlir --batch 5 --search iterative --optimizer-config config.yaml --strategy tile_goto --output output.csv
-
