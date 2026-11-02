@@ -53,7 +53,7 @@ class MlirNVGPUTarget(MlirTarget):
 
     @override
     def name(self) -> str:
-        return "llvm-nvgpu"
+        return "nvgpu"
 
     @override
     def arch(self) -> str:
