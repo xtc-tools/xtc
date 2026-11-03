@@ -10,7 +10,7 @@ import os
 from xtc.backends.mlir.MlirTarget import get_default_target
 from xtc.backends.mlir.MlirConfig import MlirConfig
 from xtc.backends.mlir.MlirProgram import RawMlirProgram
-from xtc.backends.mlir.MlirCompiler import MlirProgramCompiler
+from xtc.backends.mlir.MlirCompiler import COMPILE_STAGES, MlirProgramCompiler
 
 
 def main():
@@ -44,6 +44,19 @@ def main():
         help="Print the IR after application of the transform dialect.",
     )
     parser.add_argument(
+        "--print-bufferization-ir",
+        action="store_true",
+        default=False,
+        help="Print the IR after bufferization.",
+    )
+    parser.add_argument(
+        "--start-at",
+        choices=COMPILE_STAGES,
+        default="transform",
+        help="Pipeline stage the input IR is at: transform (full pipeline), "
+        "bufferization (already transformed) or lowering (already bufferized).",
+    )
+    parser.add_argument(
         "--print-lowered-ir",
         action="store_true",
         default=False,
@@ -75,6 +88,7 @@ def main():
     print_source = args.print_source_ir or not any(
         [
             args.print_transformed_ir,
+            args.print_bufferization_ir,
             args.print_lowered_ir,
             args.print_assembly,
         ]
@@ -84,6 +98,7 @@ def main():
         llvm_install_dir=args.llvm_dir,
         print_source_ir=print_source,
         print_transformed_ir=args.print_transformed_ir,
+        print_bufferization_ir=args.print_bufferization_ir,
         print_lowered_ir=args.print_lowered_ir,
         print_assembly=args.print_assembly,
         color=args.color,
@@ -95,4 +110,4 @@ def main():
         target=target,
         config=config,
     )
-    compiler.compile()
+    compiler.compile(start_at=args.start_at)

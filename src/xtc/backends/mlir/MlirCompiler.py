@@ -3,7 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing_extensions import override
-from typing import Any, cast
+from typing import Any, Literal, cast
 import sys
 import os
 import tempfile
@@ -31,6 +31,10 @@ from xtc.backends.mlir.MlirTarget import (
 )
 from xtc.utils.ext_tools import get_shlib_extension
 from xtc.itf.runtime.common import CommonRuntimeInterface
+
+# Ordered stages of MlirProgramCompiler.compile(), usable as start points
+CompileStage = Literal["transform", "bufferization", "lowering"]
+COMPILE_STAGES: tuple[CompileStage, ...] = ("transform", "bufferization", "lowering")
 
 
 class MlirCompiler(itf.comp.Compiler):
@@ -206,7 +210,8 @@ class MlirProgramCompiler:
             for extension, weak in self._mlir_schedule.mlir_extensions.items():
                 self._mlir_program.require_extension(extension, weak=weak)
 
-    def compile(self) -> None:
+    def compile(self, start_at: CompileStage = "transform") -> None:
+        start = COMPILE_STAGES.index(start_at)
         save_temp = self._save_temp
         save_temps_dir = self._config.save_temps_dir
         dump_file = self.dump_file
@@ -236,13 +241,15 @@ class MlirProgramCompiler:
 
         save_temp(src_ir_dump_file, self._mlir_program.mlir_module)
 
-        self.mlir_insert_transform_pass()
-        save_temp(mlir_btrn_dump_file, self._mlir_program.mlir_module)
+        if start <= COMPILE_STAGES.index("transform"):
+            self.mlir_insert_transform_pass()
+            save_temp(mlir_btrn_dump_file, self._mlir_program.mlir_module)
 
-        self.mlir_apply_transform_pass()
-        save_temp(mlir_atrn_dump_file, self._mlir_program.mlir_module)
+            self.mlir_apply_transform_pass()
+            save_temp(mlir_atrn_dump_file, self._mlir_program.mlir_module)
 
-        self.mlir_apply_tensor_lowering_pass()
-        save_temp(mlir_tlwr_dump_file, self._mlir_program.mlir_module)
+        if start <= COMPILE_STAGES.index("bufferization"):
+            self.mlir_apply_tensor_lowering_pass()
+            save_temp(mlir_tlwr_dump_file, self._mlir_program.mlir_module)
 
         self._target.generate_code_for_target(self._mlir_program, dump_file=dump_file)
