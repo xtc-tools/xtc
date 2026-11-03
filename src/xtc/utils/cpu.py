@@ -16,18 +16,22 @@ def cpu_info() -> Dict[str, Any]:
     """
     vec_info_map = {
         "avx512": {
+            "float16": 32,
             "float32": 16,
             "float64": 8,
         },
         "avx2": {
+            "float16": 16,
             "float32": 8,
             "float64": 4,
         },
         "neon": {
+            "float16": 8,
             "float32": 4,
             "float64": 2,
         },
         "scalar": {
+            "float16": 1,
             "float32": 1,
             "float64": 1,
         },

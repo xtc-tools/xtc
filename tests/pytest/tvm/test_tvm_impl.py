@@ -128,6 +128,13 @@ def test_sched_nop():
     check_evaluate(impl, schedule)
 
 @requires_tvm
+@pytest.mark.parametrize("dtype", ("float32", "float64", "float16"))
+def test_sched_nop_dtype(dtype):
+    impl = matmul_impl(64, 64, 64, dtype, "matmul_dtype")
+    schedule = check_schedule(impl, sched_nop)
+    check_evaluate(impl, schedule)
+
+@requires_tvm
 def test_sched_tile2():
     impl = matmul_impl(*MATMUL_ARGS, "matmul")
     print(impl.graph)

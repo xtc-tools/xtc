@@ -1,4 +1,6 @@
 
+import pytest
+
 from mlir_utils import requires_mlir, matmul_impl
 
 I, J, K, DTYPE = 128, 256, 91, "float32"
@@ -107,6 +109,13 @@ def check_evaluate(impl, schedule):
 def test_sched_nop():
     impl = matmul_impl(*MATMUL_ARGS, "matmul")
     print(impl.graph)
+    schedule = check_schedule(impl, sched_nop)
+    check_evaluate(impl, schedule)
+
+@requires_mlir
+@pytest.mark.parametrize("dtype", ("float32", "float64", "float16"))
+def test_sched_nop_dtype(dtype):
+    impl = matmul_impl(64, 64, 64, dtype, "matmul_dtype")
     schedule = check_schedule(impl, sched_nop)
     check_evaluate(impl, schedule)
 

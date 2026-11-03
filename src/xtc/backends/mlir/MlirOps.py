@@ -7,13 +7,13 @@ from collections.abc import Sequence
 from typing_extensions import override
 from typing import Any, Type, TypeAlias, cast
 
+from .MlirBackend import ELT_TYPES
+
 from xdsl.dialects import linalg, arith, builtin, memref, tensor, scf
 from xdsl.dialects.builtin import (
     MemRefType,
     TensorType,
     IndexType,
-    f32,
-    f64,
     i64,
     UnitAttr,
     StringAttr,
@@ -116,6 +116,7 @@ class MlirOperation:
         )
 
 
+# TODO: Add mixed type computation
 class MlirOperator(ABC):
     DEFAULT_NAME = "undef"
     AXES = ""
@@ -191,8 +192,7 @@ class MlirOperatorMatmul(MlirOperator):
         self, block: Block | None = None, args: Sequence[BlockArgument] = []
     ) -> tuple[Block, OpAttrs]:
         Ki, Kj, Kk, dtype, transpose_a, transpose_b = self.args
-        elt_type = {"float32": f32, "float64": f64}[dtype]
-        elt_size = {"float32": 32, "float64": 64}[dtype]
+        elt_type = ELT_TYPES[dtype]
         if block is None:
             ops_types = [
                 self.op_type(elt_type, shape)
@@ -203,7 +203,7 @@ class MlirOperatorMatmul(MlirOperator):
         assert len(args) == 3
         assert all(isinstance(arg.type, self.op_type) for arg in args)
         with ImplicitBuilder(block):
-            cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_size))
+            cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_type))
             result = (args[2].type,) if self.op_type == TensorType else ()
             fill = linalg.FillOp(
                 res=result,
@@ -231,7 +231,7 @@ class MlirOperatorMatmul(MlirOperator):
                     index_map_a = lambda i, j, k: (k, i)
                 if transpose_b:
                     index_map_b = lambda i, j, k: (j, k)
-                elt_type = {"float32": f32, "float64": f64}[dtype]
+                elt_type = ELT_TYPES[dtype]
                 block_in = Block(arg_types=[elt_type, elt_type, elt_type])
                 with ImplicitBuilder(block_in):
                     mul = arith.MulfOp(block_in.args[0], block_in.args[1])
@@ -336,8 +336,7 @@ class MlirOperatorConv2D(MlirOperator):
         inps_dims = self.inputs_dims()
         out_dims = self.outputs_dims()[0]
         dtype = self.args[-1]
-        elt_type = {"float32": f32, "float64": f64}[dtype]
-        elt_size = {"float32": 32, "float64": 64}[dtype]
+        elt_type = ELT_TYPES[dtype]
         if block is None:
             ops_types = [
                 self.op_type(elt_type, shape) for shape in [*inps_dims, out_dims]
@@ -348,7 +347,7 @@ class MlirOperatorConv2D(MlirOperator):
         assert all(isinstance(arg.type, self.op_type) for arg in args)
         with ImplicitBuilder(block):
             result = (args[2].type,) if self.op_type == TensorType else ()
-            cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_size))
+            cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_type))
             fill = linalg.FillOp(
                 res=result,
                 inputs=(cst0.results[0],),
@@ -367,7 +366,7 @@ class MlirOperatorConv2D(MlirOperator):
                 StringAttr({"P": "parallel", "R": "reduction"}[k]) for k in self.KINDS
             ]
             flags = arith.FastMathFlagsAttr("fast")
-            block_in = Block(arg_types=[f32, f32, f32])
+            block_in = Block(arg_types=[elt_type, elt_type, elt_type])
             with ImplicitBuilder(block_in):
                 mul = arith.MulfOp(block_in.args[0], block_in.args[1], flags=flags)
                 add = arith.AddfOp(block_in.args[2], mul, flags=flags)
@@ -463,8 +462,7 @@ class MlirOperatorRelu(MlirOperator):
         self, block: Block | None = None, args: Sequence[BlockArgument] = []
     ) -> tuple[Block, OpAttrs]:
         Ki, dtype = self.args
-        elt_type = {"float32": f32, "float64": f64}[dtype]
-        elt_size = {"float32": 32, "float64": 64}[dtype]
+        elt_type = ELT_TYPES[dtype]
         if block is None:
             ops_types = [self.op_type(elt_type, shape) for shape in [[Ki], [Ki]]]
             block = Block(arg_types=ops_types)
@@ -533,8 +531,8 @@ class MlirOperatorRelu(MlirOperator):
                     for k in self.KINDS
                 ]
             result = (args[1].type,) if self.op_type == TensorType else ()
-            cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_size))
-            block_in = Block(arg_types=[f32, f32, f32])
+            cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_type))
+            block_in = Block(arg_types=[elt_type, elt_type, elt_type])
             with ImplicitBuilder(block_in):
                 max = arith.MaximumfOp(block_in.args[0], block_in.args[1])
                 linalg.YieldOp(max)
@@ -616,8 +614,7 @@ class MlirOperatorPad(MlirOperator):
             ]
             lows = [padding[0] for d in dims_value]
             highs = [padding[1] for d in dims_value]
-        elt_type = {"float32": f32, "float64": f64}[dtype]
-        elt_size = {"float32": 32, "float64": 64}[dtype]
+        elt_type = ELT_TYPES[dtype]
         if block is None:
             ops_types = [
                 self.op_type(elt_type, shape)
@@ -637,7 +634,7 @@ class MlirOperatorPad(MlirOperator):
         strides = [1 for _ in self.args[:-1]]
         using_tensors = self.op_type == TensorType
         with ImplicitBuilder(block):
-            cst0 = arith.ConstantOp(builtin.FloatAttr(constant_value, elt_size))
+            cst0 = arith.ConstantOp(builtin.FloatAttr(constant_value, elt_type))
             result = (args[1].type,) if using_tensors else ()
             fill_node_id = f"{self.name}_0"
 
@@ -813,7 +810,7 @@ class MlirOperatorUnpad(MlirOperator):
             dims_values_before_unpad = [
                 dim_value + sum(padding) for dim_value in dims_values
             ]
-        elt_type = {"float32": f32, "float64": f64}[dtype]
+        elt_type = ELT_TYPES[dtype]
         if block is None:
             ops_types = [
                 self.op_type(elt_type, shape)

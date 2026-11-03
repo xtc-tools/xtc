@@ -36,6 +36,7 @@ class DLDataTypeCode:
     UINT = 1
     FLOAT = 2
     HANDLE = 3
+    BFLOAT = 4
 
 
 class DLDataType(ctypes.Structure):
