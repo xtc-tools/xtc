@@ -3,7 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing_extensions import override
-from typing import TypeAlias, cast, Any
+from typing import Callable, TypeAlias, cast, Any
 from types import SimpleNamespace as NS
 from collections.abc import Sequence, Mapping
 import functools
@@ -12,6 +12,7 @@ import string
 import numpy as np
 import hashlib
 
+from xtc.itf.data.tensor import DataType
 from xtc.utils.math import mulall
 from xtc.itf.operator import Operator
 from xtc.itf.data import Tensor, TensorType
@@ -81,6 +82,26 @@ class XTCOperator(Operator):
     @override
     def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
         return [cast(XTCTensor, inp) for inp in inputs]
+
+    def _forward_helper(
+        self,
+        inputs: Sequence[Tensor],
+        ref_func: Callable,
+        acc_dtype: DataType,
+        out_dtype: DataType,
+    ) -> Sequence[XTCTensor]:
+        assert len(inputs) != 0
+        np_input = [inp.numpy() for inp in inputs]
+        res_type = str(np_input[0].dtype)
+        if acc_dtype is not None:
+            np_input = [inp.astype(acc_dtype) for inp in np_input]
+        result = ref_func(*np_input)
+        if out_dtype is not None:
+            res_type = out_dtype
+        if isinstance(result, (tuple, list)) and out_dtype is not None:
+            return [XTCTensor(res.astype(res_type)) for res in result]
+        result = np.asarray(result)
+        return [XTCTensor(result.astype(res_type))]
 
     def get_operation(
         self,
@@ -163,6 +184,10 @@ class XTCOperTensor(XTCOperator):
 class XTCOperMatmul(XTCOperator):
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
         super().__init__("matmul", **attrs)
+        self._acc_dtype = attrs.get("acc_dtype", None)
+        self._out_dtype = attrs.get("out_dtype", None)
+        assert isinstance(self._acc_dtype, DataType)
+        assert isinstance(self._out_dtype, DataType)
 
     @override
     def get_operation(
@@ -204,20 +229,25 @@ class XTCOperMatmul(XTCOperator):
         assert k == bk, (
             f"incompatible dimension k for matmul inputs shapes: ({i}, {k}) ({bk}, {j})"
         )
+        if self._out_dtype is not None:
+            out_type = self._out_dtype
+        else:
+            out_type = inputs_types[0].dtype
         return [
-            XTCTensorType(
-                shape=(i, j), dtype=inputs_types[0].dtype, device=self.device
-            ),
+            XTCTensorType(shape=(i, j), dtype=out_type, device=self.device),
         ]
 
     @override
     def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
-        A = inputs[0].numpy()
-        B = inputs[1].numpy()
-        A = A.reshape((A.shape[0], -1))
-        B = B.reshape((-1, B.shape[-1]))
-        # Note, use np.dot instead of np.matmul which may be buggy on Mac accelerators
-        matmul = XTCTensor(np.dot(A, B))
+        def compute_matmul(A: np.ndarray, B: np.ndarray):
+            A = A.reshape((A.shape[0], -1))
+            B = B.reshape((-1, B.shape[-1]))
+            # Note, use np.dot instead of np.matmul which may be buggy on Mac accelerators
+            return np.dot(A, B)
+
+        matmul = self._forward_helper(
+            inputs, compute_matmul, self._acc_dtype, self._out_dtype
+        )[0]
         expected_type = self.forward_types([inp.type for inp in inputs])[0]
         assert matmul.type == expected_type, (
             f"output type mismatch expect: {matmul.type} != {expected_type}"
@@ -275,6 +305,10 @@ class XTCOperConv2D(XTCOperator):
                         f"stride for conv2d of wrong size, expected 1 or 2: {stride}"
                     )
                     self._stride = stride
+        self._acc_dtype = attrs.get("acc_dtype", None)
+        self._out_dtype = attrs.get("out_dtype", None)
+        assert isinstance(self._acc_dtype, DataType)
+        assert isinstance(self._out_dtype, DataType)
 
     @override
     def get_operation(
@@ -321,10 +355,14 @@ class XTCOperConv2D(XTCOperator):
         assert c == wc, f"unexpected with shapes: {inp_shape = }, {weight_shape = }"
         sh, sw = self._stride
         oh, ow = (h - r) // sh + 1, (w - s) // sw + 1
+        if self._out_dtype is not None:
+            out_type = self._out_dtype
+        else:
+            out_type = inputs_types[0].dtype
         return [
             XTCTensorType(
                 shape=tuple([*inputs_types[0].shape[:-3], oh, ow, f]),
-                dtype=inputs_types[0].dtype,
+                dtype=out_type,
                 device=self.device,
             ),
         ]
@@ -332,20 +370,24 @@ class XTCOperConv2D(XTCOperator):
     @override
     def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
         # Note that the input is supposed to be already padded
-        inp, weight = [inp.numpy() for inp in inputs]
-        inp_shape = inp.shape
-        h, w, c = inp_shape[-3:]
-        r, s, _, f = weight.shape
-        sh, sw = self._stride
-        oh, ow = (h - r) // sh + 1, (w - s) // sw + 1
-        out_shape = (*inp_shape[:-3], oh, ow, f)
-        out = np.zeros(shape=out_shape, dtype=inp.dtype).reshape((-1, oh, ow, f))
-        inp = inp.reshape(-1, h, w, c)
-        for vb, voh, vow, vf in np.ndindex(out.shape):
-            view = inp[vb, voh * sh : voh * sh + r, vow * sw : vow * sw + s, 0:c]
-            elts = view * weight[:, :, :, vf]
-            out[vb, voh, vow, vf] = np.sum(elts)
-        conv = XTCTensor(out.reshape(out_shape))
+        def compute_conv2d(inp: np.ndarray, weight: np.ndarray):
+            inp_shape = inp.shape
+            h, w, c = inp_shape[-3:]
+            r, s, _, f = weight.shape
+            sh, sw = self._stride
+            oh, ow = (h - r) // sh + 1, (w - s) // sw + 1
+            out_shape = (*inp_shape[:-3], oh, ow, f)
+            out = np.zeros(shape=out_shape, dtype=inp.dtype).reshape((-1, oh, ow, f))
+            inp = inp.reshape(-1, h, w, c)
+            for vb, voh, vow, vf in np.ndindex(out.shape):
+                view = inp[vb, voh * sh : voh * sh + r, vow * sw : vow * sw + s, 0:c]
+                elts = view * weight[:, :, :, vf]
+                out[vb, voh, vow, vf] = np.sum(elts)
+            return out.reshape(out_shape)
+
+        conv = self._forward_helper(
+            inputs, compute_conv2d, self._acc_dtype, self._out_dtype
+        )[0]
         expected_type = self.forward_types([inp.type for inp in inputs])[0]
         assert conv.type == expected_type, (
             f"output type mismatch expect: {conv.type} != {expected_type}"
