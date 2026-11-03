@@ -156,10 +156,13 @@ class MlirScheduler(itf.schd.Scheduler):
     ) -> None:
         # The current implemntation exclusively rely on SDist, but upstream
         # transform dialect may be used for some cases.
-        assert mtype is None or mtype == "global" or mtype == "local"
-        if pad or alignment is not None:
+        assert mtype is None or mtype in ("global", "local", "shared")
+        if (pad or alignment is not None) and mtype != "shared":
             return  # TODO: not implemented for now
-        if mtype is None or mtype == "global":
+        # TODO: mtype local do nothing
+        if mtype == "shared" or mtype == "local":
+            pass
+        elif mtype is None or mtype == "global":
             self._require_extension("sdist", weak=True)
         else:
             self._require_extension("sdist")

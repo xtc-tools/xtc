@@ -4,6 +4,7 @@
 #
 from dataclasses import dataclass
 
+from mlir import ir
 from mlir.dialects import transform
 from mlir.dialects.transform import (
     NamedSequenceOp,
@@ -838,7 +839,8 @@ class MlirProgramInsertTransformPass:
         with InsertionPoint(transform.ApplyPatternsOp(sched_state.handle).patterns):
             memref.ApplyFoldMemrefAliasOpsPatternsOp()
         for input_idx in schedule.packed_buffers[loop_name]:
-            if "sdist" in self._mlir_program.mlir_extensions:
+            input, pack_type, pad, alignment = input_idx
+            if "sdist" in self._mlir_program.mlir_extensions and pack_type is None:
                 assert sdist_transform is not None
                 sdist_transform.SDistLocalBufferAtOp(
                     target=sched_state.handle,
@@ -906,7 +908,7 @@ class MlirProgramInsertTransformPass:
                 ),
                 None,
             )
-            self._gpu_mapping_helper(schedule, new_loop)
+            self._gpu_mapping_helper(schedule, sched_state, new_loop)
         elif (
             schedule.gpu_blocks
             and self._using_tensors
@@ -926,9 +928,11 @@ class MlirProgramInsertTransformPass:
                         "mapping": self._gpu_block_order,
                     },
                 )
-                self._gpu_mapping_helper(schedule, gpu_block_handle)
+                self._gpu_mapping_helper(schedule, sched_state, gpu_block_handle)
 
-    def _gpu_mapping_helper(self, schedule: MlirNodeSchedule, handle: OpResult):
+    def _gpu_mapping_helper(
+        self, schedule: MlirNodeSchedule, sched_state: SchedulingState, handle: OpResult
+    ):
         tiles_sizes_by_loops = self._generate_tiling_insns(schedule)
         new_loop = MapForallToBlocks(
             handle,
@@ -957,10 +961,16 @@ class MlirProgramInsertTransformPass:
                     )
         if block_dims:
             block_dims = block_dims + [1] * (3 - len(block_dims))
-            MapNestedForallToThreads(
+            new_loop = MapNestedForallToThreads(
                 new_loop,
                 block_dims=block_dims,
             )
+        if any(
+            pack_type == "shared"
+            for loop_name, packs in schedule.packed_buffers.items()
+            for input, pack_type, pad, align in packs
+        ):
+            self._pack_buffer_shared(schedule, sched_state, new_loop)
 
     def _gpu_strip_mine(
         self,
@@ -988,6 +998,43 @@ class MlirProgramInsertTransformPass:
             schedule=schedule,
             sched_state=sched_state,
         )
+
+    def _pack_buffer_shared(
+        self,
+        schedule: MlirNodeSchedule,
+        sched_state: SchedulingState,
+        gpu_launch: OpResult,
+    ):
+        assert self._named_sequence is not None
+        xtc_transform = binding_extensions.module("mlir.xtc_transform")
+        if xtc_transform is None:
+            raise ImportError(
+                "mlir.xtc_transform module not installed, required for PromoteSharedMemory",
+                "packing with shared memory is not available without that custom operator",
+            )
+        if self._post_bufferize_sequence is not None:
+            target = self._post_bufferize_sequence.bodyTarget
+        else:
+            target = self._named_sequence.bodyTarget
+
+        launch = (
+            gpu_launch.results[0] if isinstance(gpu_launch, ir.OpView) else gpu_launch
+        )
+        for loop_name, packs in schedule.packed_buffers.items():
+            loop = structured_match(
+                results_=transform.AnyOpType.get(),
+                target=target,
+                op_attrs={loop_name: UnitAttr.get()},
+            )
+            for input, pack_type, pad, align in packs:
+                if pack_type == "shared":
+                    xtc_transform.PromoteSharedMemoryOp(
+                        launch,
+                        loop,
+                        input,
+                        alignment=align,
+                        target=self._target.name(),
+                    )
 
 
 def find_consumer_handles(module: Module, root_handle: str) -> list[str | None]:
