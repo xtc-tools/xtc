@@ -27,9 +27,11 @@ class MlirNodeBackend(MlirBackend):
         no_alias: bool = True,
         id: str | None = None,
         xdsl_type: Type[TensorType] | Type[MemRefType] = MemRefType,
+        is_root: bool = False,
     ):
         self._graph = None
         self.xdsl_type = xdsl_type
+        self._is_root = is_root
         if id is None:
             self.op_id_attribute = f"__id{MlirNodeBackend.count}__"
             MlirNodeBackend.count += 1
@@ -48,6 +50,10 @@ class MlirNodeBackend(MlirBackend):
         self.source_op = source_op
         # Specification of transformations
         self.loop_stamps = loop_stamps
+
+    @property
+    def is_root(self) -> bool:
+        return self._is_root
 
     def _np_types_spec(
         self, types: list[MemRefType | TensorType]

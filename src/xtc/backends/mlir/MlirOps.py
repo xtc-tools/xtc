@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from typing_extensions import override
 from typing import Any, Type, TypeAlias
 
-from .MlirBackend import ELT_TYPES
+from .MlirBackend import ELT_TYPES, ELT_SIZES
 
 from xdsl.dialects import linalg, arith, builtin, memref, tensor, scf
 from xdsl.dialects.builtin import (
@@ -50,6 +50,66 @@ def _require_natural_layouts(xtc_op: Operation) -> None:
             )
 
 
+def _cast_type_to(
+    op: Any, cur_dtype: str, cast_dtype: str | None, ret_ssa: bool = True
+) -> Any:
+    """Cast a scalar or tensor value from one float dtype to another."""
+    if cast_dtype is None or cur_dtype == cast_dtype:
+        return op
+    assert cur_dtype in ELT_SIZES
+    assert cast_dtype in ELT_SIZES
+    cur_size = ELT_SIZES[cur_dtype]
+    cast_size = ELT_SIZES[cast_dtype]
+    if isinstance(op.type, TensorType):
+        target: Any = TensorType(ELT_TYPES[cast_dtype], op.type.get_shape())
+    else:
+        assert not isinstance(op.type, MemRefType), (
+            "cannot arith cast a memref buffer, accumulate in a scratch "
+            "and cast back to the out dtype with a linalg.generic"
+        )
+        target = ELT_TYPES[cast_dtype]
+    if cur_size < cast_size:
+        func: Any = arith.ExtFOp(op, target)
+    elif cur_size > cast_size:
+        func = arith.TruncFOp(op, target)
+    else:
+        # only conversion between types of the same size, bf16 <-> f16
+        # TODO: if there is a arith.convertf use that
+        inter: Any = ELT_TYPES["float32"]
+        if isinstance(target, TensorType):
+            inter = TensorType(inter, target.get_shape())
+        ext = arith.ExtFOp(op, inter)
+        func = arith.TruncFOp(ext.results[0], target)
+    return func.results[0] if ret_ssa else func
+
+
+def _cast_generic_to(
+    op: Any,
+    target: Any,
+    cur_dtype: str,
+    cast_dtype: str,
+    result_types: tuple[Any, ...],
+) -> Any:
+    """Emit the linalg.generic casting the cur dtype of op back to the cast
+    dtype in target. A linalg.generic so the cast can be scheduled like
+    the fill, arith casts cannot be tiled."""
+    block_in = Block(arg_types=[ELT_TYPES[cur_dtype], ELT_TYPES[cast_dtype]])
+    with ImplicitBuilder(block_in):
+        value = _cast_type_to(block_in.args[0], cur_dtype, cast_dtype)
+        linalg.YieldOp(value)
+    rank = len(op.type.get_shape())
+    map = AffineMapAttr(AffineMap.identity(rank))
+    return linalg.GenericOp(
+        inputs=(op,),
+        outputs=(target,),
+        body=Region([block_in]),  # type: ignore # mypy issue with dataclass
+        # ignore typing due to xdsl hints limitation
+        indexing_maps=[map, map],
+        iterator_types=[StringAttr("parallel")] * rank,
+        result_types=result_types,
+    )
+
+
 class MlirOperation:
     def __init__(
         self,
@@ -58,8 +118,17 @@ class MlirOperation:
         attrs: dict[str, Any] = {},
         name: str | None = None,
         op_type: Type[MemRefType] | Type[TensorType] = MemRefType,
+        in_dtypes: Sequence[str] = (),
+        out_dtype: str | None = None,
     ) -> None:
-        self.operator = operator(args, attrs, name=name, op_type=op_type)
+        self.operator = operator(
+            args,
+            attrs,
+            name=name,
+            op_type=op_type,
+            in_dtypes=in_dtypes,
+            out_dtype=out_dtype,
+        )
         self.args = args
         self.attrs = attrs
         self.name = self.operator.name if name is None else name
@@ -101,20 +170,22 @@ class MlirOperation:
         op_type: Type[MemRefType] | Type[TensorType],
     ) -> "MlirOperation":
         dims = xtc_op.dims.values()
-        dtype = xtc_op.inputs_types[0].dtype  # TODO: currently get dtype from 1st arg
-        args = tuple([*dims, dtype])
+        in_dtypes = tuple(str(inp.dtype) for inp in xtc_op.inputs_types)
+        out_dtype = xtc_op.outputs_types[0].dtype
         attrs = xtc_op.attrs
-        args = MlirOperators.from_name(xtc_op.name).args_from_operation(xtc_op, args)
+        op_cls = MlirOperators.from_name(xtc_op.name)
+        args = op_cls.args_from_operation(xtc_op, tuple([*dims]))
         return MlirOperation(
-            MlirOperators.from_name(xtc_op.name),
+            op_cls,
             args,
             dict(attrs),
             name=name,
             op_type=op_type,
+            in_dtypes=in_dtypes,
+            out_dtype=out_dtype,
         )
 
 
-# TODO: Add mixed type computation
 class MlirOperator(ABC):
     DEFAULT_NAME = "undef"
     AXES = ""
@@ -126,11 +197,36 @@ class MlirOperator(ABC):
         attrs: dict[str, Any],
         name: str | None = None,
         op_type: Type[MemRefType] | Type[TensorType] = MemRefType,
+        in_dtypes: Sequence[str] = (),
+        out_dtype: str | None = None,
     ) -> None:
         self.args = args
         self.attrs = {**attrs}
         self.name = name if name is not None else self.DEFAULT_NAME
         self.op_type = op_type
+        self._in_dtypes = tuple(in_dtypes)
+        self._out_dtype = out_dtype
+
+    @property
+    def in_dtypes(self) -> tuple[str, ...]:
+        return self._in_dtypes
+
+    @property
+    def out_dtype(self) -> str:
+        assert self._out_dtype is not None, "no out dtype specified"
+        return self._out_dtype
+
+    def _require_uniform_dtypes(self) -> None:
+        dtypes = (*self._in_dtypes, self._out_dtype)
+        if any(dtype != self._in_dtypes[0] for dtype in dtypes[1:]):
+            raise NotImplementedError(
+                f"mixed type computation is not yet implemented in the MLIR backend: {dtypes}"
+            )
+
+    def has_cast_stage(self) -> bool:
+        """Whether generate_op emits a separate cast stage (mixed dtypes)."""
+        acc = self.attrs.get("acc_dtype")
+        return any((acc or dtype) != self.out_dtype for dtype in self.in_dtypes)
 
     @abstractmethod
     def generate_op(
@@ -143,11 +239,13 @@ class MlirOperator(ABC):
     @abstractmethod
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]: ...
     @abstractmethod
-    def inputs_types(self) -> tuple[str, ...]: ...
-    @abstractmethod
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]: ...
-    @abstractmethod
-    def outputs_types(self) -> tuple[str, ...]: ...
+
+    def inputs_types(self) -> tuple[str, ...]:
+        return self._in_dtypes
+
+    def outputs_types(self) -> tuple[str, ...]:
+        return (self.out_dtype,)
 
     def _dims(self, kind: str = "") -> tuple[str, ...]:
         if kind == "":
@@ -182,110 +280,147 @@ class MlirOperatorMatmul(MlirOperator):
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        i, j, k, _, _, _ = self.args
+        i, j, k, *_ = self.args
         return {"i": i, "j": j, "k": k}
 
     @override
     def generate_op(
         self, block: Block | None = None, args: Sequence[BlockArgument] = []
     ) -> tuple[Block, OpAttrs]:
-        Ki, Kj, Kk, dtype, transpose_a, transpose_b = self.args
-        elt_type = ELT_TYPES[dtype]
+        Ki, Kj, Kk, transpose_a, transpose_b = self.args
+        acc_dtype = self.attrs.get("acc_dtype", None)
+        mixed = acc_dtype is not None and (
+            acc_dtype != self.out_dtype
+            or acc_dtype != self.in_dtypes[0]
+            or acc_dtype != self.in_dtypes[1]
+        )
+        acc = acc_dtype if mixed else self.out_dtype
+        assert acc is not None
+        elt_types = [
+            ELT_TYPES[self.in_dtypes[0]],
+            ELT_TYPES[self.in_dtypes[1]],
+            ELT_TYPES[self.out_dtype],
+        ]
+        acc_elt = ELT_TYPES[acc]
+        using_tensors = self.op_type == TensorType
+        convert_output = mixed and acc != self.out_dtype
         if block is None:
             ops_types = [
                 self.op_type(elt_type, shape)
-                for shape in [[Ki, Kk], [Kk, Kj], [Ki, Kj]]
+                for elt_type, shape in zip(elt_types, [[Ki, Kk], [Kk, Kj], [Ki, Kj]])
             ]
             block = Block(arg_types=ops_types)
             args = block.args
         assert len(args) == 3
         assert all(isinstance(arg.type, self.op_type) for arg in args)
+
         with ImplicitBuilder(block):
-            cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_type))
-            result = (args[2].type,) if self.op_type == TensorType else ()
+            result: tuple[Any, ...] = (args[2].type,) if using_tensors else ()
+            fill_output: Any = args[2]
+            cst0 = arith.ConstantOp(builtin.FloatAttr(0, acc_elt))
+            acc_result: tuple[Any, ...]
+            if convert_output and using_tensors:
+                fill_output = tensor.EmptyOp(
+                    dynamic_sizes=[],
+                    tensor_type=TensorType(acc_elt, [Ki, Kj]),
+                ).results[0]
+                acc_result = (TensorType(acc_elt, [Ki, Kj]),)
+            elif convert_output and not using_tensors:
+                fill_output = memref.AllocaOp.get(
+                    return_type=acc_elt, shape=[Ki, Kj], alignment=256
+                ).results[0]
+                acc_result = result
+            else:
+                acc_result = result
             fill = linalg.FillOp(
-                res=result,
+                res=acc_result,
                 inputs=(cst0.results[0],),
-                outputs=(args[2],),
+                outputs=(fill_output,),
             )
-            if not transpose_a and not transpose_b:
-                reduce = linalg.MatmulOp(
-                    res=result,
-                    inputs=(args[0], args[1]),
-                    outputs=(fill.results[0],)
-                    if self.op_type == TensorType
-                    else (args[2],),
+            acc_value = fill.results[0] if using_tensors else fill_output
+            if not mixed and not transpose_a and not transpose_b:
+                reduce: Any = linalg.MatmulOp(
+                    res=acc_result, inputs=(args[0], args[1]), outputs=(acc_value,)
                 )
             else:
-                iterator_types = [
-                    StringAttr("parallel"),
-                    StringAttr("parallel"),
-                    StringAttr("reduction"),
-                ]
-                index_map_a = lambda i, j, k: (i, k)
-                index_map_b = lambda i, j, k: (k, j)
-                index_map_c = lambda i, j, k: (i, j)
-                if transpose_a:
-                    index_map_a = lambda i, j, k: (k, i)
-                if transpose_b:
-                    index_map_b = lambda i, j, k: (j, k)
-                elt_type = ELT_TYPES[dtype]
-                block_in = Block(arg_types=[elt_type, elt_type, elt_type])
+                block_in = Block(arg_types=[*elt_types[:2], acc_elt])
                 with ImplicitBuilder(block_in):
-                    mul = arith.MulfOp(block_in.args[0], block_in.args[1])
+                    a = _cast_type_to(block_in.args[0], self.in_dtypes[0], acc)
+                    b = _cast_type_to(block_in.args[1], self.in_dtypes[1], acc)
+                    mul = arith.MulfOp(a, b)
                     add = arith.AddfOp(block_in.args[2], mul)
                     linalg.YieldOp(add)
                 reduce = linalg.GenericOp(
                     inputs=(args[0], args[1]),
-                    outputs=(fill.results[0],)
-                    if self.op_type == TensorType
-                    else (args[2],),
+                    outputs=(acc_value,),
                     body=Region([block_in]),  # type: ignore # mypy issue with dataclass
                     # ignore typing due to xdsl hints limitation
                     indexing_maps=[
-                        AffineMapAttr(AffineMap.from_callable(index_map_a)),
-                        AffineMapAttr(AffineMap.from_callable(index_map_b)),
-                        AffineMapAttr(AffineMap.from_callable(index_map_c)),
+                        AffineMapAttr(
+                            AffineMap.from_callable(
+                                lambda i, j, k: (k, i) if transpose_a else (i, k)
+                            )
+                        ),
+                        AffineMapAttr(
+                            AffineMap.from_callable(
+                                lambda i, j, k: (j, k) if transpose_b else (k, j)
+                            )
+                        ),
+                        AffineMapAttr(AffineMap.from_callable(lambda i, j, k: (i, j))),
                     ],
-                    iterator_types=iterator_types,
-                    result_types=result,
+                    iterator_types=[
+                        StringAttr("parallel"),
+                        StringAttr("parallel"),
+                        StringAttr("reduction"),
+                    ],
+                    result_types=acc_result,
+                )
+
+            output = None
+            if convert_output:
+                output = _cast_generic_to(
+                    reduce.results[0] if using_tensors else acc_value,
+                    args[2],
+                    acc,
+                    self.out_dtype,
+                    result,
                 )
         fill_node_id = f"{self.name}_0"
         reduce_node_id = f"{self.name}"
+        output_node_id = f"{self.name}_cast"
         fill.attributes[f"__xtc_id_{fill_node_id}_"] = UnitAttr()
         reduce.attributes[f"__xtc_id_{reduce_node_id}_"] = UnitAttr()
+        if output is not None:
+            output.attributes[f"__xtc_id_{output_node_id}_"] = UnitAttr()
+            output_nodes = [output]
+        else:
+            output_nodes = [reduce]
+
         attrs = {
             "nodes_map": {
                 fill_node_id: fill,
                 reduce_node_id: reduce,
+                **({output_node_id: output} if output is not None else {}),
             },
             "dims_sizes": [
                 {"i": Ki, "j": Kj},
                 self.dims_sizes(),
+                *([{"i": Ki, "j": Kj}] if output is not None else []),
             ],
-            "output_nodes": [reduce],
+            "output_nodes": output_nodes,
+            "root_node": reduce_node_id,
         }
         return block, attrs
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        i, j, k, _ = self.args
+        i, j, k, *_ = self.args
         return (i, k), (k, j)
-
-    @override
-    def inputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return dtype, dtype
 
     @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         i, j = self.args[:2]
         return ((i, j),)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
 
 
 @irdl_op_definition
@@ -306,51 +441,72 @@ class MlirOperatorConv2D(MlirOperator):
 
     DEFAULT_STRIDE = (1, 1)
 
-    def __init__(
-        self,
-        args: tuple[Any, ...],
-        attrs: dict[str, Any],
-        name: str | None = None,
-        op_type: Type[MemRefType] | Type[TensorType] = MemRefType,
-    ) -> None:
-        attrs = {"stride": self.DEFAULT_STRIDE, **attrs}
-        super().__init__(args, attrs, name, op_type)
-
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
         return self._dims(kind)
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        b, h, w, f, r, s, c, _ = self.args
+        b, h, w, f, r, s, c = self.args
         return {"b": b, "h": h, "w": w, "f": f, "r": r, "s": s, "c": c}
 
     @override
     def generate_op(
         self, block: Block | None = None, args: Sequence[BlockArgument] = []
     ) -> tuple[Block, OpAttrs]:
-        Kb, Kh, Kw, Kf, Kr, Ks, Kc, dtype = self.args
-        SH, SW = self.attrs["stride"]
+        Kb, Kh, Kw, Kf, Kr, Ks, Kc = self.args
+        SH, SW = self.attrs.get("stride", self.DEFAULT_STRIDE)
         inps_dims = self.inputs_dims()
         out_dims = self.outputs_dims()[0]
-        dtype = self.args[-1]
-        elt_type = ELT_TYPES[dtype]
+        acc_dtype = self.attrs.get("acc_dtype", None)
+        mixed = acc_dtype is not None and (
+            acc_dtype != self.out_dtype
+            or acc_dtype != self.in_dtypes[0]
+            or acc_dtype != self.in_dtypes[1]
+        )
+        acc = acc_dtype if mixed else self.out_dtype
+        assert acc is not None
+        elt_types = [
+            ELT_TYPES[self.in_dtypes[0]],
+            ELT_TYPES[self.in_dtypes[1]],
+            ELT_TYPES[self.out_dtype],
+        ]
+        acc_elt = ELT_TYPES[acc]
+        using_tensors = self.op_type == TensorType
+        convert_output = mixed and acc != self.out_dtype
         if block is None:
             ops_types = [
-                self.op_type(elt_type, shape) for shape in [*inps_dims, out_dims]
+                self.op_type(elt_type, shape)
+                for elt_type, shape in zip(elt_types, [*inps_dims, out_dims])
             ]
             block = Block(arg_types=ops_types)
             args = block.args
         assert len(args) == 3
         assert all(isinstance(arg.type, self.op_type) for arg in args)
         with ImplicitBuilder(block):
-            result = (args[2].type,) if self.op_type == TensorType else ()
-            cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_type))
+            result: tuple[Any, ...] = (args[2].type,) if using_tensors else ()
+            fill_output: Any = args[2]
+            cst0 = arith.ConstantOp(builtin.FloatAttr(0, acc_elt))
+            acc_result: tuple[Any, ...]
+            if convert_output and using_tensors:
+                fill_output = tensor.EmptyOp(
+                    dynamic_sizes=[],
+                    tensor_type=TensorType(acc_elt, out_dims),
+                ).results[0]
+                acc_result = (TensorType(acc_elt, out_dims),)
+            elif convert_output and not using_tensors:
+                fill_output = memref.AllocaOp.get(
+                    return_type=acc_elt, shape=out_dims, alignment=256
+                ).results[0]
+                acc_result = result
+            else:
+                acc_result = result
             fill = linalg.FillOp(
-                res=result,
+                res=acc_result,
                 inputs=(cst0.results[0],),
-                outputs=(args[2],),
+                outputs=(fill_output,),
             )
+            acc_value = fill.results[0] if using_tensors else fill_output
             # TODO: Does not work
             # strides = DenseIntOrFPElementsAttr.vector_from_list([SH, SW], i64)
             # dilations = DenseIntOrFPElementsAttr.vector_from_list([1, 1], i64)
@@ -364,16 +520,16 @@ class MlirOperatorConv2D(MlirOperator):
                 StringAttr({"P": "parallel", "R": "reduction"}[k]) for k in self.KINDS
             ]
             flags = arith.FastMathFlagsAttr("fast")
-            block_in = Block(arg_types=[elt_type, elt_type, elt_type])
+            block_in = Block(arg_types=[*elt_types[:2], acc_elt])
             with ImplicitBuilder(block_in):
-                mul = arith.MulfOp(block_in.args[0], block_in.args[1], flags=flags)
+                a = _cast_type_to(block_in.args[0], self.in_dtypes[0], acc)
+                b = _cast_type_to(block_in.args[1], self.in_dtypes[1], acc)
+                mul = arith.MulfOp(a, b, flags=flags)
                 add = arith.AddfOp(block_in.args[2], mul, flags=flags)
                 linalg.YieldOp(add)
             reduce = linalg.GenericOp(
                 inputs=(args[0], args[1]),
-                outputs=(fill.results[0],)
-                if self.op_type == TensorType
-                else (args[2],),
+                outputs=(acc_value,),
                 body=Region([block_in]),  # type: ignore # mypy issue with dataclass
                 # ignore typing due to xdsl hints limitation
                 indexing_maps=[
@@ -400,45 +556,53 @@ class MlirOperatorConv2D(MlirOperator):
                     ),
                 ],
                 iterator_types=iterator_types,
-                result_types=result,
+                result_types=acc_result,
             )
+            output = None
+            if convert_output:
+                output = _cast_generic_to(
+                    reduce.results[0] if using_tensors else acc_value,
+                    args[2],
+                    acc,
+                    self.out_dtype,
+                    result,
+                )
         fill_node_id = f"{self.name}_0"
         reduce_node_id = f"{self.name}"
+        output_node_id = f"{self.name}_cast"
         fill.attributes[f"__xtc_id_{fill_node_id}_"] = UnitAttr()
         reduce.attributes[f"__xtc_id_{reduce_node_id}_"] = UnitAttr()
+        if output is not None:
+            output.attributes[f"__xtc_id_{output_node_id}_"] = UnitAttr()
+            output_nodes = [output]
+        else:
+            output_nodes = [reduce]
         attrs = {
             "nodes_map": {
                 fill_node_id: fill,
                 reduce_node_id: reduce,
+                **({output_node_id: output} if output is not None else {}),
             },
             "dims_sizes": [
                 {"b": Kb, "h": Kh, "w": Kw, "f": Kf},
                 self.dims_sizes(),
+                *([{"b": Kb, "h": Kh, "w": Kw, "f": Kf}] if output is not None else []),
             ],
-            "output_nodes": [reduce],
+            "output_nodes": output_nodes,
+            "root_node": reduce_node_id,
         }
         return block, attrs
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        b, h, w, f, r, s, c, _ = self.args
-        SH, SW = self.attrs["stride"]
+        b, h, w, f, r, s, c = self.args
+        SH, SW = self.attrs.get("stride", self.DEFAULT_STRIDE)
         return ((b, h * SH + r - 1, w * SW + s - 1, c), (r, s, c, f))
-
-    @override
-    def inputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return dtype, dtype
 
     @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         b, h, w, f = self.args[:4]
         return ((b, h, w, f),)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
 
 
 class MlirOperatorRelu(MlirOperator):
@@ -448,7 +612,7 @@ class MlirOperatorRelu(MlirOperator):
     KINDS = "PPPPPPPPPPPPPPPPPP"
 
     def _shape(self) -> tuple[int, ...]:
-        shape = tuple(self.args[:-1])
+        shape = tuple(self.args)
         assert len(shape) <= len(self.AXES), f"unsupported relu rank: {shape}"
         return shape
 
@@ -464,9 +628,9 @@ class MlirOperatorRelu(MlirOperator):
     def generate_op(
         self, block: Block | None = None, args: Sequence[BlockArgument] = []
     ) -> tuple[Block, OpAttrs]:
-        dtype = self.args[-1]
+        self._require_uniform_dtypes()
         shape = self._shape()
-        elt_type = ELT_TYPES[dtype]
+        elt_type = ELT_TYPES[self.in_dtypes[0]]
         if block is None:
             ops_types = [self.op_type(elt_type, shape) for _ in range(2)]
             block = Block(arg_types=ops_types)
@@ -511,18 +675,8 @@ class MlirOperatorRelu(MlirOperator):
         return (self._shape(),)
 
     @override
-    def inputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
-
-    @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         return (self._shape(),)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
 
 
 class MlirOperatorPad(MlirOperator):
@@ -536,15 +690,16 @@ class MlirOperatorPad(MlirOperator):
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        assert len(self.args[:-1]) <= len(self.AXES)
-        return {name: size for name, size in zip(self.AXES, self.args[:-1])}
+        assert len(self.args) <= len(self.AXES)
+        return {name: size for name, size in zip(self.AXES, self.args)}
 
     @override
     def generate_op(
         self, block: Block | None = None, args: Sequence[BlockArgument] = []
     ) -> tuple[Block, OpAttrs]:
-        dtype = self.args[-1]
-        dims_value = list(self.args[:-1])
+        self._require_uniform_dtypes()
+        elt_type = ELT_TYPES[self.in_dtypes[0]]
+        dims_value = list(self.args)
         padding = self.attrs["padding"]
         constant_value = self.attrs["constant_value"]
         lows = [0] * len(dims_value)
@@ -561,7 +716,6 @@ class MlirOperatorPad(MlirOperator):
             ]
             lows = [padding[0] for d in dims_value]
             highs = [padding[1] for d in dims_value]
-        elt_type = ELT_TYPES[dtype]
         if block is None:
             ops_types = [
                 self.op_type(elt_type, shape)
@@ -572,13 +726,13 @@ class MlirOperatorPad(MlirOperator):
         assert len(args) == 2
         assert all(isinstance(arg.type, self.op_type) for arg in args)
         if isinstance(padding, dict):
-            offsets = [0 for _ in self.args[:-1]]
+            offsets = [0 for _ in self.args]
             for i, (pad_b, pad_a) in padding.items():
                 offsets[i] = pad_b
         else:
-            offsets = [padding[0] for _ in self.args[:-1]]
+            offsets = [padding[0] for _ in self.args]
         sizes = list(dims_value_before_pad)
-        strides = [1 for _ in self.args[:-1]]
+        strides = [1 for _ in self.args]
         using_tensors = self.op_type == TensorType
         with ImplicitBuilder(block):
             cst0 = arith.ConstantOp(builtin.FloatAttr(constant_value, elt_type))
@@ -699,7 +853,7 @@ class MlirOperatorPad(MlirOperator):
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
         padding = self.attrs["padding"]
-        dims_value = list(self.args[:-1])
+        dims_value = list(self.args)
         if isinstance(padding, dict):
             for i, pad_value in padding.items():
                 dims_value[i] -= sum(pad_value)
@@ -708,18 +862,8 @@ class MlirOperatorPad(MlirOperator):
         return (tuple(dims_value),)
 
     @override
-    def inputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
-
-    @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        return (tuple(self.args[:-1]),)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
+        return (tuple(self.args),)
 
 
 class MlirOperatorPad2D(MlirOperatorPad):
@@ -739,15 +883,16 @@ class MlirOperatorUnpad(MlirOperator):
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        assert len(self.args[:-1]) <= len(self.AXES)
-        return {name: size for name, size in zip(self.AXES, self.args[:-1])}
+        assert len(self.args) <= len(self.AXES)
+        return {name: size for name, size in zip(self.AXES, self.args)}
 
     @override
     def generate_op(
         self, block: Block | None = None, args: Sequence[BlockArgument] = []
     ) -> tuple[Block, OpAttrs]:
-        dtype = self.args[-1]
-        dims_values = list(self.args[:-1])
+        self._require_uniform_dtypes()
+        elt_type = ELT_TYPES[self.in_dtypes[0]]
+        dims_values = list(self.args)
         padding = self.attrs["padding"]
         if isinstance(padding, dict):
             dims_values_before_unpad = list(dims_values)
@@ -757,7 +902,6 @@ class MlirOperatorUnpad(MlirOperator):
             dims_values_before_unpad = [
                 dim_value + sum(padding) for dim_value in dims_values
             ]
-        elt_type = ELT_TYPES[dtype]
         if block is None:
             ops_types = [
                 self.op_type(elt_type, shape)
@@ -768,13 +912,13 @@ class MlirOperatorUnpad(MlirOperator):
         assert len(args) == 2
         assert all(isinstance(arg.type, self.op_type) for arg in args)
         if isinstance(padding, dict):
-            offsets = [0 for _ in self.args[:-1]]
+            offsets = [0 for _ in self.args]
             for i, (pad_b, _) in padding.items():
                 offsets[i] = pad_b
         else:
-            offsets = [padding[0] for _ in self.args[:-1]]
+            offsets = [padding[0] for _ in self.args]
         sizes = dims_values
-        strides = [1 for _ in self.args[:-1]]
+        strides = [1 for _ in self.args]
         using_tensors = self.op_type == TensorType
         with ImplicitBuilder(block):
             if using_tensors:
@@ -811,7 +955,7 @@ class MlirOperatorUnpad(MlirOperator):
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
         padding = self.attrs["padding"]
-        inp_dims = list(self.args[:-1])
+        inp_dims = list(self.args)
         if isinstance(padding, dict):
             for axis, (pad_b, pad_a) in padding.items():
                 inp_dims[axis] += pad_b + pad_a
@@ -820,18 +964,8 @@ class MlirOperatorUnpad(MlirOperator):
         return (tuple(inp_dims),)
 
     @override
-    def inputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
-
-    @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        return (self.args[:-1],)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
+        return (self.args,)
 
 
 class MlirOperators:

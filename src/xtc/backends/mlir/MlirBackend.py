@@ -30,7 +30,18 @@ ELT_TYPES: dict[str, BFloat16Type | Float16Type | Float32Type | Float64Type] = {
     "float32": f32,
     "float64": f64,
 }
-TYPES_MAP = {"bf16": "bfloat16", "f16": "float16", "f32": "float32", "f64": "float64"}
+ELT_SIZES: dict[str, int] = {
+    "bfloat16": 16,
+    "float16": 16,
+    "float32": 32,
+    "float64": 64,
+}
+TYPES_MAP: dict[str, str] = {
+    "bf16": "bfloat16",
+    "f16": "float16",
+    "f32": "float32",
+    "f64": "float64",
+}
 
 
 class MlirBackend(itf.back.Backend):

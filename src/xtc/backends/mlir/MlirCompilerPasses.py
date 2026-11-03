@@ -230,10 +230,27 @@ class MlirProgramInsertTransformPass:
 
         unscheduled_handles: set[str | None] = set()
         fused_producers = self._collect_fused_producers(unscheduled_handles)
+        schedules_by_ident = {s.node_ident: s for s in self._nodes_schedules}
+        cast_string: set[str] = set()
+        for schedule in self._nodes_schedules:
+            cast_sched = schedules_by_ident.get(f"{schedule.node_ident}cast_")
+            cast_sched_check = (
+                cast_sched is not None
+                and self._using_tensors
+                and not schedule.gpu_blocks
+                and not schedule.gpu_threads
+                and not schedule.gpu_lanes
+                and not schedule.gpu_warps
+            )
+
+            if cast_sched_check:
+                unscheduled_handles.add(f"{schedule.node_ident}cast_")
+                cast_string.add(f"{schedule.node_ident}cast_")
 
         for schedule in self._nodes_schedules:
             if schedule.node_ident in unscheduled_handles:
                 continue
+            cast_sched_check = f"{schedule.node_ident}cast_" in cast_string
             self._create_sdist_meshes(schedule)
             handle = structured_match(
                 results_=transform.AnyOpType.get(),
@@ -260,6 +277,15 @@ class MlirProgramInsertTransformPass:
                 handle = scheduling_state.handle
 
                 if schedule.fused_consumers:
+                    # Fuse the casting if only there is a fuse
+                    if cast_sched_check:
+                        cast_sched = schedules_by_ident.get(
+                            f"{schedule.node_ident}cast_"
+                        )
+                        assert cast_sched is not None
+                        self._fuse_cast_into_loops(
+                            schedule, cast_sched, scheduling_state
+                        )
                     self._fuse_consumers_into_loops(
                         schedule, scheduling_state, unscheduled_handles
                     )
@@ -499,6 +525,51 @@ class MlirProgramInsertTransformPass:
             transform.AnnotateOp(op.new_loops[i], loop_dim)
             if loop_dim == fuse_axis:
                 break
+
+    # TODO: Will get reworked when chaining several producer get added
+    def _fuse_cast_into_loops(
+        self,
+        schedule: MlirNodeSchedule,
+        cast_sched: MlirNodeSchedule,
+        sched_state: SchedulingState,
+    ) -> None:
+        xtc_transform = binding_extensions.module("mlir.xtc_transform")
+        if xtc_transform is None:
+            raise ImportError(
+                "mlir.xtc_transform module not installed, required for FuseConsumerOp"
+            )
+        assert self._named_sequence is not None
+        cast_handle = structured_match(
+            results_=transform.AnyOpType.get(),
+            target=self._named_sequence.bodyTarget,
+            op_attrs={f"{schedule.node_ident}cast_": UnitAttr.get()},
+        )
+        reduce_dims = set(schedule.dims) - set(cast_sched.dims)
+        fuse_root = next(iter(schedule.permutation))
+        fuse_loops = []
+        fuse_loop_dims = []
+        for loop_dim in schedule.permutation[fuse_root]:
+            if loop_dim in schedule.gpu_blocks and loop_dim != schedule.gpu_blocks[-1]:
+                continue
+            if schedule.is_base(loop_dim) or schedule.is_tile(loop_dim):
+                base_dim = schedule.dim_of_tile(loop_dim)
+            else:
+                base_dim = None
+            if base_dim is None or base_dim in reduce_dims:
+                break
+            if loop_dim not in sched_state.all_loops:
+                break
+            fuse_loops.append(sched_state.all_loops[loop_dim])
+            fuse_loop_dims.append(loop_dim)
+        if not fuse_loops:
+            raise ValueError(
+                f"node '{schedule.node_ident}': no loop above the reduction dims "
+                f"{sorted(reduce_dims)} to fuse the mixed cast stage into"
+            )
+        op = xtc_transform.FuseConsumerOp(cast_handle, fuse_loops)
+        for i, loop_dim in enumerate(fuse_loop_dims):
+            sched_state.all_loops[loop_dim] = op.new_loops[i]
+            transform.AnnotateOp(op.new_loops[i], loop_dim)
 
     def _fuse_producers_into_loop(
         self,
@@ -1050,15 +1121,32 @@ def find_consumer_handles(module: Module, root_handle: str) -> list[str | None]:
         if root_op:
             break
 
-    if not root_op:
+    if not root_op or not root_op.results:
         return consumer_handles
 
-    for use in root_op.results[0].uses:
-        consumer_op = use.owner
-        for attr in consumer_op.attributes:
-            if attr.startswith("__xtc_id_"):
-                consumer_handles.append(attr)
+    cast_handle = f"{root_handle}cast_"
+
+    _add_users_of(root_op.results[0], consumer_handles, cast_handle)
     return consumer_handles
+
+
+def _add_users_of(
+    value: OpResult, consumer_handles: list[str | None], root: str, depth: int = 0
+) -> None:
+    if depth > 1:
+        return
+    for use in value.uses:
+        consumer_op = use.owner
+        attrs = [
+            attr for attr in consumer_op.attributes if attr.startswith("__xtc_id_")
+        ]
+        if not attrs:
+            continue
+        if attrs == [root]:
+            if consumer_op.results:
+                _add_users_of(consumer_op.results[0], consumer_handles, root, depth + 1)
+        else:
+            consumer_handles.extend(attrs)
 
 
 def find_producer_handles(module: Module, root_handle: str) -> list[str | None]:

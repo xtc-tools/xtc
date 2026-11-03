@@ -170,6 +170,7 @@ class MlirGraphBackend(MlirBackend):
         )
         nodes_dict = {}
         for attrs in block_attrs:
+            root_node = attrs.get("root_node", None)
             for (node_id, node), dims in zip(
                 attrs["nodes_map"].items(), attrs["dims_sizes"]
             ):
@@ -182,6 +183,7 @@ class MlirGraphBackend(MlirBackend):
                     concluding_passes=concluding_passes,
                     id=f"__xtc_id_{node_id}_",
                     xdsl_type=self.xdsl_type,
+                    is_root=(root_node is not None and node_id == root_node),
                 )
         return payload, nodes_dict
 
