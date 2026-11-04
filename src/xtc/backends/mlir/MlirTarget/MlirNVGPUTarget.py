@@ -3,7 +3,7 @@
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
 from typing_extensions import override
-from typing import Any
+from typing import Any, Callable
 import subprocess
 import os
 import sys
@@ -355,9 +355,16 @@ class MlirNVGPUTarget(MlirTarget):
         to_llvm_pass = MlirProgramToLLVMDialectPass(
             mlir_program=mlir_program,
         )
-        to_llvm_pass.run(sm_arch, ptx_version)
-        if self._config.print_lowered_ir:
-            self.dump_ir(mlir_program, "IR Dump After MLIR Opt")
+
+        def dump_lowered_ir() -> None:
+            if self._config.print_lowered_ir:
+                self.dump_ir(mlir_program, "IR Dump After MLIR Opt")
+
+        to_llvm_pass.run(
+            sm_arch,
+            ptx_version,
+            before_gpu_module_to_binary=dump_lowered_ir,
+        )
 
     @property
     def cmd_cc(self):
@@ -487,8 +494,22 @@ class MlirProgramToLLVMDialectPass:
             "reconcile-unrealized-casts",
         ]
 
-    def run(self, sm_arch: str, ptx_version: str) -> None:
+    def run(
+        self,
+        sm_arch: str,
+        ptx_version: str,
+        before_gpu_module_to_binary: Callable[[], None] | None = None,
+    ) -> None:
+        pipeline = self._lowering_pipeline(sm_arch, ptx_version)
+        binary_pass_idx = pipeline.index("gpu-module-to-binary")
+        self._run_passes(pipeline[:binary_pass_idx])
+        # We print the lowered ir before the binary so it became readable
+        if before_gpu_module_to_binary is not None:
+            before_gpu_module_to_binary()
+        self._run_passes(pipeline[binary_pass_idx:])
+
+    def _run_passes(self, passes: list[str]) -> None:
         pm = PassManager(context=self._mlir_program.mlir_context)
-        for opt in self._lowering_pipeline(sm_arch, ptx_version):
+        for opt in passes:
             pm.add(opt)  # type: ignore # no attribte add?
         pm.run(self._mlir_program.mlir_module.operation)
