@@ -12,7 +12,7 @@ a = O.tensor((I, K), dtype, name="A", device=gpu)
 b = O.tensor((K, J), dtype, name="B", device=gpu)
 
 with O.graph(name="matmul") as gb:
-    O.matmul(a, b, name="C", device=gpu)
+    O.matmul(a, b, name="C", device=gpu, acc_dtype="float32")
 
 graph = gb.graph
 print(graph)
@@ -49,7 +49,7 @@ print(f"CODE: {code}")
 # CHECK-NEXT:    outputs:
 # CHECK-NEXT:    - %2 : 256x256xbfloat16
 # CHECK-NEXT:    nodes:
-# CHECK-NEXT:    - %2: matmul(%0, %1) {name = 'C'} : [256x256xbfloat16, 256x256xbfloat16] -> [256x256xbfloat16]
+# CHECK-NEXT:    - %2: matmul(%0, %1, acc_dtype=float32) {name = 'C'} : [256x256xbfloat16, 256x256xbfloat16] -> [256x256xbfloat16]
 # CHECK-NEXT:  
 # CHECK-NEXT:  # from tvm.script import ir as I
 # CHECK-NEXT:  # from tvm.script import tirx as T
@@ -58,23 +58,37 @@ print(f"CODE: {code}")
 # CHECK-NEXT:  @I.ir_module
 # CHECK-NEXT:  class Module:
 # CHECK-NEXT:      @T.prim_func(s_tir=True)
-# CHECK-NEXT:      def matmul(_0: T.Buffer((256, 256), "bfloat16"), _1: T.Buffer((256, 256), "bfloat16"), C: T.Buffer((256, 256), "bfloat16")):
+# CHECK-NEXT:      def matmul(_0: T.Buffer((256, 256), "bfloat16"), _1: T.Buffer((256, 256), "bfloat16"), C_cast: T.Buffer((256, 256), "bfloat16")):
 # CHECK-NEXT:          T.func_attr({"tirx.noalias": True})
 # CHECK-NEXT:          # with T.sblock("root"):
+# CHECK-NEXT:          C = T.sblock_alloc_buffer((256, 256))
 # CHECK-NEXT:          for i, j, k in T.grid(256, 256, 256):
 # CHECK-NEXT:              with T.sblock("C"):
 # CHECK-NEXT:                  v_i, v_j, v_k = T.axis.remap("SSR", [i, j, k])
 # CHECK-NEXT:                  T.reads(_0[v_i, v_k], _1[v_k, v_j])
 # CHECK-NEXT:                  T.writes(C[v_i, v_j])
 # CHECK-NEXT:                  with T.init():
-# CHECK-NEXT:                      C[v_i, v_j] = T.bfloat16(0.0)
-# CHECK-NEXT:                  C[v_i, v_j] = C[v_i, v_j] + _0[v_i, v_k] * _1[v_k, v_j]
+# CHECK-NEXT:                      C[v_i, v_j] = T.float32(0.0)
+# CHECK-NEXT:                  C[v_i, v_j] = C[v_i, v_j] + T.Cast("float32", _0[v_i, v_k]) * T.Cast("float32", _1[v_k, v_j])
+# CHECK-NEXT:          for i, j in T.grid(256, 256):
+# CHECK-NEXT:              with T.sblock("C_cast"):
+# CHECK-NEXT:                  v_i, v_j = T.axis.remap("SS", [i, j])
+# CHECK-NEXT:                  T.reads(C[v_i, v_j])
+# CHECK-NEXT:                  T.writes(C_cast[v_i, v_j])
+# CHECK-NEXT:                  C_cast[v_i, v_j] = T.Cast("bfloat16", C[v_i, v_j])
 # CHECK-NEXT:  O = sch.get_sblock("C")
 # CHECK-NEXT:  i, j, k, = sch.get_loops(O)
 # CHECK-NEXT:  i, i1, i2, = sch.split(i, factors=[None, 8, 8])
 # CHECK-NEXT:  j, j1, j2, = sch.split(j, factors=[None, 16, 8])
 # CHECK-NEXT:  k, k1, k2, = sch.split(k, factors=[None, 4, 8])
 # CHECK-NEXT:  sch.reorder(i, j, i1, j1, k, k1, k2, i2, j2)
+# CHECK-NEXT:  sch.bind(i, 'blockIdx.x')
+# CHECK-NEXT:  sch.bind(i1, 'threadIdx.x')
+# CHECK-NEXT:  O_cast = sch.get_sblock("C_cast")
+# CHECK-NEXT:  i, j, = sch.get_loops(O_cast)
+# CHECK-NEXT:  i, i1, i2, = sch.split(i, factors=[None, 8, 8])
+# CHECK-NEXT:  j, j1, j2, = sch.split(j, factors=[None, 16, 8])
+# CHECK-NEXT:  sch.reorder(i, j, i1, j1, i2, j2)
 # CHECK-NEXT:  sch.bind(i, 'blockIdx.x')
 # CHECK-NEXT:  sch.bind(i1, 'threadIdx.x')
 # CHECK-NEXT:  sch = decompose_reduction_initializers(sch)
@@ -86,9 +100,10 @@ print(f"CODE: {code}")
 # CHECK-NEXT:  @I.ir_module
 # CHECK-NEXT:  class Module:
 # CHECK-NEXT:      @T.prim_func(s_tir=True)
-# CHECK-NEXT:      def matmul(_0: T.Buffer((256, 256), "bfloat16"), _1: T.Buffer((256, 256), "bfloat16"), C: T.Buffer((256, 256), "bfloat16")):
+# CHECK-NEXT:      def matmul(_0: T.Buffer((256, 256), "bfloat16"), _1: T.Buffer((256, 256), "bfloat16"), C_cast: T.Buffer((256, 256), "bfloat16")):
 # CHECK-NEXT:          T.func_attr({"tirx.noalias": True})
 # CHECK-NEXT:          # with T.sblock("root"):
+# CHECK-NEXT:          C = T.sblock_alloc_buffer((256, 256))
 # CHECK-NEXT:          for i_0 in T.thread_binding(4, thread="blockIdx.x"):
 # CHECK-NEXT:              for j_0 in range(2):
 # CHECK-NEXT:                  for i_1 in T.thread_binding(8, thread="threadIdx.x"):
@@ -99,7 +114,7 @@ print(f"CODE: {code}")
 # CHECK-NEXT:                                  v_j = T.axis.spatial(256, j_0 * 128 + j_1 * 8 + j_2_init)
 # CHECK-NEXT:                                  T.reads()
 # CHECK-NEXT:                                  T.writes(C[v_i, v_j])
-# CHECK-NEXT:                                  C[v_i, v_j] = T.bfloat16(0.0)
+# CHECK-NEXT:                                  C[v_i, v_j] = T.float32(0.0)
 # CHECK-NEXT:                          for k_0, k_1, k_2, i_2, j_2 in T.grid(8, 4, 8, 8, 8):
 # CHECK-NEXT:                              with T.sblock("C_update"):
 # CHECK-NEXT:                                  v_i = T.axis.spatial(256, i_0 * 64 + i_1 * 8 + i_2)
@@ -107,5 +122,15 @@ print(f"CODE: {code}")
 # CHECK-NEXT:                                  v_k = T.axis.reduce(256, k_0 * 32 + k_1 * 8 + k_2)
 # CHECK-NEXT:                                  T.reads(C[v_i, v_j], _0[v_i, v_k], _1[v_k, v_j])
 # CHECK-NEXT:                                  T.writes(C[v_i, v_j])
-# CHECK-NEXT:                                  C[v_i, v_j] = C[v_i, v_j] + _0[v_i, v_k] * _1[v_k, v_j]
-# CHECK-NEXT:  CODE: 1
+# CHECK-NEXT:                                  C[v_i, v_j] = C[v_i, v_j] + T.Cast("float32", _0[v_i, v_k]) * T.Cast("float32", _1[v_k, v_j])
+# CHECK-NEXT:          for i_0 in T.thread_binding(4, thread="blockIdx.x"):
+# CHECK-NEXT:              for j_0 in range(2):
+# CHECK-NEXT:                  for i_1 in T.thread_binding(8, thread="threadIdx.x"):
+# CHECK-NEXT:                      for j_1, i_2, j_2 in T.grid(16, 8, 8):
+# CHECK-NEXT:                          with T.sblock("C_cast"):
+# CHECK-NEXT:                              v_i = T.axis.spatial(256, i_0 * 64 + i_1 * 8 + i_2)
+# CHECK-NEXT:                              v_j = T.axis.spatial(256, j_0 * 128 + j_1 * 8 + j_2)
+# CHECK-NEXT:                              T.reads(C[v_i, v_j])
+# CHECK-NEXT:                              T.writes(C_cast[v_i, v_j])
+# CHECK-NEXT:                              C_cast[v_i, v_j] = T.Cast("bfloat16", C[v_i, v_j])
+# CHECK-NEXT:  CODE: 0

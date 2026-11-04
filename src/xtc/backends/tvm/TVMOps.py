@@ -45,8 +45,9 @@ class TVMBaseExpr(ABC):
                 if typ.layout is not None:
                     assert False, "tensor layout is not yet implemented in TVM backend"
         dims = xtc_op.dims.values()
-        dtype = xtc_op.inputs_types[0].dtype  # TODO: infer dtype form first input
-        args = tuple([*dims, dtype])
+        in_dtypes = tuple(str(inp.dtype) for inp in xtc_op.inputs_types)
+        out_dtype = xtc_op.outputs_types[0].dtype
+        args = tuple(dims)
         attrs = dict(xtc_op.attrs)
         attrs.update(
             dict(inp_shape=xtc_op.inputs_types[0].shape)
@@ -56,6 +57,8 @@ class TVMBaseExpr(ABC):
             args,
             dict(attrs),
             name=name,
+            in_dtypes=in_dtypes,
+            out_dtype=out_dtype,
         )
 
     @classmethod
@@ -70,10 +73,14 @@ class TVMOperation(TVMBaseExpr):
         args: tuple[Any, ...],
         attrs: dict[str, Any] = {},
         name: str | None = None,
+        in_dtypes: Sequence[str] = (),
+        out_dtype: str | None = None,
     ) -> None:
         self.args = args
         self.attrs = attrs
-        self.operator = operator(args, attrs, name=name)
+        self.operator = operator(
+            args, attrs, name=name, in_dtypes=in_dtypes, out_dtype=out_dtype
+        )
         super().__init__(
             name=self.operator.name if name is None else name,
         )
@@ -198,18 +205,45 @@ class TVMGraph(TVMBaseExpr):
         return outputs_spec
 
 
-# TODO: Add mixed type computation
 class TVMOperator(ABC):
     DEFAULT_NAME = "undef"
     AXES = ""
     KINDS = ""
 
     def __init__(
-        self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
+        self,
+        args: tuple[Any, ...],
+        attrs: dict[str, Any],
+        name: str | None = None,
+        in_dtypes: Sequence[str] = (),
+        out_dtype: str | None = None,
     ) -> None:
         self.args = args
         self.attrs = {**attrs}
         self.name = name if name is not None else self.DEFAULT_NAME
+        self._in_dtypes = tuple(in_dtypes)
+        self._out_dtype = out_dtype
+
+    @property
+    def in_dtypes(self) -> tuple[str, ...]:
+        return self._in_dtypes
+
+    @property
+    def out_dtype(self) -> str:
+        assert self._out_dtype is not None, "no out dtype specified"
+        return self._out_dtype
+
+    def _require_uniform_dtypes(self) -> None:
+        dtypes = (*self._in_dtypes, self._out_dtype)
+        if any(dtype != self._in_dtypes[0] for dtype in dtypes[1:]):
+            raise NotImplementedError(
+                f"mixed type computation is not yet implemented in the TVM backend: {dtypes}"
+            )
+
+    def has_cast_stage(self) -> bool:
+        """Whether generate_op emits a separate cast stage (mixed dtypes)."""
+        acc = self.attrs.get("acc_dtype")
+        return any((acc or dtype) != self.out_dtype for dtype in self.in_dtypes)
 
     @abstractmethod
     def generate_op(
@@ -222,11 +256,13 @@ class TVMOperator(ABC):
     @abstractmethod
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]: ...
     @abstractmethod
-    def inputs_types(self) -> tuple[str, ...]: ...
-    @abstractmethod
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]: ...
-    @abstractmethod
-    def outputs_types(self) -> tuple[str, ...]: ...
+
+    def inputs_types(self) -> tuple[str, ...]:
+        return self._in_dtypes
+
+    def outputs_types(self) -> tuple[str, ...]:
+        return (self.out_dtype,)
 
     def _dims(self, kind: str = "") -> tuple[str, ...]:
         if kind == "":
@@ -245,19 +281,21 @@ class TVMOperatorMatmul(TVMOperator):
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        i, j, k, _ = self.args
+        i, j, k = self.args
         return {"i": i, "j": j, "k": k}
 
     @override
     def generate_op(
         self, inputs: Sequence[TETensor] | None = None
     ) -> tuple[TETensor, ...]:
-        Ki, Kj, Kk, dtype = self.args
+        Ki, Kj, Kk = self.args
         if inputs is None:
-            A = te.placeholder((Ki, Kk), name="A", dtype=dtype)
-            B = te.placeholder((Kk, Kj), name="B", dtype=dtype)
+            A = te.placeholder((Ki, Kk), name="A", dtype=self.in_dtypes[0])
+            B = te.placeholder((Kk, Kj), name="B", dtype=self.in_dtypes[1])
         else:
             A, B = cast(Sequence[Any], inputs)
+        acc_type_A = self.attrs.get("acc_dtype", self.in_dtypes[0])
+        acc_type_B = self.attrs.get("acc_dtype", self.in_dtypes[1])
         Ashape = tuple(A.shape)
         Bshape = tuple(B.shape)
         Anewshape = (Ashape[0], mulall(list(Ashape[1:])))
@@ -269,33 +307,35 @@ class TVMOperatorMatmul(TVMOperator):
         k = te.reduce_axis((0, Kk), "k")
         O = te.compute(
             (Ki, Kj),
-            lambda i, j: te.sum(
-                A[i, k] * B[k, j],
-                axis=k,
+            lambda i, j: cast(
+                Any,
+                te.sum(
+                    A[i, k].astype(acc_type_A) * B[k, j].astype(acc_type_B),
+                    axis=k,
+                ),
             ),
             name=self.name,
         )
+        if self.has_cast_stage():
+            # Cannot use topi.cast. Need to have name for casting
+            # to be schedule with the gpu if not crash with bf16
+            acc = cast(Any, O)
+            O = te.compute(
+                (Ki, Kj),
+                lambda i, j: acc[i, j].astype(self.out_dtype),
+                name=f"{self.name}_cast",
+            )
         return cast(tuple[TETensor], (A, B, O))
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        i, j, k, _ = self.args
+        i, j, k = self.args
         return (i, k), (k, j)
-
-    @override
-    def inputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return dtype, dtype
 
     @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         i, j = self.args[:2]
         return ((i, j),)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
 
 
 class TVMOperatorRelu(TVMOperator):
@@ -303,15 +343,9 @@ class TVMOperatorRelu(TVMOperator):
     DEFAULT_THRESHOLD = 0
     AXES = "ijklmnopqrstuvwxyz"
 
-    def __init__(
-        self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
-    ) -> None:
-        attrs = {"threshold": self.DEFAULT_THRESHOLD, **attrs}
-        super().__init__(args, attrs, name)
-
     def _input_shape(self) -> tuple[int, ...]:
-        # One XTC dim per input dim, args are (*dims, dtype)
-        return tuple(self.args[:-1])
+        shape = self.attrs.get("inp_shape", self.args)
+        return tuple(shape)
 
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
@@ -332,7 +366,8 @@ class TVMOperatorRelu(TVMOperator):
     def generate_op(
         self, inputs: Sequence[TETensor] | None = None
     ) -> tuple[TETensor, ...]:
-        dtype = self.args[-1]
+        self._require_uniform_dtypes()
+        dtype = self.in_dtypes[0]
         shape = self._input_shape()
         if inputs is None:
             A = te.placeholder(shape, name="A", dtype=dtype)
@@ -340,7 +375,9 @@ class TVMOperatorRelu(TVMOperator):
             (A,) = cast(Sequence[Any], inputs)
         O = te.compute(
             shape,
-            lambda *dims: tvm.tirx.max(self.attrs["threshold"], A[dims]),
+            lambda *dims: tvm.tirx.max(
+                self.attrs.get("threshold", self.DEFAULT_THRESHOLD), A[dims]
+            ),
             name=self.name,
             varargs_names=list(self.dims()),
         )
@@ -351,18 +388,8 @@ class TVMOperatorRelu(TVMOperator):
         return (self._input_shape(),)
 
     @override
-    def inputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
-
-    @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         return (self._input_shape(),)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
 
 
 class TVMOperatorConv2D(TVMOperator):
@@ -372,82 +399,75 @@ class TVMOperatorConv2D(TVMOperator):
 
     DEFAULT_STRIDE = (1, 1)
 
-    def __init__(
-        self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
-    ) -> None:
-        attrs = {"stride": self.DEFAULT_STRIDE, **attrs}
-        super().__init__(args, attrs, name)
-
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
         return self._dims(kind)
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        b, h, w, f, r, s, c, _ = self.args
+        b, h, w, f, r, s, c = self.args
         return {"b": b, "h": h, "w": w, "f": f, "r": r, "s": s, "c": c}
 
     @override
     def generate_op(
         self, inputs: Sequence[TETensor] | None = None
     ) -> tuple[TETensor, ...]:
-        Kb, Kh, Kw, Kf, Kr, Ks, Kc, dtype = self.args
+        Kb, Kh, Kw, Kf, Kr, Ks, Kc = self.args
         inps_dims = self.inputs_dims()
         if inputs is None:
-            A = te.placeholder(inps_dims[0], name="A", dtype=dtype)
-            W = te.placeholder(inps_dims[1], name="W", dtype=dtype)
+            A = te.placeholder(inps_dims[0], name="A", dtype=self.in_dtypes[0])
+            W = te.placeholder(inps_dims[1], name="W", dtype=self.in_dtypes[1])
         else:
             A, W = cast(Sequence[Any], inputs)
+        acc_type_A = self.attrs.get("acc_dtype", self.in_dtypes[0])
+        acc_type_W = self.attrs.get("acc_dtype", self.in_dtypes[1])
         r = te.reduce_axis((0, Kr), "r")
         s = te.reduce_axis((0, Ks), "s")
         c = te.reduce_axis((0, Kc), "c")
         out_dims = self.outputs_dims()[0]
-        Ksh, Ksw = self.attrs["stride"]
+        Ksh, Ksw = self.attrs.get("stride", self.DEFAULT_STRIDE)
         O = te.compute(
             out_dims,
-            lambda b, h, w, f: te.sum(
-                A[b, h * Ksh + r, w * Ksw + s, c] * W[r, s, c, f],
-                axis=(r, s, c),
+            lambda b, h, w, f: cast(
+                Any,
+                te.sum(
+                    A[b, h * Ksh + r, w * Ksw + s, c].astype(acc_type_A)
+                    * W[r, s, c, f].astype(acc_type_W),
+                    axis=(r, s, c),
+                ),
             ),
             name=self.name,
         )
+        if self.has_cast_stage():
+            # Cannot use topi.cast. Need to have name for casting
+            # to be schedule with the gpu if not crash with bf16
+            acc = cast(Any, O)
+            O = te.compute(
+                out_dims,
+                lambda b, h, w, f: acc[b, h, w, f].astype(self.out_dtype),
+                name=f"{self.name}_cast",
+            )
         return cast(tuple[TETensor], (A, W, O))
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        b, h, w, f, r, s, c, _ = self.args
-        sh, sw = self.attrs["stride"]
+        b, h, w, f, r, s, c = self.args
+        sh, sw = self.attrs.get("stride", self.DEFAULT_STRIDE)
         return ((b, h * sh + r - 1, w * sw + s - 1, c), (r, s, c, f))
-
-    @override
-    def inputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return dtype, dtype
 
     @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         b, h, w, f = self.args[:4]
         return ((b, h, w, f),)
 
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        dtype = self.args[-1]
-        return (dtype,)
-
 
 class TVMOperatorPad(TVMOperator):
     DEFAULT_NAME = "pad"
     AXES = "ijklmnopqrstuvwxyz"
 
-    def __init__(
-        self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
-    ) -> None:
-        attrs = {**attrs}
-        super().__init__(args, attrs, name)
-
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
-        rank = len(self.args[:-1])
+        rank = len(self.args)
         assert rank <= len(self.AXES), f"unsupported pad input rank: {rank}"
         axes = tuple(self.AXES[:rank])
         if kind == "":
@@ -458,13 +478,14 @@ class TVMOperatorPad(TVMOperator):
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        return dict(zip(self.dims(), self.args[:-1]))
+        return dict(zip(self.dims(), self.args))
 
     @override
     def generate_op(
         self, inputs: Sequence[TETensor] | None = None
     ) -> tuple[TETensor, ...]:
-        dtype = self.args[-1]
+        self._require_uniform_dtypes()
+        dtype = self.in_dtypes[0]
         dims_values = tuple(self.dims_sizes().values())
         padding = self.attrs["padding"]
         constant_value = self.attrs["constant_value"]
@@ -532,18 +553,8 @@ class TVMOperatorPad(TVMOperator):
         return (tuple(inp_dims),)
 
     @override
-    def inputs_types(self) -> tuple[str, ...]:
-        _, dtype = self.args
-        return (dtype,)
-
-    @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         return (tuple(self.dims_sizes().values()),)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        _, dtype = self.args
-        return (dtype,)
 
 
 class TVMOperatorPad2D(TVMOperatorPad):
@@ -551,27 +562,14 @@ class TVMOperatorPad2D(TVMOperatorPad):
     AXES = "bhwc"
     KINDS = "PPPP"
 
-    def __init__(
-        self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
-    ) -> None:
-        attrs = {**attrs}
-        super().__init__(args, attrs, name)
-        assert len(self.dims()) == 4, "unexpected rank for pad2d, must be 4"
-
 
 class TVMOperatorUnpad(TVMOperator):
     DEFAULT_NAME = "unpad"
     AXES = "ijklmnopqrstuvwxyz"
 
-    def __init__(
-        self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
-    ) -> None:
-        attrs = {**attrs}
-        super().__init__(args, attrs, name)
-
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
-        rank = len(self.args[:-1])
+        rank = len(self.args)
         assert rank <= len(self.AXES), f"unsupported unpad input rank: {rank}"
         axes = tuple(self.AXES[:rank])
         if kind == "":
@@ -582,13 +580,14 @@ class TVMOperatorUnpad(TVMOperator):
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        return dict(zip(self.dims(), self.args[:-1]))
+        return dict(zip(self.dims(), self.args))
 
     @override
     def generate_op(
         self, inputs: Sequence[TETensor] | None = None
     ) -> tuple[TETensor, ...]:
-        dtype = self.args[-1]
+        self._require_uniform_dtypes()
+        dtype = self.in_dtypes[0]
         dims_values = tuple(self.dims_sizes().values())
         padding = self.attrs["padding"]
         if inputs is None:
@@ -633,18 +632,8 @@ class TVMOperatorUnpad(TVMOperator):
         return (tuple(inp_dims),)
 
     @override
-    def inputs_types(self) -> tuple[str, ...]:
-        _, dtype = self.args
-        return (dtype,)
-
-    @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         return (tuple(self.dims_sizes().values()),)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        _, dtype = self.args
-        return (dtype,)
 
 
 class TVMOperatorTranspose(TVMOperator):
@@ -652,28 +641,25 @@ class TVMOperatorTranspose(TVMOperator):
     AXES = "i"
     KINDS = "P"
 
-    def __init__(
-        self, args: tuple[Any, ...], attrs: dict[str, Any], name: str | None = None
-    ) -> None:
-        attrs = {**attrs}
-        super().__init__(args, attrs, name)
-
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
         return self._dims(kind)
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        i, _ = self.args
+        i = self.args[0]
         return {"i": i}
 
     @override
     def generate_op(
         self, inputs: Sequence[TETensor] | None = None
     ) -> tuple[TETensor, ...]:
-        i, dtype = self.args
+        i = self.args[0]
+        self._require_uniform_dtypes()
         if inputs is None:
-            A = te.placeholder(self.attrs["inp_shape"], name="A", dtype=dtype)
+            A = te.placeholder(
+                self.attrs["inp_shape"], name="A", dtype=self.in_dtypes[0]
+            )
         else:
             (A,) = cast(Sequence[Any], inputs)
         shape = A.shape
@@ -706,11 +692,6 @@ class TVMOperatorTranspose(TVMOperator):
         return (shape,)
 
     @override
-    def inputs_types(self) -> tuple[str, ...]:
-        _, dtype = self.args
-        return (dtype,)
-
-    @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         shape = self.attrs["inp_shape"]
         axes = self.attrs["axes"]
@@ -718,11 +699,6 @@ class TVMOperatorTranspose(TVMOperator):
             axes = list(range(len(shape)))[::-1]
         out_shape = tuple([shape[n] for n in axes])
         return (out_shape,)
-
-    @override
-    def outputs_types(self) -> tuple[str, ...]:
-        _, dtype = self.args
-        return (dtype,)
 
 
 class TVMOperators:

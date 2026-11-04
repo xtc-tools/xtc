@@ -58,44 +58,18 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
         print(f'{block} = {sch}.get_sblock("{self._op.name}")', file=outf)
         dims = sched.abstract_dims
         self._dump_schedule_node(block, dims, sched, root)
+        self._dump_cast_schedule(root, sched)
         print(
             f"{sch} = decompose_reduction_initializers({sch})",
             file=outf,
         )
 
-    def _dump_schedule_node(
-        self, block: str, dims: list[str], sched: LoopNest, node: LoopNestNode
-    ):
-        assert node is not None, "unexpected undefined node"
+    def _dump_tile_splits(self, t_axes: list[str], node: LoopNestNode) -> list[str]:
+        """Emit the tile splits of the axes and return all the axis names."""
         sch = self._sch_var
         outf = self._outf
-        print(f"{', '.join(dims)}, = {sch}.get_loops({block})", file=outf)
-        if node.fuse_consumer_at:
-            print(f"O_F0 = {sch}.get_consumers({block})[0]", file=outf)
-        if node.pack_at:
-            scope_of = {
-                inp_idx: (mtype if mtype is not None else "global")
-                for inp in node.pack_at.values()
-                for inp_idx, mtype, _, _ in inp
-            }
-            for inp_idx, scope in scope_of.items():
-                print(
-                    f'I_R{inp_idx} = {sch}.cache_read({block}, {inp_idx}, "{scope}")',
-                    file=outf,
-                )
-        if node.buffer_at:
-            wscope = next(iter(node.buffer_at.values()))
-            wscope = wscope if wscope is not None else "global"
-            print(f'O_W0 = {sch}.cache_write({block}, 0, "{wscope}")', file=outf)
-        if node.fuse_producer_at:
-            producers = list({idx: None for idx in node.fuse_producer_at.values()})
-            for prod_idx in producers:
-                print(
-                    f"I_F{prod_idx} = {sch}.get_producers({block})[{prod_idx}]",
-                    file=outf,
-                )
-        axes = []
-        for t_axis in dims:
+        axes: list[str] = []
+        for t_axis in t_axes:
             t_tiles = node.tiles.get(t_axis, {})
             t_names = [t_axis] + list(t_tiles)
             axes += t_names
@@ -111,24 +85,127 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
                 f"{', '.join(t_names)}, = {sch}.split({t_axis}, factors=[{', '.join(t_factors)}])",
                 file=outf,
             )
+        return axes
+
+    def _dump_cast_schedule(self, node: LoopNestNode, sched: LoopNest) -> None:
+        """Mirror the schedule on the cast stage of mixed type computation.
+
+        The cast stage has the spatial dims of the operation only, without
+        gpu thread bindings it stays on the host side where the tvm
+        pipeline cannot lower its casts and the compilation fails. Replay
+        the schedule of the main block on the cast stage: tiles, loop
+        order, block/thread mapping, split, unroll, vectorize and
+        parallelization, restricted to the spatial dims of the cast stage.
+        """
+        # TODO: Currently has_cast_stage depend of the attribute acc_dtype
+        # if it is added to operator that does not do the cast it will do an error
+        if not self._op.operator.has_cast_stage():
+            return
+        block = "O_cast"
+        sch = self._sch_var
+        outf = self._outf
+        spatial_dims = list(self._op.operator.dims("P"))
+        print(f'{block} = {sch}.get_sblock("{self._op.name}_cast")', file=outf)
+        self._dump_schedule_node(
+            block, spatial_dims, sched, node, cast_mode=True, cast_root=True
+        )
+
+    def _dump_schedule_node(
+        self,
+        block: str,
+        dims: list[str],
+        sched: LoopNest,
+        node: LoopNestNode,
+        cast_mode: bool = False,
+        cast_root: bool = False,
+    ):
+        assert node is not None, "unexpected undefined node"
+        sch = self._sch_var
+        outf = self._outf
+        print(f"{', '.join(dims)}, = {sch}.get_loops({block})", file=outf)
+        if node.fuse_consumer_at and not cast_mode:
+            print(f"O_F0 = {sch}.get_consumers({block})[0]", file=outf)
+        if node.pack_at and not cast_mode:
+            scope_of = {
+                inp_idx: (mtype if mtype is not None else "global")
+                for inp in node.pack_at.values()
+                for inp_idx, mtype, _, _ in inp
+            }
+            for inp_idx, scope in scope_of.items():
+                print(
+                    f'I_R{inp_idx} = {sch}.cache_read({block}, {inp_idx}, "{scope}")',
+                    file=outf,
+                )
+        if node.buffer_at and not cast_mode:
+            wscope = next(iter(node.buffer_at.values()))
+            wscope = wscope if wscope is not None else "global"
+            print(f'O_W0 = {sch}.cache_write({block}, 0, "{wscope}")', file=outf)
+        if node.fuse_producer_at and not cast_mode:
+            producers = list({idx: None for idx in node.fuse_producer_at.values()})
+            for prod_idx in producers:
+                print(
+                    f"I_F{prod_idx} = {sch}.get_producers({block})[{prod_idx}]",
+                    file=outf,
+                )
+        axes = self._dump_tile_splits(dims, node)
         outer = [axis for axis in node.interchange if axis in axes]
         reorder = outer + axes
+        split_axis: str | None = None
         if node.splits:
-            split_axis = list(node.splits)[0]
-            reorder = outer + [split_axis] + axes
+            maybe_axis = list(node.splits)[0]
+            if not cast_mode or maybe_axis in axes:
+                split_axis = maybe_axis
+                reorder = outer + [split_axis] + axes
         reorder = list(dict.fromkeys(reorder))
         inner = [axis for axis in reorder if axis not in outer]
         print(f"{sch}.reorder({', '.join(reorder)})", file=outf)
-        for i, gpu_axis in enumerate(node.gpu_block):
-            print(f"{sch}.bind({gpu_axis}, 'blockIdx.{_GPU_DIM[i]}')", file=outf)
-        # If there is no block there should be any gpu thread either
-        if node.gpu_block:
-            for i, gpu_axis in enumerate(node.gpu_thread):
-                print(f"{sch}.bind({gpu_axis}, 'threadIdx.{_GPU_DIM[i]}')", file=outf)
-        if node.buffer_at:
+        if cast_mode:
+            # the reduction dims are not part of the cast stage, only
+            # schedule the axes derived from its spatial dims
+            cast_axes = set(axes)
+            if split_axis is not None and split_axis in axes:
+                cast_axes.add(split_axis)
+            for i, gpu_axis in enumerate(node.gpu_block):
+                if gpu_axis in cast_axes:
+                    print(
+                        f"{sch}.bind({gpu_axis}, 'blockIdx.{_GPU_DIM[i]}')",
+                        file=outf,
+                    )
+            if node.gpu_block:
+                for i, gpu_axis in enumerate(node.gpu_thread):
+                    if gpu_axis in cast_axes:
+                        print(
+                            f"{sch}.bind({gpu_axis}, 'threadIdx.{_GPU_DIM[i]}')",
+                            file=outf,
+                        )
+            for u_axis, _ in node.unroll.items():
+                if u_axis in cast_axes:
+                    print(f"{sch}.unroll({u_axis})", file=outf)
+            for v_axis in node.vectorize:
+                if v_axis in cast_axes:
+                    print(f"{sch}.vectorize({v_axis})", file=outf)
+            if node.parallelize:
+                parallelize = [axis for axis in node.parallelize if axis in cast_axes]
+                if parallelize:
+                    if len(parallelize) > 1:
+                        print(
+                            f"{parallelize[-1]} = {sch}.fuse({', '.join(parallelize)})",
+                            file=outf,
+                        )
+                    print(f"{sch}.parallel({parallelize[-1]})", file=outf)
+        else:
+            for i, gpu_axis in enumerate(node.gpu_block):
+                print(f"{sch}.bind({gpu_axis}, 'blockIdx.{_GPU_DIM[i]}')", file=outf)
+            # If there is no block there should be any gpu thread either
+            if node.gpu_block:
+                for i, gpu_axis in enumerate(node.gpu_thread):
+                    print(
+                        f"{sch}.bind({gpu_axis}, 'threadIdx.{_GPU_DIM[i]}')", file=outf
+                    )
+        if node.buffer_at and not cast_mode:
             for axis in node.buffer_at:
                 print(f"{sch}.reverse_compute_at(O_W0, {axis})", file=outf)
-        if node.pack_at:
+        if node.pack_at and not cast_mode:
             for axis, v in node.pack_at.items():
                 # FIXME: If the target is not nvgpu and is shared do not do the async copy
                 pipeline_async = False
@@ -150,34 +227,36 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
                         pipeline_async = True
                 if pipeline_async:
                     self._dump_async_copy_annotations(node, axis)
-        if node.fuse_producer_at:
+        if node.fuse_producer_at and not cast_mode:
             for axis, prod_idx in node.fuse_producer_at.items():
                 print(f"{sch}.compute_at(I_F{prod_idx}, {axis})", file=outf)
-        if node.fuse_consumer_at:
+        if node.fuse_consumer_at and not cast_mode:
             for axis in node.fuse_consumer_at:
                 print(f"{sch}.reverse_compute_at(O_F0, {axis})", file=outf)
-        for u_axis, u_factor in node.unroll.items():
-            print(f"{sch}.unroll({u_axis})", file=outf)
-        for v_axis in node.vectorize:
-            print(f"{sch}.vectorize({v_axis})", file=outf)
-        if node.parallelize:
-            if len(node.parallelize) > 1:
+        if not cast_mode:
+            for u_axis, u_factor in node.unroll.items():
+                print(f"{sch}.unroll({u_axis})", file=outf)
+            for v_axis in node.vectorize:
+                print(f"{sch}.vectorize({v_axis})", file=outf)
+            if node.parallelize:
+                if len(node.parallelize) > 1:
+                    print(
+                        f"{node.parallelize[-1]} = {sch}.fuse({', '.join(node.parallelize)})",
+                        file=outf,
+                    )
                 print(
-                    f"{node.parallelize[-1]} = {sch}.fuse({', '.join(node.parallelize)})",
+                    f"{sch}.parallel({node.parallelize[-1]})",
                     file=outf,
                 )
-            print(
-                f"{sch}.parallel({node.parallelize[-1]})",
-                file=outf,
-            )
         for external_axis, symbol in node.external_at.items():
+            if cast_mode:
+                continue
             print(
                 f"{sch} = externalize_tile_below({sch}, {block}, "
                 f"{external_axis}, {symbol!r})",
                 file=outf,
             )
-        if node.splits:
-            split_axis = list(node.splits)[0]
+        if split_axis is not None:
             splits = node.splits[split_axis]
             split_factors = [str(x) for x in list(splits.values())[1:]]
             print(
@@ -191,7 +270,13 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
                     f"{split_block} = {block}_SPLITS[{idx}]",
                     file=outf,
                 )
-                self._dump_schedule_node(split_block, inner, sched, node.children[idx])
+                self._dump_schedule_node(
+                    split_block,
+                    inner,
+                    sched,
+                    node.children[idx],
+                    cast_mode,
+                )
 
     def _gpu_thread_extents(self, node: LoopNestNode) -> list[int]:
         # Iteration count of each gpu_thread axis, in bind order.
