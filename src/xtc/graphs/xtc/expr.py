@@ -16,6 +16,8 @@ from .operators import (
     XTCOperTensor,
     XTCOperMatmul,
     XTCOperRelu,
+    XTCOperAdd,
+    XTCOperMul,
     XTCOperConv2D,
     XTCOperPad2D,
     XTCOperUnpad,
@@ -270,6 +272,28 @@ class XTCMatmulExpr(XTCOpExpr):
 class XTCReluExpr(XTCOpExpr):
     def __init__(self, inp: XTCExpr, **attrs: Any) -> None:
         super().__init__(XTCOperRelu(**attrs), (inp,))
+
+
+class XTCAddExpr(XTCOpExpr):
+    def __init__(self, x: XTCExpr, y: XTCExpr, **attrs: Any) -> None:
+        super().__init__(
+            XTCOperAdd(**attrs),
+            (
+                x,
+                y,
+            ),
+        )
+
+
+class XTCMulExpr(XTCOpExpr):
+    def __init__(self, x: XTCExpr, y: XTCExpr, **attrs: Any) -> None:
+        super().__init__(
+            XTCOperMul(**attrs),
+            (
+                x,
+                y,
+            ),
+        )
 
 
 class XTCConv2DExpr(XTCOpExpr):
