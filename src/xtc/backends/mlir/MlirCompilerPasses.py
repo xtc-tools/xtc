@@ -987,10 +987,11 @@ class MlirProgramInsertTransformPass:
         ]
         tile_vect = tile_vect + [0] * (3 - len(tile_vect))
         # TODO: Make it work with splitting
-        position_index = [permutation.index(loop) for loop in gpu_list]
-        mapping_order = sorted(
-            range(len(position_index)), key=lambda i: position_index[i]
+        gpu_loops_by_dim = sorted(
+            gpu_list,
+            key=lambda loop: schedule.index_of_dim(schedule.dim_of_tile(loop)),
         )
+        mapping_order = [gpu_list.index(loop) for loop in gpu_loops_by_dim]
         self._strip_mine(
             loop_name=loop_name,
             tiling_vector=tile_vect,

@@ -63,11 +63,11 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %tiled_linalg_op_0, %loops_1 = transform.structured.tile_using_for %tiled_linalg_op tile_sizes [0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_1 "./j" : !transform.any_op
 # CHECK-NEXT:      %1 = transform.structured.match attributes {__xtc_id_C_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_op, %forall_op = transform.structured.tile_using_forall %1 tile_sizes [8, 128, 0](mapping = [#gpu.block<x>, #gpu.block<y>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_op, %forall_op = transform.structured.tile_using_forall %1 tile_sizes [8, 128, 0](mapping = [#gpu.block<y>, #gpu.block<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %forall_op "./i" : !transform.any_op
 # CHECK-NEXT:      %tiled_op_2, %forall_op_3 = transform.structured.tile_using_forall %tiled_op tile_sizes [0, 64, 0](mapping = [#gpu.warp<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %forall_op_3 "./j1" : !transform.any_op
-# CHECK-NEXT:      %tiled_op_4, %forall_op_5 = transform.structured.tile_using_forall %tiled_op_2 tile_sizes [4, 4, 0](mapping = [#gpu.lane<linear_dim_0>, #gpu.lane<linear_dim_1>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_op_4, %forall_op_5 = transform.structured.tile_using_forall %tiled_op_2 tile_sizes [4, 4, 0](mapping = [#gpu.lane<linear_dim_1>, #gpu.lane<linear_dim_0>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %forall_op_5 "./j2" : !transform.any_op
 # CHECK-NEXT:      %tiled_linalg_op_6, %loops_7 = transform.structured.tile_using_for %tiled_op_4 tile_sizes [0, 0, 16] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_7 "./k" : !transform.any_op
@@ -95,8 +95,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  #map3 = affine_map<(d0) -> (d0 * 64)>
 # CHECK-NEXT:  #map4 = affine_map<()[s0, s1, s2] -> (s0 + s1 * 64 + s2 * 64)>
 # CHECK-NEXT:  #map5 = affine_map<()[s0] -> (s0 mod 32)>
-# CHECK-NEXT:  #map6 = affine_map<()[s0] -> (s0 mod 2)>
-# CHECK-NEXT:  #map7 = affine_map<()[s0] -> ((s0 mod 32) floordiv 2)>
+# CHECK-NEXT:  #map6 = affine_map<()[s0] -> (s0 mod 16)>
+# CHECK-NEXT:  #map7 = affine_map<()[s0] -> ((s0 mod 32) floordiv 16)>
 # CHECK-NEXT:  #map8 = affine_map<(d0) -> (d0 * 4)>
 # CHECK-NEXT:  #map9 = affine_map<(d0, d1, d2) -> (d0, d2)>
 # CHECK-NEXT:  #map10 = affine_map<(d0, d1, d2) -> (d2, d1)>
@@ -121,17 +121,17 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %c64 = arith.constant 64 : index
 # CHECK-NEXT:      %c1_1 = arith.constant 1 : index
 # CHECK-NEXT:      %c1_2 = arith.constant 1 : index
-# CHECK-NEXT:      %c128 = arith.constant 128 : index
 # CHECK-NEXT:      %c8 = arith.constant 8 : index
+# CHECK-NEXT:      %c128 = arith.constant 128 : index
 # CHECK-NEXT:      %c1_3 = arith.constant 1 : index
-# CHECK-NEXT:      gpu.launch blocks(%arg3, %arg4, %arg5) in (%arg9 = %c128, %arg10 = %c8, %arg11 = %c1_3) threads(%arg6, %arg7, %arg8) in (%arg12 = %c64, %arg13 = %c1_1, %arg14 = %c1_2) {
+# CHECK-NEXT:      gpu.launch blocks(%arg3, %arg4, %arg5) in (%arg9 = %c8, %arg10 = %c128, %arg11 = %c1_3) threads(%arg6, %arg7, %arg8) in (%arg12 = %c64, %arg13 = %c1_1, %arg14 = %c1_2) {
 # CHECK-NEXT:        %c0_4 = arith.constant 0 : index
 # CHECK-NEXT:        %c0_5 = arith.constant 0 : index
 # CHECK-NEXT:        %block_id_x = gpu.block_id  x
 # CHECK-NEXT:        %block_id_y = gpu.block_id  y
 # CHECK-NEXT:        %block_id_z = gpu.block_id  z
-# CHECK-NEXT:        %1 = affine.apply #map(%block_id_x)
-# CHECK-NEXT:        %2 = affine.apply #map1(%block_id_y)
+# CHECK-NEXT:        %1 = affine.apply #map(%block_id_y)
+# CHECK-NEXT:        %2 = affine.apply #map1(%block_id_x)
 # CHECK-NEXT:        %subview = memref.subview %arg0[%1, 0] [8, 512] [1, 1] : memref<1024x512xf32> to memref<8x512xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:        %subview_6 = memref.subview %arg1[0, %2] [512, 128] [1, 1] : memref<512x1024xf32> to memref<512x128xf32, strided<[1024, 1], offset: ?>>
 # CHECK-NEXT:        %subview_7 = memref.subview %arg2[%1, %2] [8, 128] [1, 1] : memref<1024x1024xf32> to memref<8x128xf32, strided<[1024, 1], offset: ?>>
@@ -152,8 +152,8 @@ print(f"CODE: {res}")
 # CHECK-NEXT:        %c32 = arith.constant 32 : index
 # CHECK-NEXT:        %9 = arith.cmpi ult, %6, %c32 : index
 # CHECK-NEXT:        scf.if %9 {
-# CHECK-NEXT:          %10 = affine.apply #map8(%7)
-# CHECK-NEXT:          %11 = affine.apply #map8(%8)
+# CHECK-NEXT:          %10 = affine.apply #map8(%8)
+# CHECK-NEXT:          %11 = affine.apply #map8(%7)
 # CHECK-NEXT:          %subview_13 = memref.subview %subview[%10, 0] [4, 512] [1, 1] : memref<8x512xf32, strided<[512, 1], offset: ?>> to memref<4x512xf32, strided<[512, 1], offset: ?>>
 # CHECK-NEXT:          %subview_14 = memref.subview %subview_8[0, %11] [512, 4] [1, 1] : memref<512x64xf32, strided<[1024, 1], offset: ?>> to memref<512x4xf32, strided<[1024, 1], offset: ?>>
 # CHECK-NEXT:          %subview_15 = memref.subview %subview_9[%10, %11] [4, 4] [1, 1] : memref<8x64xf32, strided<[1024, 1], offset: ?>> to memref<4x4xf32, strided<[1024, 1], offset: ?>>
