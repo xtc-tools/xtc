@@ -34,7 +34,7 @@ uv pip install -e '.[dev]'
 make test
 ```
 
-MacOs M1+ macos-14/macos-15 (Python: 3.10 to 3.14 inclusive):
+MacOs M1+ macos-15 and above (Python: 3.10 to 3.14 inclusive):
 ```bash
 brew install libomp x86_64-linux-gnu-binutils aarch64-elf-binutils
 export DYLD_LIBRARY_PATH="/opt/homebrew/opt/libomp/lib:$DYLD_LIBRARY_PATH"
