@@ -37,12 +37,10 @@ print(f"CODE: {res}")
 # CHECK-NEXT:  #map1 = affine_map<(d0) -> ()>
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:    func.func @relu(%arg0: memref<128xf32> {llvm.noalias}, %arg1: memref<128xf32> {llvm.noalias}) {
-# CHECK-NEXT:      %collapse_shape = memref.collapse_shape %arg0 [[0]] : memref<128xf32> into memref<128xf32>
-# CHECK-NEXT:      %collapse_shape_0 = memref.collapse_shape %arg1 [[0]] : memref<128xf32> into memref<128xf32>
 # CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
-# CHECK-NEXT:      linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel"]} ins(%collapse_shape, %cst : memref<128xf32>, f32) outs(%collapse_shape_0 : memref<128xf32>) attrs =  {__xtc_id_relu_} {
-# CHECK-NEXT:      ^bb0(%in: f32, %in_1: f32, %out: f32):
-# CHECK-NEXT:        %0 = arith.maximumf %in, %in_1 : f32
+# CHECK-NEXT:      linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel"]} ins(%arg0, %cst : memref<128xf32>, f32) outs(%arg1 : memref<128xf32>) attrs =  {__xtc_id_relu_} {
+# CHECK-NEXT:      ^bb0(%in: f32, %in_0: f32, %out: f32):
+# CHECK-NEXT:        %0 = arith.maximumf %in, %in_0 : f32
 # CHECK-NEXT:        linalg.yield %0 : f32
 # CHECK-NEXT:      }
 # CHECK-NEXT:      return
@@ -79,9 +77,9 @@ print(f"CODE: {res}")
 # CHECK-NEXT:    func.func @relu(%arg0: memref<128xf32> {llvm.noalias}, %arg1: memref<128xf32> {llvm.noalias}) {
 # CHECK-NEXT:      %cst = arith.constant dense<0.000000e+00> : vector<16xf32>
 # CHECK-NEXT:      %0 = ub.poison : f32
-# CHECK-NEXT:      %c16 = arith.constant 16 : index
-# CHECK-NEXT:      %c128 = arith.constant 128 : index
 # CHECK-NEXT:      %c0 = arith.constant 0 : index
+# CHECK-NEXT:      %c128 = arith.constant 128 : index
+# CHECK-NEXT:      %c16 = arith.constant 16 : index
 # CHECK-NEXT:      scf.for %arg2 = %c0 to %c128 step %c16 {
 # CHECK-NEXT:        %subview = memref.subview %arg0[%arg2] [16] [1] : memref<128xf32> to memref<16xf32, strided<[1], offset: ?>>
 # CHECK-NEXT:        %subview_0 = memref.subview %arg1[%arg2] [16] [1] : memref<128xf32> to memref<16xf32, strided<[1], offset: ?>>

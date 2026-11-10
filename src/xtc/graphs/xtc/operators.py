@@ -8,6 +8,7 @@ from types import SimpleNamespace as NS
 from collections.abc import Sequence, Mapping
 import functools
 import operator
+import string
 import numpy as np
 import hashlib
 
@@ -26,6 +27,9 @@ __all__ = [
 
 XTCOperatorAttr: TypeAlias = Any
 XTCOperatorAttrs: TypeAlias = NS
+
+# Positional names for operators with one dim per tensor dim: i, j, k, ...
+_AXES = string.ascii_lowercase[8:]
 XTCOperPaddingAttr: TypeAlias = (
     int | tuple[int] | tuple[int, int] | tuple[int, int, int, int]
 )
@@ -232,15 +236,17 @@ class XTCOperRelu(XTCOperator):
         inps_types: Sequence[XTCTensorType],
         outs_types: Sequence[XTCTensorType],
     ) -> XTCOperation:
+        # One parallel dim per input dim, named i, j, k, ... as in the backends
         inp_shape = inps_types[0].constant_shape
-        i = functools.reduce(operator.mul, inp_shape, 1)
+        assert len(inp_shape) <= len(_AXES), f"unsupported relu rank: {inp_shape}"
+        dims_names = tuple(_AXES[: len(inp_shape)])
         return self._get_operation(
             inps_types,
             outs_types,
-            dims={"i": i},
-            kinds=("P",),
-            inps_maps=(("i",)),
-            outs_maps=(("i",)),
+            dims=dict(zip(dims_names, inp_shape)),
+            kinds=tuple("P" for _ in dims_names),
+            inps_maps=(dims_names,),
+            outs_maps=(dims_names,),
         )
 
     @override

@@ -36,20 +36,18 @@ executor = module.get_executor(validate=True)
 res = executor.execute()
 print(f"CODE: {res}")
 # CHECK:       // -----// IR Dump Before transform //----- //
-# CHECK-NEXT:  #map = affine_map<(d0) -> (d0)>
-# CHECK-NEXT:  #map1 = affine_map<(d0) -> ()>
+# CHECK-NEXT:  #map = affine_map<(d0, d1) -> (d0, d1)>
+# CHECK-NEXT:  #map1 = affine_map<(d0, d1) -> ()>
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:    func.func @matmul_relu(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
 # CHECK-NEXT:      %alloca = memref.alloca() {alignment = 256 : i64} : memref<4x32xf32>
 # CHECK-NEXT:      %cst = arith.constant 0.000000e+00 : f32
 # CHECK-NEXT:      linalg.fill {__xtc_id_matmul_0_} ins(%cst : f32) outs(%alloca : memref<4x32xf32>)
 # CHECK-NEXT:      linalg.matmul {__xtc_id_matmul_} ins(%arg0, %arg1 : memref<4x512xf32>, memref<512x32xf32>) outs(%alloca : memref<4x32xf32>)
-# CHECK-NEXT:      %collapse_shape = memref.collapse_shape %alloca [[0, 1]] : memref<4x32xf32> into memref<128xf32>
-# CHECK-NEXT:      %collapse_shape_0 = memref.collapse_shape %arg2 [[0, 1]] : memref<4x32xf32> into memref<128xf32>
-# CHECK-NEXT:      %cst_1 = arith.constant 0.000000e+00 : f32
-# CHECK-NEXT:      linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel"]} ins(%collapse_shape, %cst_1 : memref<128xf32>, f32) outs(%collapse_shape_0 : memref<128xf32>) attrs =  {__xtc_id_relu_} {
-# CHECK-NEXT:      ^bb0(%in: f32, %in_2: f32, %out: f32):
-# CHECK-NEXT:        %0 = arith.maximumf %in, %in_2 : f32
+# CHECK-NEXT:      %cst_0 = arith.constant 0.000000e+00 : f32
+# CHECK-NEXT:      linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel", "parallel"]} ins(%alloca, %cst_0 : memref<4x32xf32>, f32) outs(%arg2 : memref<4x32xf32>) attrs =  {__xtc_id_relu_} {
+# CHECK-NEXT:      ^bb0(%in: f32, %in_1: f32, %out: f32):
+# CHECK-NEXT:        %0 = arith.maximumf %in, %in_1 : f32
 # CHECK-NEXT:        linalg.yield %0 : f32
 # CHECK-NEXT:      }
 # CHECK-NEXT:      return
@@ -90,15 +88,17 @@ print(f"CODE: {res}")
 # CHECK-NEXT:        transform.apply_patterns.vector.lower_contraction
 # CHECK-NEXT:      } : !transform.any_op
 # CHECK-NEXT:      %5 = transform.structured.match attributes {__xtc_id_relu_} in %arg0 : (!transform.any_op) -> !transform.any_op
-# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %5 tile_sizes [1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      %tiled_linalg_op_10, %loops_11 = transform.structured.tile_using_for %5 tile_sizes [1, 0] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
 # CHECK-NEXT:      transform.annotate %loops_11 "./i" : !transform.any_op
+# CHECK-NEXT:      %tiled_linalg_op_12, %loops_13 = transform.structured.tile_using_for %tiled_linalg_op_10 tile_sizes [0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+# CHECK-NEXT:      transform.annotate %loops_13 "./j" : !transform.any_op
 # CHECK-NEXT:      transform.yield 
 # CHECK-NEXT:    }
 # CHECK-NEXT:  }
 # CHECK-NEXT:  
 # CHECK-NEXT:  // -----// IR Dump After transform //----- //
-# CHECK-NEXT:  #map = affine_map<(d0) -> (d0)>
-# CHECK-NEXT:  #map1 = affine_map<(d0) -> ()>
+# CHECK-NEXT:  #map = affine_map<(d0, d1) -> (d0, d1)>
+# CHECK-NEXT:  #map1 = affine_map<(d0, d1) -> ()>
 # CHECK-NEXT:  module attributes {transform.with_named_sequence} {
 # CHECK-NEXT:    func.func @matmul_relu(%arg0: memref<4x512xf32> {llvm.noalias}, %arg1: memref<512x32xf32> {llvm.noalias}, %arg2: memref<4x32xf32> {llvm.noalias}) {
 # CHECK-NEXT:      %cst = arith.constant dense<0.000000e+00> : vector<1x16xf32>
@@ -156,19 +156,24 @@ print(f"CODE: {res}")
 # CHECK-NEXT:          } {"./j"}
 # CHECK-NEXT:        } {"./i"}
 # CHECK-NEXT:      } {"./k"}
-# CHECK-NEXT:      %collapse_shape = memref.collapse_shape %alloca [[0, 1]] : memref<4x32xf32> into memref<128xf32>
-# CHECK-NEXT:      %collapse_shape_1 = memref.collapse_shape %arg2 [[0, 1]] : memref<4x32xf32> into memref<128xf32>
-# CHECK-NEXT:      %c0_2 = arith.constant 0 : index
-# CHECK-NEXT:      %c128 = arith.constant 128 : index
+# CHECK-NEXT:      %c0_1 = arith.constant 0 : index
+# CHECK-NEXT:      %c4_2 = arith.constant 4 : index
 # CHECK-NEXT:      %c1_3 = arith.constant 1 : index
-# CHECK-NEXT:      scf.for %arg3 = %c0_2 to %c128 step %c1_3 {
-# CHECK-NEXT:        %subview = memref.subview %collapse_shape[%arg3] [1] [1] : memref<128xf32> to memref<1xf32, strided<[1], offset: ?>>
-# CHECK-NEXT:        %subview_4 = memref.subview %collapse_shape_1[%arg3] [1] [1] : memref<128xf32> to memref<1xf32, strided<[1], offset: ?>>
-# CHECK-NEXT:        linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel"]} ins(%subview, %cst_0 : memref<1xf32, strided<[1], offset: ?>>, f32) outs(%subview_4 : memref<1xf32, strided<[1], offset: ?>>) attrs =  {__xtc_id_relu_} {
-# CHECK-NEXT:        ^bb0(%in: f32, %in_5: f32, %out: f32):
-# CHECK-NEXT:          %1 = arith.maximumf %in, %in_5 : f32
-# CHECK-NEXT:          linalg.yield %1 : f32
-# CHECK-NEXT:        }
+# CHECK-NEXT:      scf.for %arg3 = %c0_1 to %c4_2 step %c1_3 {
+# CHECK-NEXT:        %subview = memref.subview %alloca[%arg3, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:        %subview_4 = memref.subview %arg2[%arg3, 0] [1, 32] [1, 1] : memref<4x32xf32> to memref<1x32xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:        %c0_5 = arith.constant 0 : index
+# CHECK-NEXT:        %c32_6 = arith.constant 32 : index
+# CHECK-NEXT:        %c1_7 = arith.constant 1 : index
+# CHECK-NEXT:        scf.for %arg4 = %c0_5 to %c32_6 step %c1_7 {
+# CHECK-NEXT:          %subview_8 = memref.subview %subview[0, %arg4] [1, 1] [1, 1] : memref<1x32xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:          %subview_9 = memref.subview %subview_4[0, %arg4] [1, 1] [1, 1] : memref<1x32xf32, strided<[32, 1], offset: ?>> to memref<1x1xf32, strided<[32, 1], offset: ?>>
+# CHECK-NEXT:          linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel", "parallel"]} ins(%subview_8, %cst_0 : memref<1x1xf32, strided<[32, 1], offset: ?>>, f32) outs(%subview_9 : memref<1x1xf32, strided<[32, 1], offset: ?>>) attrs =  {__xtc_id_relu_} {
+# CHECK-NEXT:          ^bb0(%in: f32, %in_10: f32, %out: f32):
+# CHECK-NEXT:            %1 = arith.maximumf %in, %in_10 : f32
+# CHECK-NEXT:            linalg.yield %1 : f32
+# CHECK-NEXT:          }
+# CHECK-NEXT:        } {"./j"}
 # CHECK-NEXT:      } {"./i"}
 # CHECK-NEXT:      return
 # CHECK-NEXT:    }
