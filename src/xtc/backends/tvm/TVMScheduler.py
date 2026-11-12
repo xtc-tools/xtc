@@ -607,7 +607,11 @@ class TVMScheduler(itf.schd.Scheduler):
         self._plain_sch.fuse_producer_at(axis, input_idx, root)
 
     @override
-    def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
+    def fuse_consumer_at(
+        self, axis: str, root: str = DEFAULT_ROOT, chain: bool = False
+    ) -> None:
+        if chain:
+            raise NotImplementedError("chain consumer fusion not supported by TVM")
         self._plain_sch.fuse_consumer_at(axis, root)
 
     @override

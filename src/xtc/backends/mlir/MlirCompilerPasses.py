@@ -5,7 +5,7 @@
 from dataclasses import dataclass
 
 from mlir import ir
-from mlir.dialects import transform
+from mlir.dialects import linalg, transform
 from mlir.dialects.transform import (
     NamedSequenceOp,
     structured,
@@ -33,6 +33,7 @@ from mlir.dialects.transform import SplitHandleOp
 from mlir.ir import (
     Location,
     InsertionPoint,
+    OpView,
     UnitAttr,
     OpResult,
     Attribute,
@@ -277,15 +278,6 @@ class MlirProgramInsertTransformPass:
                 handle = scheduling_state.handle
 
                 if schedule.fused_consumers:
-                    # Fuse the casting if only there is a fuse
-                    if cast_sched_check:
-                        cast_sched = schedules_by_ident.get(
-                            f"{schedule.node_ident}cast_"
-                        )
-                        assert cast_sched is not None
-                        self._fuse_cast_into_loops(
-                            schedule, cast_sched, scheduling_state
-                        )
                     self._fuse_consumers_into_loops(
                         schedule, scheduling_state, unscheduled_handles
                     )
@@ -491,85 +483,47 @@ class MlirProgramInsertTransformPass:
         assert self._named_sequence is not None
         assert len(schedule.fused_consumers) == 1
 
-        fuse_root = parent_name(schedule.fused_consumers[0])
-        fuse_axis = schedule.fused_consumers[0]
-        # derive handle of consumer
-        consumer_handles = find_consumer_handles(
+        fuse_axis, chain = schedule.fused_consumers[0]
+        fuse_root = parent_name(fuse_axis)
+        # derive handles of the consumer chain
+        consumer_handle_chain = find_consumer_chain(
             self._mlir_program.mlir_module, schedule.node_ident
         )
-        if not consumer_handles:
+        if not consumer_handle_chain:
             return
-        consumer_id = consumer_handles[0]
-        unscheduled_handles.add(consumer_id)
-        # fuse consumer into all loops until the fuse axis
-        fuse_loops = []
+        # when only fusing one consumer, still include the cast if present
+        if not chain:
+            is_cast = consumer_handle_chain[0] == f"{schedule.node_ident}cast_"
+            consumer_handle_chain = consumer_handle_chain[: 2 if is_cast else 1]
         fuse_loop_dims = []
+        # fuse consumer into all loops until the fuse axis
         for loop_dim in schedule.permutation[fuse_root]:
             # gpu_blocks turn into one combined forall annotated with the innermost dim
             if loop_dim in schedule.gpu_blocks and loop_dim != schedule.gpu_blocks[-1]:
                 continue
             transform_result = sched_state.all_loops[loop_dim]
-            fuse_loops.append(transform_result)
             fuse_loop_dims.append(loop_dim)
             if loop_dim == fuse_axis:
                 break
-        consumer_handle = structured_match(
-            results_=transform.AnyOpType.get(),
-            target=self._named_sequence.bodyTarget,
-            op_attrs={consumer_id: UnitAttr.get()},
-        )
-        op = xtc_transform.FuseConsumerOp(consumer_handle, fuse_loops, in_place=True)
+        for consumer_id in consumer_handle_chain:
+            fuse_loops = []
+            unscheduled_handles.add(consumer_id)
+            for loop_dim in fuse_loop_dims:
+                transform_result = sched_state.all_loops[loop_dim]
+                fuse_loops.append(transform_result)
+            consumer_handle = structured_match(
+                results_=transform.AnyOpType.get(),
+                target=self._named_sequence.bodyTarget,
+                op_attrs={consumer_id: UnitAttr.get()},
+            )
+            op = xtc_transform.FuseConsumerOp(
+                consumer_handle, fuse_loops, in_place=True
+            )
+            for i, loop_dim in enumerate(fuse_loop_dims):
+                sched_state.all_loops[loop_dim] = op.new_loops[i]
         # re-annotate the loops that were touched by the fusion
-        for i, loop_dim in enumerate(fuse_loop_dims):
-            sched_state.all_loops[loop_dim] = op.new_loops[i]
-            transform.AnnotateOp(op.new_loops[i], loop_dim)
-            if loop_dim == fuse_axis:
-                break
-
-    # TODO: Will get reworked when chaining several producer get added
-    def _fuse_cast_into_loops(
-        self,
-        schedule: MlirNodeSchedule,
-        cast_sched: MlirNodeSchedule,
-        sched_state: SchedulingState,
-    ) -> None:
-        xtc_transform = binding_extensions.module("mlir.xtc_transform")
-        if xtc_transform is None:
-            raise ImportError(
-                "mlir.xtc_transform module not installed, required for FuseConsumerOp"
-            )
-        assert self._named_sequence is not None
-        cast_handle = structured_match(
-            results_=transform.AnyOpType.get(),
-            target=self._named_sequence.bodyTarget,
-            op_attrs={f"{schedule.node_ident}cast_": UnitAttr.get()},
-        )
-        reduce_dims = set(schedule.dims) - set(cast_sched.dims)
-        fuse_root = next(iter(schedule.permutation))
-        fuse_loops = []
-        fuse_loop_dims = []
-        for loop_dim in schedule.permutation[fuse_root]:
-            if loop_dim in schedule.gpu_blocks and loop_dim != schedule.gpu_blocks[-1]:
-                continue
-            if schedule.is_base(loop_dim) or schedule.is_tile(loop_dim):
-                base_dim = schedule.dim_of_tile(loop_dim)
-            else:
-                base_dim = None
-            if base_dim is None or base_dim in reduce_dims:
-                break
-            if loop_dim not in sched_state.all_loops:
-                break
-            fuse_loops.append(sched_state.all_loops[loop_dim])
-            fuse_loop_dims.append(loop_dim)
-        if not fuse_loops:
-            raise ValueError(
-                f"node '{schedule.node_ident}': no loop above the reduction dims "
-                f"{sorted(reduce_dims)} to fuse the mixed cast stage into"
-            )
-        op = xtc_transform.FuseConsumerOp(cast_handle, fuse_loops)
-        for i, loop_dim in enumerate(fuse_loop_dims):
-            sched_state.all_loops[loop_dim] = op.new_loops[i]
-            transform.AnnotateOp(op.new_loops[i], loop_dim)
+        for loop_dim in fuse_loop_dims:
+            transform.AnnotateOp(sched_state.all_loops[loop_dim], loop_dim)
 
     def _fuse_producers_into_loop(
         self,
@@ -1109,9 +1063,9 @@ class MlirProgramInsertTransformPass:
                     )
 
 
-def find_consumer_handles(module: Module, root_handle: str) -> list[str | None]:
-    # returns the handles for each consumer op of the operation specified by root_handle
-    consumer_handles: list[str | None] = []
+def find_consumer_chain(module: Module, root_handle: str) -> list[str]:
+    # returns the consumer chain of the op specified by root_handle, starting at
+    # its first consumer (see get_consumer_chain)
     root_op = None
     for func_op in module.body.operations:
         for op in func_op.regions[0].blocks[0].operations:
@@ -1121,32 +1075,75 @@ def find_consumer_handles(module: Module, root_handle: str) -> list[str | None]:
         if root_op:
             break
 
-    if not root_op or not root_op.results:
-        return consumer_handles
+    if not root_op:
+        return []
 
-    cast_handle = f"{root_handle}cast_"
+    for use in root_op.results[0].uses:
+        if _xtc_handle(use.owner) is not None:
+            return get_consumer_chain(use.owner, root_op)
+    return []
 
-    _add_users_of(root_op.results[0], consumer_handles, cast_handle)
-    return consumer_handles
+
+def _xtc_handle(op: OpView) -> str | None:
+    handle = None
+    for attr in op.attributes:
+        if attr.startswith("__xtc_id_"):
+            handle = attr
+    return handle
 
 
-def _add_users_of(
-    value: OpResult, consumer_handles: list[str | None], root: str, depth: int = 0
-) -> None:
-    if depth > 1:
-        return
-    for use in value.uses:
-        consumer_op = use.owner
-        attrs = [
-            attr for attr in consumer_op.attributes if attr.startswith("__xtc_id_")
-        ]
-        if not attrs:
-            continue
-        if attrs == [root]:
-            if consumer_op.results:
-                _add_users_of(consumer_op.results[0], consumer_handles, root, depth + 1)
-        else:
-            consumer_handles.extend(attrs)
+def get_consumer_chain(first_op: OpView, root_op: OpView) -> list[str]:
+    # returns the handles of the single-use linalg ops chained from first_op
+    chain: list[str] = []
+    op = first_op
+    operand_number = -1
+    while True:
+        handle = _xtc_handle(op)
+        if handle is None or not op.name.startswith("linalg.") or len(op.results) != 1:
+            break
+        if chain and not _can_extend_chain(op, operand_number, root_op):
+            break
+        chain.append(handle)
+        uses = list(op.results[0].uses)
+        if len(uses) != 1:
+            break
+        op = uses[0].owner
+        operand_number = uses[0].operand_number
+    return chain
+
+
+def _can_extend_chain(op: OpView, operand_number: int, root_op: OpView) -> bool:
+    # op writes into the root dest
+    # TODO: either only check shape or make special case for trunc
+    # if op.results[0].type != root_op.results[0].type:
+    #     print("type mismatch")
+    #     return False
+    # elementwise, with tiles aligned with the root's
+    maps_attr: ir.ArrayAttr | None = linalg.get_indexing_maps(op)  # type: ignore
+    if maps_attr is None:
+        return False
+    maps = [ir.AffineMapAttr(attr).value for attr in maps_attr]
+    identity = ir.AffineMap.get_identity(maps[-1].n_dims, context=op.context)
+    if maps[-1] != identity or maps[operand_number] != identity:
+        return False
+    # other operands must be defined before the root loops
+    return all(
+        _defined_before(value, root_op)
+        for i, value in enumerate(op.operands)
+        if i != operand_number
+    )
+
+
+def _defined_before(value: ir.Value, op: OpView) -> bool:
+    owner = value.owner
+    if isinstance(owner, ir.Block):
+        return True
+    def_op = owner.operation
+    if len(def_op.operands) == 0:
+        return True
+    return def_op.block == op.operation.block and def_op.is_before_in_block(
+        op.operation
+    )
 
 
 def find_producer_handles(module: Module, root_handle: str) -> list[str | None]:
@@ -1165,11 +1162,10 @@ def find_producer_handles(module: Module, root_handle: str) -> list[str | None]:
         return producer_handles
     for operand in root_op.operands:
         producer_op = operand.owner
-        producer_handles.append(None)
-        if producer_op and hasattr(producer_op, "attributes"):
-            for attr in producer_op.attributes:
-                if attr.startswith("__xtc_id_"):
-                    producer_handles[-1] = attr
+        if isinstance(producer_op, ir.Block):
+            producer_handles.append(None)
+        else:
+            producer_handles.append(_xtc_handle(producer_op))
     return producer_handles
 
 

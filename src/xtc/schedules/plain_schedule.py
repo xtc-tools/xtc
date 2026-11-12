@@ -32,7 +32,7 @@ class PlainNodeSchedule:
     distribution: dict[str, str]
     distributed_buffers: dict[str, dict]
     fused_producers: list[tuple[str, int]]
-    fused_consumers: list[str]
+    fused_consumers: list[tuple[str, bool]]
     externals: dict[str, str]
     gpu_blocks: list[str]
     gpu_threads: list[str]
@@ -122,7 +122,7 @@ class PlainNodeScheduler:
         self.distribution: dict[str, str] = {}
         self.distributed_buffers: dict[str, dict] = {}
         self.fused_producers: list[tuple[str, int]] = []
-        self.fused_consumers: list[str] = []
+        self.fused_consumers: list[tuple[str, bool]] = []
         self.externals: dict[str, str] = {}
         self.gpu_blocks: list[str] = []
         self.gpu_threads: list[str] = []
@@ -294,9 +294,11 @@ class PlainNodeScheduler:
         fuse_axis = make_loop_name(root, axis)
         self.fused_producers.append((fuse_axis, input_idx))
 
-    def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
+    def fuse_consumer_at(
+        self, axis: str, root: str = DEFAULT_ROOT, chain: bool = False
+    ) -> None:
         fuse_axis = make_loop_name(root, axis)
-        self.fused_consumers.append(fuse_axis)
+        self.fused_consumers.append((fuse_axis, chain))
 
     def gpu_block(self, axes: list[str], root: str = DEFAULT_ROOT):
         assert len(axes) == len(set(axes)), "Duplicate in the axes for gpu thread"
