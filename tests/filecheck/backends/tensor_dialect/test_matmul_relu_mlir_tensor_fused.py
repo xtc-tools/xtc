@@ -118,38 +118,36 @@ print(f"CODE: {res}")
 # CHECK-NEXT:        %c1_7 = arith.constant 1 : index
 # CHECK-NEXT:        %extracted_slice_8 = tensor.extract_slice %arg4[%arg3, 0] [1, 32] [1, 1] : tensor<4x32xf32> to tensor<1x32xf32>
 # CHECK-NEXT:        %5:2 = scf.for %arg6 = %c0_6 to %c32 step %c1_7 iter_args(%arg7 = %extracted_slice_5, %arg8 = %extracted_slice_8) -> (tensor<1x32xf32>, tensor<1x32xf32>) {
-# CHECK-NEXT:          %extracted_slice_10 = tensor.extract_slice %extracted_slice[0, 0] [1, 512] [1, 1] : tensor<1x512xf32> to tensor<1x512xf32>
-# CHECK-NEXT:          %extracted_slice_11 = tensor.extract_slice %extracted_slice_4[0, %arg6] [512, 1] [1, 1] : tensor<512x32xf32> to tensor<512x1xf32>
-# CHECK-NEXT:          %extracted_slice_12 = tensor.extract_slice %arg7[0, %arg6] [1, 1] [1, 1] : tensor<1x32xf32> to tensor<1x1xf32>
-# CHECK-NEXT:          %c0_13 = arith.constant 0 : index
+# CHECK-NEXT:          %extracted_slice_9 = tensor.extract_slice %extracted_slice[0, 0] [1, 512] [1, 1] : tensor<1x512xf32> to tensor<1x512xf32>
+# CHECK-NEXT:          %extracted_slice_10 = tensor.extract_slice %extracted_slice_4[0, %arg6] [512, 1] [1, 1] : tensor<512x32xf32> to tensor<512x1xf32>
+# CHECK-NEXT:          %extracted_slice_11 = tensor.extract_slice %arg7[0, %arg6] [1, 1] [1, 1] : tensor<1x32xf32> to tensor<1x1xf32>
+# CHECK-NEXT:          %c0_12 = arith.constant 0 : index
 # CHECK-NEXT:          %c512 = arith.constant 512 : index
-# CHECK-NEXT:          %c1_14 = arith.constant 1 : index
-# CHECK-NEXT:          %7 = scf.for %arg9 = %c0_13 to %c512 step %c1_14 iter_args(%arg10 = %extracted_slice_12) -> (tensor<1x1xf32>) {
-# CHECK-NEXT:            %extracted_slice_18 = tensor.extract_slice %extracted_slice_10[0, %arg9] [1, 1] [1, 1] : tensor<1x512xf32> to tensor<1x1xf32>
-# CHECK-NEXT:            %extracted_slice_19 = tensor.extract_slice %extracted_slice_11[%arg9, 0] [1, 1] [1, 1] : tensor<512x1xf32> to tensor<1x1xf32>
-# CHECK-NEXT:            %extracted_slice_20 = tensor.extract_slice %arg10[0, 0] [1, 1] [1, 1] : tensor<1x1xf32> to tensor<1x1xf32>
-# CHECK-NEXT:            %9 = linalg.matmul {__xtc_id_matmul_} ins(%extracted_slice_18, %extracted_slice_19 : tensor<1x1xf32>, tensor<1x1xf32>) outs(%extracted_slice_20 : tensor<1x1xf32>) -> tensor<1x1xf32>
-# CHECK-NEXT:            %inserted_slice_21 = tensor.insert_slice %9 into %arg10[0, 0] [1, 1] [1, 1] : tensor<1x1xf32> into tensor<1x1xf32>
-# CHECK-NEXT:            scf.yield %inserted_slice_21 : tensor<1x1xf32>
+# CHECK-NEXT:          %c1_13 = arith.constant 1 : index
+# CHECK-NEXT:          %7 = scf.for %arg9 = %c0_12 to %c512 step %c1_13 iter_args(%arg10 = %extracted_slice_11) -> (tensor<1x1xf32>) {
+# CHECK-NEXT:            %extracted_slice_16 = tensor.extract_slice %extracted_slice_9[0, %arg9] [1, 1] [1, 1] : tensor<1x512xf32> to tensor<1x1xf32>
+# CHECK-NEXT:            %extracted_slice_17 = tensor.extract_slice %extracted_slice_10[%arg9, 0] [1, 1] [1, 1] : tensor<512x1xf32> to tensor<1x1xf32>
+# CHECK-NEXT:            %extracted_slice_18 = tensor.extract_slice %arg10[0, 0] [1, 1] [1, 1] : tensor<1x1xf32> to tensor<1x1xf32>
+# CHECK-NEXT:            %9 = linalg.matmul {__xtc_id_matmul_} ins(%extracted_slice_16, %extracted_slice_17 : tensor<1x1xf32>, tensor<1x1xf32>) outs(%extracted_slice_18 : tensor<1x1xf32>) -> tensor<1x1xf32>
+# CHECK-NEXT:            %inserted_slice_19 = tensor.insert_slice %9 into %arg10[0, 0] [1, 1] [1, 1] : tensor<1x1xf32> into tensor<1x1xf32>
+# CHECK-NEXT:            scf.yield %inserted_slice_19 : tensor<1x1xf32>
 # CHECK-NEXT:          } {"./k"}
-# CHECK-NEXT:          %extracted_slice_15 = tensor.extract_slice %arg7[0, %arg6] [1, 1] [1, 1] : tensor<1x32xf32> to tensor<1x1xf32>
+# CHECK-NEXT:          %extracted_slice_14 = tensor.extract_slice %arg7[0, %arg6] [1, 1] [1, 1] : tensor<1x32xf32> to tensor<1x1xf32>
 # CHECK-NEXT:          %8 = linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel", "parallel"]} ins(%7, %cst_3 : tensor<1x1xf32>, f32) outs(%7 : tensor<1x1xf32>) attrs =  {__xtc_id_relu_} {
-# CHECK-NEXT:          ^bb0(%in: f32, %in_18: f32, %out: f32):
-# CHECK-NEXT:            %9 = arith.maximumf %in, %in_18 : f32
+# CHECK-NEXT:          ^bb0(%in: f32, %in_16: f32, %out: f32):
+# CHECK-NEXT:            %9 = arith.maximumf %in, %in_16 : f32
 # CHECK-NEXT:            linalg.yield %9 : f32
 # CHECK-NEXT:          } -> tensor<1x1xf32>
-# CHECK-NEXT:          %inserted_slice_16 = tensor.insert_slice %8 into %arg7[0, %arg6] [1, 1] [1, 1] : tensor<1x1xf32> into tensor<1x32xf32>
-# CHECK-NEXT:          %inserted_slice_17 = tensor.insert_slice %8 into %arg7[0, %arg6] [1, 1] [1, 1] : tensor<1x1xf32> into tensor<1x32xf32>
-# CHECK-NEXT:          scf.yield %inserted_slice_16, %inserted_slice_17 : tensor<1x32xf32>, tensor<1x32xf32>
+# CHECK-NEXT:          %inserted_slice_15 = tensor.insert_slice %8 into %arg7[0, %arg6] [1, 1] [1, 1] : tensor<1x1xf32> into tensor<1x32xf32>
+# CHECK-NEXT:          scf.yield %inserted_slice_15, %arg8 : tensor<1x32xf32>, tensor<1x32xf32>
 # CHECK-NEXT:        } {"./j"}
 # CHECK-NEXT:        %6 = linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel", "parallel"]} ins(%5#0, %cst_3 : tensor<1x32xf32>, f32) outs(%extracted_slice_8 : tensor<1x32xf32>) attrs =  {__xtc_id_relu_} {
-# CHECK-NEXT:        ^bb0(%in: f32, %in_10: f32, %out: f32):
-# CHECK-NEXT:          %7 = arith.maximumf %in, %in_10 : f32
+# CHECK-NEXT:        ^bb0(%in: f32, %in_9: f32, %out: f32):
+# CHECK-NEXT:          %7 = arith.maximumf %in, %in_9 : f32
 # CHECK-NEXT:          linalg.yield %7 : f32
 # CHECK-NEXT:        } -> tensor<1x32xf32>
 # CHECK-NEXT:        %inserted_slice = tensor.insert_slice %5#0 into %arg4[%arg3, 0] [1, 32] [1, 1] : tensor<1x32xf32> into tensor<4x32xf32>
-# CHECK-NEXT:        %inserted_slice_9 = tensor.insert_slice %5#0 into %arg4[%arg3, 0] [1, 32] [1, 1] : tensor<1x32xf32> into tensor<4x32xf32>
-# CHECK-NEXT:        scf.yield %inserted_slice, %inserted_slice_9 : tensor<4x32xf32>, tensor<4x32xf32>
+# CHECK-NEXT:        scf.yield %inserted_slice, %arg5 : tensor<4x32xf32>, tensor<4x32xf32>
 # CHECK-NEXT:      } {"./i"}
 # CHECK-NEXT:      %4 = linalg.generic {indexing_maps = [#map, #map1, #map], iterator_types = ["parallel", "parallel"]} ins(%3#0, %cst_3 : tensor<4x32xf32>, f32) outs(%2 : tensor<4x32xf32>) attrs =  {__xtc_id_relu_} {
 # CHECK-NEXT:      ^bb0(%in: f32, %in_4: f32, %out: f32):
