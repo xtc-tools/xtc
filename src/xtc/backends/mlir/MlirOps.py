@@ -5,7 +5,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing_extensions import override
-from typing import Any, Type, TypeAlias, cast
+from typing import Any, Type, TypeAlias
 
 from .MlirBackend import ELT_TYPES
 
@@ -14,7 +14,6 @@ from xdsl.dialects.builtin import (
     MemRefType,
     TensorType,
     IndexType,
-    i64,
     UnitAttr,
     StringAttr,
     AffineMapAttr,
@@ -26,7 +25,6 @@ from xdsl.builder import ImplicitBuilder
 
 from xtc.itf.graph import Operation
 from xtc.graphs.xtc.data import XTCTensorType
-from xtc.utils.math import mulall
 
 
 __all__ = [
@@ -444,92 +442,39 @@ class MlirOperatorConv2D(MlirOperator):
 
 
 class MlirOperatorRelu(MlirOperator):
+    # One parallel dim per input dim
     DEFAULT_NAME = "relu"
-    AXES = "i"
-    KINDS = "P"
+    AXES = "ijklmnopqrstuvwxyz"
+    KINDS = "PPPPPPPPPPPPPPPPPP"
+
+    def _shape(self) -> tuple[int, ...]:
+        shape = tuple(self.args[:-1])
+        assert len(shape) <= len(self.AXES), f"unsupported relu rank: {shape}"
+        return shape
 
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
-        return self._dims(kind)
+        return self._dims(kind)[: len(self._shape())]
 
     @override
     def dims_sizes(self) -> dict[str, int]:
-        i, _ = self.args
-        return {"i": i}
+        return dict(zip(self.AXES, self._shape()))
 
     @override
     def generate_op(
         self, block: Block | None = None, args: Sequence[BlockArgument] = []
     ) -> tuple[Block, OpAttrs]:
-        Ki, dtype = self.args
+        dtype = self.args[-1]
+        shape = self._shape()
         elt_type = ELT_TYPES[dtype]
         if block is None:
-            ops_types = [self.op_type(elt_type, shape) for shape in [[Ki], [Ki]]]
+            ops_types = [self.op_type(elt_type, shape) for _ in range(2)]
             block = Block(arg_types=ops_types)
             args = block.args
         assert len(args) == 2
         assert all(isinstance(arg.type, self.op_type) for arg in args)
-        inp_shape, out_shape = [
-            list(cast(self.op_type, arg.type).get_shape())  # type: ignore
-            for arg in args
-        ]
-        inp_size, out_size = [mulall(shape) for shape in [inp_shape, out_shape]]
-        assert inp_size == out_size
+        rank = len(shape)
         with ImplicitBuilder(block):
-            inp_reassociation = builtin.ArrayAttr(
-                [
-                    builtin.ArrayAttr(
-                        [builtin.IntegerAttr(x, i64) for x in range(len(inp_shape))]
-                    )
-                ]
-            )
-            out_reassociation = builtin.ArrayAttr(
-                [
-                    builtin.ArrayAttr(
-                        [builtin.IntegerAttr(x, i64) for x in range(len(out_shape))]
-                    )
-                ]
-            )
-            if self.op_type == TensorType:
-                # TODO: re-introduce collapsing relu
-                out_operand = args[1]
-                inp_operand = args[0]
-                rank = len(out_shape)
-                iterator_types = [StringAttr("parallel")] * rank
-                indexing_maps = [
-                    AffineMapAttr(AffineMap.identity(rank)),  # input
-                    AffineMapAttr(
-                        AffineMap.identity(rank).drop_results(out_shape)
-                    ),  # scalar
-                    AffineMapAttr(AffineMap.identity(rank)),  # output
-                ]
-            else:
-                inp = memref.CollapseShapeOp(  # type: ignore
-                    operands=[args[0]],
-                    properties=dict(reassociation=inp_reassociation),
-                    result_types=[self.op_type(elt_type, (inp_size,))],
-                )
-                inp_operand = inp.results[0]  # type: ignore
-                out = memref.CollapseShapeOp(
-                    operands=[args[1]],
-                    properties=dict(reassociation=out_reassociation),
-                    result_types=[self.op_type(elt_type, (out_size,))],
-                )
-                out_operand = out.results[0]  # type: ignore
-                iterator_types = [
-                    StringAttr({"P": "parallel", "R": "reduction"}[k])
-                    for k in self.KINDS
-                ]
-                # ignore typing due to xdsl hints limitation
-                indexing_maps = [
-                    AffineMapAttr(AffineMap.from_callable(lambda i: (i,))),  # type: ignore
-                    AffineMapAttr(AffineMap.from_callable(lambda _: ())),  # type: ignore
-                    AffineMapAttr(AffineMap.from_callable(lambda i: (i,))),  # type: ignore
-                ]
-                iterator_types = [
-                    StringAttr({"P": "parallel", "R": "reduction"}[k])
-                    for k in self.KINDS
-                ]
             result = (args[1].type,) if self.op_type == TensorType else ()
             cst0 = arith.ConstantOp(builtin.FloatAttr(0, elt_type))
             block_in = Block(arg_types=[elt_type, elt_type, elt_type])
@@ -537,11 +482,15 @@ class MlirOperatorRelu(MlirOperator):
                 max = arith.MaximumfOp(block_in.args[0], block_in.args[1])
                 linalg.YieldOp(max)
             relu = linalg.GenericOp(
-                inputs=(inp_operand, cst0.results[0]),
-                outputs=(out_operand,),
+                inputs=(args[0], cst0.results[0]),
+                outputs=(args[1],),
                 body=Region([block_in]),  # type: ignore # mypy issue with dataclass
-                indexing_maps=indexing_maps,
-                iterator_types=iterator_types,
+                indexing_maps=[
+                    AffineMapAttr(AffineMap.identity(rank)),  # input
+                    AffineMapAttr(AffineMap(rank, 0, ())),  # scalar
+                    AffineMapAttr(AffineMap.identity(rank)),  # output
+                ],
+                iterator_types=[StringAttr("parallel")] * rank,
                 result_types=result,
             )
         relu_node_id = f"{self.name}"
@@ -559,8 +508,7 @@ class MlirOperatorRelu(MlirOperator):
 
     @override
     def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        i = self.args[0]
-        return ((i,),)
+        return (self._shape(),)
 
     @override
     def inputs_types(self) -> tuple[str, ...]:
@@ -569,8 +517,7 @@ class MlirOperatorRelu(MlirOperator):
 
     @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
-        i = self.args[0]
-        return ((i,),)
+        return (self._shape(),)
 
     @override
     def outputs_types(self) -> tuple[str, ...]:

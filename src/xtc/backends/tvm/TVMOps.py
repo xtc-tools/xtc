@@ -310,8 +310,8 @@ class TVMOperatorRelu(TVMOperator):
         super().__init__(args, attrs, name)
 
     def _input_shape(self) -> tuple[int, ...]:
-        shape = self.attrs.get("inp_shape", self.args[:-1])
-        return tuple(shape)
+        # One XTC dim per input dim, args are (*dims, dtype)
+        return tuple(self.args[:-1])
 
     @override
     def dims(self, kind: str = "") -> tuple[str, ...]:
