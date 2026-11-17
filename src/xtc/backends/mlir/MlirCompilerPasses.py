@@ -495,13 +495,18 @@ class MlirProgramInsertTransformPass:
         if not chain:
             is_cast = consumer_handle_chain[0] == f"{schedule.node_ident}cast_"
             consumer_handle_chain = consumer_handle_chain[: 2 if is_cast else 1]
+        vectorize_consumers = False
+        tiled_consumer = None
         fuse_loop_dims = []
         # fuse consumer into all loops until the fuse axis
         for loop_dim in schedule.permutation[fuse_root]:
             # gpu_blocks turn into one combined forall annotated with the innermost dim
             if loop_dim in schedule.gpu_blocks and loop_dim != schedule.gpu_blocks[-1]:
                 continue
-            transform_result = sched_state.all_loops[loop_dim]
+            # if the next dims are vectorized then just fuse into the parent loop
+            if loop_dim in schedule.vectorization:
+                vectorize_consumers = True
+                break
             fuse_loop_dims.append(loop_dim)
             if loop_dim == fuse_axis:
                 break
@@ -519,8 +524,17 @@ class MlirProgramInsertTransformPass:
             op = xtc_transform.FuseConsumerOp(
                 consumer_handle, fuse_loops, in_place=True
             )
+            tiled_consumer = op.tiled_consumer
             for i, loop_dim in enumerate(fuse_loop_dims):
                 sched_state.all_loops[loop_dim] = op.new_loops[i]
+        # vectorization applies to all linalgs in the loop
+        # so only needs to be called once to vectorize all consumers
+        if vectorize_consumers and tiled_consumer:
+            # setting the sched state handle is fine here because
+            # the original linalg has already been vectorized away
+            sched_state.handle = tiled_consumer
+            self._vectorize(sched_state)
+
         # re-annotate the loops that were touched by the fusion
         for loop_dim in fuse_loop_dims:
             transform.AnnotateOp(sched_state.all_loops[loop_dim], loop_dim)
@@ -1113,11 +1127,6 @@ def get_consumer_chain(first_op: OpView, root_op: OpView) -> list[str]:
 
 
 def _can_extend_chain(op: OpView, operand_number: int, root_op: OpView) -> bool:
-    # op writes into the root dest
-    # TODO: either only check shape or make special case for trunc
-    # if op.results[0].type != root_op.results[0].type:
-    #     print("type mismatch")
-    #     return False
     # elementwise, with tiles aligned with the root's
     maps_attr: ir.ArrayAttr | None = linalg.get_indexing_maps(op)  # type: ignore
     if maps_attr is None:
