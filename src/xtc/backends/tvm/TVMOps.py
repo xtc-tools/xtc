@@ -242,8 +242,8 @@ class TVMOperator(ABC):
 
     def has_cast_stage(self) -> bool:
         """Whether generate_op emits a separate cast stage (mixed dtypes)."""
-        acc = self.attrs.get("acc_dtype")
-        return any((acc or dtype) != self.out_dtype for dtype in self.in_dtypes)
+        acc = self.attrs.get("acc_dtype", self.out_dtype)
+        return acc != self.out_dtype
 
     @abstractmethod
     def generate_op(
@@ -294,8 +294,7 @@ class TVMOperatorMatmul(TVMOperator):
             B = te.placeholder((Kk, Kj), name="B", dtype=self.in_dtypes[1])
         else:
             A, B = cast(Sequence[Any], inputs)
-        acc_type_A = self.attrs.get("acc_dtype", self.in_dtypes[0])
-        acc_type_B = self.attrs.get("acc_dtype", self.in_dtypes[1])
+        acc_type = self.attrs.get("acc_dtype", self.out_dtype)
         Ashape = tuple(A.shape)
         Bshape = tuple(B.shape)
         Anewshape = (Ashape[0], mulall(list(Ashape[1:])))
@@ -310,7 +309,7 @@ class TVMOperatorMatmul(TVMOperator):
             lambda i, j: cast(
                 Any,
                 te.sum(
-                    A[i, k].astype(acc_type_A) * B[k, j].astype(acc_type_B),
+                    A[i, k].astype(acc_type) * B[k, j].astype(acc_type),
                     axis=k,
                 ),
             ),
@@ -419,8 +418,7 @@ class TVMOperatorConv2D(TVMOperator):
             W = te.placeholder(inps_dims[1], name="W", dtype=self.in_dtypes[1])
         else:
             A, W = cast(Sequence[Any], inputs)
-        acc_type_A = self.attrs.get("acc_dtype", self.in_dtypes[0])
-        acc_type_W = self.attrs.get("acc_dtype", self.in_dtypes[1])
+        acc_type = self.attrs.get("acc_dtype", self.out_dtype)
         r = te.reduce_axis((0, Kr), "r")
         s = te.reduce_axis((0, Ks), "s")
         c = te.reduce_axis((0, Kc), "c")
@@ -431,8 +429,8 @@ class TVMOperatorConv2D(TVMOperator):
             lambda b, h, w, f: cast(
                 Any,
                 te.sum(
-                    A[b, h * Ksh + r, w * Ksw + s, c].astype(acc_type_A)
-                    * W[r, s, c, f].astype(acc_type_W),
+                    A[b, h * Ksh + r, w * Ksw + s, c].astype(acc_type)
+                    * W[r, s, c, f].astype(acc_type),
                     axis=(r, s, c),
                 ),
             ),

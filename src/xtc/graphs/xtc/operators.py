@@ -95,6 +95,8 @@ class XTCOperator(Operator):
         res_type = str(np_input[0].dtype)
         if acc_dtype is not None:
             np_input = [inp.astype(acc_dtype) for inp in np_input]
+        elif out_dtype is not None:
+            np_input = [inp.astype(out_dtype) for inp in np_input]
         result = ref_func(*np_input)
         if out_dtype is not None:
             res_type = out_dtype
