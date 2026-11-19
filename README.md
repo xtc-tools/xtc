@@ -105,10 +105,19 @@ make format              # Apply all formatting (license + ruff)
 make check-format        # Check formatting without modifying files
 ```
 
-Testing structure:
-- `tests/pytest/unit/`: Core interface unit tests
-- `tests/pytest/{mlir,tvm}/`: Backend-specific tests
-- `tests/filecheck/`: Lit+FileCheck functional tests for code generation
+Use `git diff --check` to catch whitespace errors, excluding `tests/filecheck/`
+because generated FileCheck expectations can contain trailing whitespace:
+
+```bash
+git diff --check -- . ':(exclude)tests/filecheck/'
+```
+
+### Testing
+
+Prefer pytest unit tests for submodules (`tests/pytest/unit/` and
+`tests/pytest/{mlir,tvm}/`). Use lit and FileCheck for end-to-end backend and
+scheduling tests (`tests/filecheck/`). See the [testing guide](docs/develop/testing.md)
+for test design and how to regenerate expected output.
 
 Global test commands:
 ```bash
