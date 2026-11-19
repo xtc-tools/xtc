@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2024-2026 The XTC Project Authors
 #
+from typing import cast
+
 from typing_extensions import override
 
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
@@ -46,9 +48,12 @@ class MlirScheduler(itf.schd.Scheduler):
             else:
                 self._nodes_schedulers = nodes_schedulers
 
-            # Take last node or find default_node
             if default_node is None:
-                candidate_nodes = self._nodes_schedulers
+                candidate_nodes = [
+                    scheduler
+                    for scheduler in self._nodes_schedulers
+                    if cast(MlirNodeBackend, scheduler.backend).is_root
+                ] or self._nodes_schedulers
             else:
                 candidate_nodes = [
                     scheduler
