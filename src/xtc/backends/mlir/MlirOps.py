@@ -225,8 +225,8 @@ class MlirOperator(ABC):
 
     def has_cast_stage(self) -> bool:
         """Whether generate_op emits a separate cast stage (mixed dtypes)."""
-        acc = self.attrs.get("acc_dtype")
-        return any((acc or dtype) != self.out_dtype for dtype in self.in_dtypes)
+        acc = self.attrs.get("acc_dtype", self.out_dtype)
+        return acc != self.out_dtype
 
     @abstractmethod
     def generate_op(
@@ -288,8 +288,8 @@ class MlirOperatorMatmul(MlirOperator):
         self, block: Block | None = None, args: Sequence[BlockArgument] = []
     ) -> tuple[Block, OpAttrs]:
         Ki, Kj, Kk, transpose_a, transpose_b = self.args
-        acc_dtype = self.attrs.get("acc_dtype", None)
-        mixed = acc_dtype is not None and (
+        acc_dtype = self.attrs.get("acc_dtype", self.out_dtype)
+        mixed = (
             acc_dtype != self.out_dtype
             or acc_dtype != self.in_dtypes[0]
             or acc_dtype != self.in_dtypes[1]
@@ -303,7 +303,7 @@ class MlirOperatorMatmul(MlirOperator):
         ]
         acc_elt = ELT_TYPES[acc]
         using_tensors = self.op_type == TensorType
-        convert_output = mixed and acc != self.out_dtype
+        convert_output = mixed and self.has_cast_stage()
         if block is None:
             ops_types = [
                 self.op_type(elt_type, shape)
@@ -458,22 +458,22 @@ class MlirOperatorConv2D(MlirOperator):
         SH, SW = self.attrs.get("stride", self.DEFAULT_STRIDE)
         inps_dims = self.inputs_dims()
         out_dims = self.outputs_dims()[0]
-        acc_dtype = self.attrs.get("acc_dtype", None)
-        mixed = acc_dtype is not None and (
+        acc_dtype = self.attrs.get("acc_dtype", self.out_dtype)
+        mixed = (
             acc_dtype != self.out_dtype
             or acc_dtype != self.in_dtypes[0]
             or acc_dtype != self.in_dtypes[1]
         )
         acc = acc_dtype if mixed else self.out_dtype
-        assert acc is not None
+        assert acc_dtype is not None
         elt_types = [
             ELT_TYPES[self.in_dtypes[0]],
             ELT_TYPES[self.in_dtypes[1]],
             ELT_TYPES[self.out_dtype],
         ]
-        acc_elt = ELT_TYPES[acc]
+        acc_elt = ELT_TYPES[acc_dtype]
         using_tensors = self.op_type == TensorType
-        convert_output = mixed and acc != self.out_dtype
+        convert_output = mixed and self.has_cast_stage()
         if block is None:
             ops_types = [
                 self.op_type(elt_type, shape)
