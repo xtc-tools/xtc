@@ -58,7 +58,9 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
         print(f'{block} = {sch}.get_sblock("{self._op.name}")', file=outf)
         dims = sched.abstract_dims
         self._dump_schedule_node(block, dims, sched, root)
-        self._dump_cast_schedule(root, sched)
+        # A fused cast stage is scheduled with the consumers
+        if not root.fuse_consumer_at:
+            self._dump_cast_schedule(root, sched)
         print(
             f"{sch} = decompose_reduction_initializers({sch})",
             file=outf,
@@ -123,8 +125,15 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
         sch = self._sch_var
         outf = self._outf
         print(f"{', '.join(dims)}, = {sch}.get_loops({block})", file=outf)
+        has_cast_stage = self._op.operator.has_cast_stage()
         if node.fuse_consumer_at and not cast_mode:
-            print(f"O_F0 = {sch}.get_consumers({block})[0]", file=outf)
+            if has_cast_stage:
+                # The output of the op is the cast stage, fuse it before
+                # its consumer
+                print(f'O_cast = {sch}.get_sblock("{self._op.name}_cast")', file=outf)
+                print(f"O_F0 = {sch}.get_consumers(O_cast)[0]", file=outf)
+            else:
+                print(f"O_F0 = {sch}.get_consumers({block})[0]", file=outf)
         if node.pack_at and not cast_mode:
             scope_of = {
                 inp_idx: (mtype if mtype is not None else "global")
@@ -232,6 +241,8 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
                 print(f"{sch}.compute_at(I_F{prod_idx}, {axis})", file=outf)
         if node.fuse_consumer_at and not cast_mode:
             for axis in node.fuse_consumer_at:
+                if has_cast_stage:
+                    print(f"{sch}.reverse_compute_at(O_cast, {axis})", file=outf)
                 print(f"{sch}.reverse_compute_at(O_F0, {axis})", file=outf)
         if not cast_mode:
             for u_axis, u_factor in node.unroll.items():
