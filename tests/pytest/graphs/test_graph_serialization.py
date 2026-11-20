@@ -37,6 +37,21 @@ def test_matmul_relu_to_from_dict():
     assert graph_dict == gb2.graph.to_dict()
 
 
+def test_mul_add_to_from_dict():
+    a = O.tensor((4, 32), "float32", name="A")
+    b = O.tensor((32,), "float32", name="B")
+
+    with O.graph(name="mul_add") as gb:
+        m = O.mul(a, b, name="mul")
+        O.add(m, b, name="add")
+
+    graph_dict = gb.graph.to_dict()
+    with O.graph() as gb2:
+        gb2.from_dict(graph_dict)
+    assert graph_dict != {}
+    assert graph_dict == gb2.graph.to_dict()
+
+
 def test_conv2d_pad_sdump_sload():
     N, H, W, F, R, S, C, SH, SW, dtype = 1, 8, 8, 16, 5, 5, 3, 2, 2, "float32"
     a = O.tensor((N, H, W, C), dtype, name="I")

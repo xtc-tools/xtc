@@ -107,8 +107,10 @@ class MlirNodeScheduler:
     ) -> None:
         self._plain_sch.fuse_producer_at(axis, input_idx, root)
 
-    def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
-        self._plain_sch.fuse_consumer_at(axis, root)
+    def fuse_consumer_at(
+        self, axis: str, root: str = DEFAULT_ROOT, chain: bool = False
+    ) -> None:
+        self._plain_sch.fuse_consumer_at(axis, root, chain)
 
     def map_gpu_threads(self, axes: list[str], root: str = DEFAULT_ROOT):
         self._plain_sch.gpu_thread(axes, root)

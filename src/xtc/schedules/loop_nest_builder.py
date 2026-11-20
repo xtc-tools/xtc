@@ -87,7 +87,7 @@ class LoopNestBuilder:
         # TODO: loop nest supports only one fuse per axis
         fuse_producer_at = dict(localize_axis_tuples(node_sched.fused_producers))
         # TODO: loop nest supports only one fuse consumer per axis
-        fuse_consumer_at = localize_axis_list(node_sched.fused_consumers)
+        fuse_consumer_at = dict(localize_axis_tuples(node_sched.fused_consumers))
         external_at = localize_axis_dict(node_sched.externals)
         gpu_block = localize_gpu_list(node_sched.gpu_blocks)
         gpu_thread = localize_gpu_list(node_sched.gpu_threads)

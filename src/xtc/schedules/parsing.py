@@ -43,6 +43,8 @@ class Annotations:
         pack_specified: True if pack was explicitly requested.
         fuse_producer: the input_idx for the operand to fuse, None if not requested.
         fuse_consumer: True if consumer fusion was requested.
+        fuse_consumer_chain: True if consumer fusion of the whole consumer chain
+            was requested.
     """
 
     unroll_factor: literal | None = None
@@ -55,6 +57,7 @@ class Annotations:
     pack_specified: bool = False
     fuse_producer: int | None = None
     fuse_consumer: bool | None = False
+    fuse_consumer_chain: bool = False
     partial: bool = False
     full: bool = False
     gpu_lane: int | None = None
@@ -186,6 +189,7 @@ class ScheduleParser:
         pack_specified = False
         fuse_producer: int | None = None
         fuse_consumer: bool = False
+        fuse_consumer_chain: bool = False
         partial = False
         full = False
         gpu_lane: str | int | None = None
@@ -250,6 +254,14 @@ class ScheduleParser:
                             f'`{{"fuse_consumer" = {param}}}`: fuse_consumer parameter should be a bool.'
                         )
                     fuse_consumer = param
+                case "fuse_consumer_chain":
+                    if param is None:
+                        param = True
+                    elif not isinstance(param, bool):
+                        raise ScheduleParseError(
+                            f'`{{"fuse_consumer_chain" = {param}}}`: fuse_consumer_chain parameter should be a bool.'
+                        )
+                    fuse_consumer_chain = param
                 case "partial":
                     partial = True
                 case "full":
@@ -327,6 +339,10 @@ class ScheduleParser:
 
         if partial and full:
             raise ScheduleParseError(f"{context} has both annotations full and partial")
+        if fuse_consumer and fuse_consumer_chain:
+            raise ScheduleParseError(
+                f"{context} has both annotations fuse_consumer and fuse_consumer_chain"
+            )
 
         assert isinstance(gpu_lane, int) or gpu_lane is None
         assert isinstance(gpu_warp, int) or gpu_warp is None
@@ -344,6 +360,7 @@ class ScheduleParser:
             pack_specified=pack_specified,
             fuse_producer=fuse_producer,
             fuse_consumer=fuse_consumer,
+            fuse_consumer_chain=fuse_consumer_chain,
             partial=partial,
             full=full,
             gpu_block=gpu_block,
