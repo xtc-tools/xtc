@@ -280,7 +280,7 @@ class Scheduler(ABC):
             axis: localisation of the fusion in the producer
             root: the parent split (or the operator's absolute root)
             chain: also fuse the chain of single-use elementwise ops following
-                the consumer, only supported for the mlir backend.
+                the consumer, supported by the mlir and tvm backends.
         """
         ...
 

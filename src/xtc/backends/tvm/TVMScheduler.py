@@ -13,6 +13,7 @@ import numpy as np
 from copy import deepcopy
 
 from xtc.utils.math import pow2divisor
+from xtc.itf.graph import Graph, Node
 from xtc.itf.schd.scheduler import DEFAULT_ROOT
 from xtc.schedules.plain_schedule import PlainNodeSchedule, PlainNodeScheduler
 from xtc.schedules.loop_nest import LoopNest, LoopNestNode
@@ -30,6 +31,57 @@ _GPU_DIM = {0: "x", 1: "y", 2: "z"}
 _TVM_MEM_SCOPES = {"global", "shared", "local", "warp", "shared.dyn"}
 
 
+def consumer_chain(graph: Graph, root_name: str) -> list[str]:
+    """Returns the names of the nodes chained after the first consumer of root.
+
+    The chain extends from a node to its consumer while the node has a single
+    use, and the consumer is elementwise with accesses aligned on the node and
+    other inputs computed before the root.
+    """
+    nodes = list(graph.nodes.values())
+    root_idx = [node.name for node in nodes].index(root_name)
+    defined_before = set(graph.inputs) | {
+        value for node in nodes[:root_idx] for value in node.outputs
+    }
+
+    def uses(value: str) -> list[tuple[Node, int]]:
+        return [
+            (node, idx)
+            for node in nodes
+            for idx, inp in enumerate(node.inputs)
+            if inp == value
+        ]
+
+    root_uses = uses(nodes[root_idx].outputs[0])
+    if not root_uses:
+        return []
+    chain: list[str] = []
+    node = root_uses[0][0]
+    while True:
+        value = node.outputs[0]
+        value_uses = uses(value)
+        if len(value_uses) != 1 or value in graph.outputs:
+            break
+        consumer, operand_idx = value_uses[0]
+        dims, inps_maps, outs_maps = consumer.operation.accesses_maps
+        aligned_elementwise = (
+            len(consumer.operation.dims_kind("P")) == len(dims)
+            and outs_maps[0] == dims
+            and inps_maps[operand_idx] == dims
+        )
+        if not aligned_elementwise:
+            break
+        if any(
+            inp not in defined_before
+            for idx, inp in enumerate(consumer.inputs)
+            if idx != operand_idx
+        ):
+            break
+        chain.append(consumer.name)
+        node = consumer
+    return chain
+
+
 class TVMScheduleEmitter(ABC):
     @abstractmethod
     def emit(self, scheduler: "TVMScheduler"): ...
@@ -39,11 +91,14 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
     def __init__(
         self,
         op: TVMOperation,
+        graph: Graph | None = None,
         obj_var: str = "obj",
         sch_var: str = "sch",
         outf: TextIO = sys.stdout,
     ):
         self._op = op
+        self._graph = graph
+        self._chained_consumers: list[str] = []
         self._obj_var = obj_var
         self._sch_var = sch_var
         self._outf = outf
@@ -56,6 +111,8 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
         sch = self._sch_var
         outf = self._outf
         print(f'{block} = {sch}.get_sblock("{self._op.name}")', file=outf)
+        if self._graph is not None and any(root.fuse_consumer_at.values()):
+            self._chained_consumers = consumer_chain(self._graph, self._op.name)
         dims = sched.abstract_dims
         self._dump_schedule_node(block, dims, sched, root)
         # A fused cast stage is scheduled with the consumers
@@ -134,6 +191,8 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
                 print(f"O_F0 = {sch}.get_consumers(O_cast)[0]", file=outf)
             else:
                 print(f"O_F0 = {sch}.get_consumers({block})[0]", file=outf)
+            for idx, name in enumerate(self._chained_consumers, start=1):
+                print(f'O_F{idx} = {sch}.get_sblock("{name}")', file=outf)
         if node.pack_at and not cast_mode:
             scope_of = {
                 inp_idx: (mtype if mtype is not None else "global")
@@ -244,6 +303,8 @@ class TVMScheduleEmitterTIR(TVMScheduleEmitter):
                 if has_cast_stage:
                     print(f"{sch}.reverse_compute_at(O_cast, {axis})", file=outf)
                 print(f"{sch}.reverse_compute_at(O_F0, {axis})", file=outf)
+                for idx in range(1, len(self._chained_consumers) + 1):
+                    print(f"{sch}.reverse_compute_at(O_F{idx}, {axis})", file=outf)
         if not cast_mode:
             for u_axis, u_factor in node.unroll.items():
                 print(f"{sch}.unroll({u_axis})", file=outf)
@@ -539,7 +600,9 @@ class TVMScheduler(itf.schd.Scheduler):
 
     def _emit_schedule_code(self) -> str:
         io = StringIO()
-        emitter = TVMScheduleEmitterTIR(op=self._op, outf=io)
+        emitter = TVMScheduleEmitterTIR(
+            op=self._op, graph=self._backend._graph, outf=io
+        )
         emitter.emit(self)
         return io.getvalue()
 
@@ -621,9 +684,7 @@ class TVMScheduler(itf.schd.Scheduler):
     def fuse_consumer_at(
         self, axis: str, root: str = DEFAULT_ROOT, chain: bool = False
     ) -> None:
-        if chain:
-            raise NotImplementedError("chain consumer fusion not supported by TVM")
-        self._plain_sch.fuse_consumer_at(axis, root)
+        self._plain_sch.fuse_consumer_at(axis, root, chain)
 
     @override
     def define_memory_mesh(self, axes: dict[str, int]) -> None:
