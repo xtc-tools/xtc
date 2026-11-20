@@ -20,6 +20,7 @@ sch.strip_mine("i", {"i1": 16})
 sch.strip_mine("j", {"j1": 16})
 sch.interchange(["i", "j", "k", "i1", "j1"])
 sch.external_at("k", matmul_uk)
+sch.unroll({"k": 2})
 
 print(sch.get_loop_nest().root_node.pretty_print())
 
@@ -40,7 +41,7 @@ print("VALID:", isinstance(res, float))
 
 # CHECK:       loop i
 # CHECK-NEXT:    loop j
-# CHECK-NEXT:      loop k  // external(external_matmul_uk_ixj)
+# CHECK-NEXT:      loop k  // unroll(2), external(external_matmul_uk_ixj)
 # CHECK-NEXT:        tile(i, 16)
 # CHECK-NEXT:          tile(j, 16)
 # CHECK-NEXT:            ...
@@ -48,8 +49,10 @@ print("VALID:", isinstance(res, float))
 # CHECK-NEXT:  i, j, k, = sch.get_loops(O)
 # CHECK-NEXT:  i, i1, = sch.split(i, factors=[None, 16])
 # CHECK-NEXT:  j, j1, = sch.split(j, factors=[None, 16])
-# CHECK-NEXT:  sch.reorder(i, j, k, i1, j1)
-# CHECK-NEXT:  sch = externalize_tile_below(sch, O, k, 'external_matmul_uk_ixj')
+# CHECK-NEXT:  k, __u_k, = sch.split(k, factors=[None, 2])
+# CHECK-NEXT:  sch.reorder(i, j, k, __u_k, i1, j1)
+# CHECK-NEXT:  sch.unroll(__u_k)
+# CHECK-NEXT:  sch = externalize_tile_below(sch, O, __u_k, 'external_matmul_uk_ixj')
 # CHECK-NEXT:  sch = decompose_reduction_initializers(sch)
 # CHECK-NEXT:  
 # CHECK-NEXT:  # from tvm.script import ir as I
@@ -70,6 +73,7 @@ print("VALID:", isinstance(res, float))
 # CHECK-NEXT:                      T.reads()
 # CHECK-NEXT:                      T.writes(C[v_i, v_j])
 # CHECK-NEXT:                      C[v_i, v_j] = T.float32(0.0)
-# CHECK-NEXT:              for k in range(8):
-# CHECK-NEXT:                  T.call_extern("int32", "external_matmul_uk_ixj", T.tvm_access_ptr(T.type_annotation("float32"), C.data, T.Add(i_0 * 16, 0) * 32 + T.Add(j_0 * 16, 0), 1024 - (T.Add(i_0 * 16, 0) * 32 + T.Add(j_0 * 16, 0)), 3), T.tvm_access_ptr(T.type_annotation("float32"), _0.data, T.Add(i_0 * 16, 0) * 8 + k, 256 - (T.Add(i_0 * 16, 0) * 8 + k), 1), T.tvm_access_ptr(T.type_annotation("float32"), _1.data, k * 32 + T.Add(j_0 * 16, 0), 256 - (k * 32 + T.Add(j_0 * 16, 0)), 1), T.int64(16), T.int64(16), T.int64(32), T.int64(1), T.int64(8), T.int64(0), T.int64(0), T.int64(1))
+# CHECK-NEXT:              for k_0 in range(4):
+# CHECK-NEXT:                  for k_1 in T.unroll(2):
+# CHECK-NEXT:                      T.call_extern("int32", "external_matmul_uk_ixj", T.tvm_access_ptr(T.type_annotation("float32"), C.data, T.Add(i_0 * 16, 0) * 32 + T.Add(j_0 * 16, 0), 1024 - (T.Add(i_0 * 16, 0) * 32 + T.Add(j_0 * 16, 0)), 3), T.tvm_access_ptr(T.type_annotation("float32"), _0.data, T.Add(i_0 * 16, 0) * 8 + (k_0 * 2 + k_1), 256 - (T.Add(i_0 * 16, 0) * 8 + (k_0 * 2 + k_1)), 1), T.tvm_access_ptr(T.type_annotation("float32"), _1.data, (k_0 * 2 + k_1) * 32 + T.Add(j_0 * 16, 0), 256 - ((k_0 * 2 + k_1) * 32 + T.Add(j_0 * 16, 0)), 1), T.int64(16), T.int64(16), T.int64(32), T.int64(1), T.int64(8), T.int64(0), T.int64(0), T.int64(1))
 # CHECK-NEXT:  VALID: True

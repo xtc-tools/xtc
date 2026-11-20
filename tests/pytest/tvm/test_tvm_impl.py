@@ -36,9 +36,8 @@ def test_relu_inherits_input_rank(shape, dims):
 def sched_nop(sch):
     # Expected in TVM schedule
     print(sch)
-    return [
-        "reorder(i, j, k)"
-    ]
+    return ["reorder(i, j, k)"]
+
 
 def sched_tile2(sch):
     sch.tile("i", {"i1": 64, "i2": 4})
@@ -52,13 +51,14 @@ def sched_tile2(sch):
         "split(j, factors=[None, 1, 64])",
     ]
 
+
 def sched_tile2p(sch):
     sch.tile("i", {"i1": 64, "i2": 4})
     sch.tile("j", {"j1": 64, "j2": 16})
     sch.tile("k", {"k1": 13})
     sch.interchange(["i", "i1", "j", "k", "j1", "k1", "i2", "j2"])
     sch.parallelize(["i", "i1"])
-    sch.unroll({"j2": 64, "i2": 4})
+    sch.unroll({"i2": 4})
     sch.vectorize(["j2"])
     # Expected in TVM schedule
     print(sch)
@@ -69,13 +69,14 @@ def sched_tile2p(sch):
         "parallel(i1)",
     ]
 
+
 def sched_tile3wc(sch):
     sch.tile("i", {"i1": 64, "i2": 32, "i3": 4})
     sch.tile("j", {"j1": 256, "j2": 64, "j3": 64})
     sch.tile("k", {"k1": 13})
     sch.interchange(["i", "j", "i1", "j1", "k", "i2", "j2", "k1", "i3", "j3"])
     sch.parallelize(["i", "j"])
-    sch.unroll({"k1": 13, "i3": 4, "j3": 64})
+    sch.unroll({"k1": 13, "i3": 4})
     sch.vectorize(["j3"])
     sch.buffer_at("j")
     sch.buffer_at("j1")
@@ -86,6 +87,7 @@ def sched_tile3wc(sch):
         "reverse_compute_at(O_W0, j)",
         "reverse_compute_at(O_W0, j1)",
     ]
+
 
 def sched_tile_unroll_vec(sch):
     sch.tile("i", {"i1": 8})
@@ -105,6 +107,7 @@ def sched_tile_unroll_vec(sch):
         "vectorize(__v_j1)",
     ]
 
+
 def check_schedule(impl, sched_func):
     sch = impl.get_scheduler()
     expected = sched_func(sch)
@@ -115,10 +118,12 @@ def check_schedule(impl, sched_func):
         assert substr in schedule_str
     return schedule
 
+
 def check_evaluate(impl, schedule):
     result = impl.evaluate(schedule)
     print(f"Result: {result}")
     assert isinstance(result, float) and float(result) > 0
+
 
 @requires_tvm
 def test_sched_nop():
@@ -127,12 +132,14 @@ def test_sched_nop():
     schedule = check_schedule(impl, sched_nop)
     check_evaluate(impl, schedule)
 
+
 @requires_tvm
 def test_sched_tile2():
     impl = matmul_impl(*MATMUL_ARGS, "matmul")
     print(impl.graph)
     schedule = check_schedule(impl, sched_tile2)
     check_evaluate(impl, schedule)
+
 
 @requires_tvm
 def test_sched_tile2p():
@@ -141,6 +148,7 @@ def test_sched_tile2p():
     schedule = check_schedule(impl, sched_tile2p)
     check_evaluate(impl, schedule)
 
+
 @requires_tvm
 def test_sched_tile3wc():
     impl = matmul_impl(*MATMUL_ARGS, "matmul")
@@ -148,12 +156,14 @@ def test_sched_tile3wc():
     schedule = check_schedule(impl, sched_tile3wc)
     check_evaluate(impl, schedule)
 
+
 @requires_tvm
 def test_sched_tile_unroll_vec():
     impl = matmul_impl(*MATMUL_ARGS, "matmul")
     print(impl.graph)
     schedule = check_schedule(impl, sched_tile_unroll_vec)
     check_evaluate(impl, schedule)
+
 
 def check_compile_evaluate(imp, schedule, compiler_args, evaluate_args):
     compiler = imp.get_compiler(
@@ -167,6 +177,7 @@ def check_compile_evaluate(imp, schedule, compiler_args, evaluate_args):
     assert code == 0, f"failed to evaluate: {error_msg}"
     print(f"Results: {results}")
     assert isinstance(results[0], float) and float(results[0]) > 0
+
 
 @requires_tvm
 @pytest.mark.parametrize(
@@ -199,5 +210,5 @@ def test_backend_variant(tmpdir, module_type, bare_ptr):
         },
         {
             "validate": True,
-        }
+        },
     )

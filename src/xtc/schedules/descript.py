@@ -45,6 +45,8 @@ def descript_scheduler(
     """Apply a schedule specification to a scheduler.
 
     This is the main entry point for using the descript scheduling DSL.
+    In a split branch, the split axis comes first by default. An explicit
+    bare axis entry sets the position and annotations of that branch's loop.
 
     Args:
         scheduler: The scheduler to apply the schedule to.
@@ -74,7 +76,7 @@ class ScheduleInterpreter:
         """Interpret a schedule specification into a LoopNest."""
         loop_nest = ParameterLoopNest(abstract_dims=self.abstract_dims)
         root_node = loop_nest.build_root_node(root)
-        self._interpret_spec_into_node(spec, root_node, root, head=[])
+        self._interpret_spec_into_node(spec, root_node, root)
         return loop_nest
 
     def _interpret_spec_into_node(
@@ -82,13 +84,18 @@ class ScheduleInterpreter:
         spec: ScheduleSpec,
         node: ParameterLoopNestNode,
         root: str,
-        head: list[str],
+        incoming_axis: str | None = None,
         axes: dict[str, list[literal]] | None = None,
     ) -> None:
         """Interpret a schedule spec into an existing node (mutates node)."""
         # Track state during interpretation
         previous_cut: dict[str, literal | None] = {a: 0 for a in self.abstract_dims}
-        interchange: list[str] = list(head)
+        interchange: list[str] = []
+        if incoming_axis is not None and not any(
+            isinstance(item, AxisDecl) and item.axis == incoming_axis
+            for item in spec.items
+        ):
+            interchange.append(incoming_axis)
         last_split: list[tuple[literal, literal | None]] = []
         sizes: dict[str, literal] = {}
         loop_name: str = ""
@@ -101,6 +108,25 @@ class ScheduleInterpreter:
                     axes[a] = [v]
         if not axes:
             axes = {a: [] for a in self.abstract_dims}
+        if incoming_axis is not None:
+            # The implicit loop (or its explicit declaration) is rebased to
+            # the branch. Do not use the original dimension extent for unroll.
+            sizes.pop(incoming_axis, None)
+            branch_sizes = axes[incoming_axis]
+            if branch_sizes:
+                span = branch_sizes[-1]
+                stride = next(
+                    (
+                        item.size
+                        for item in spec.items
+                        if isinstance(item, TileDecl) and item.axis == incoming_axis
+                    ),
+                    1,
+                )
+                if stride == 1:
+                    sizes[incoming_axis] = span
+                elif isinstance(span, int) and isinstance(stride, int) and stride > 0:
+                    sizes[incoming_axis] = (span + stride - 1) // stride
 
         for item in spec.items:
             if isinstance(item, SplitDecl):
@@ -252,13 +278,17 @@ class ScheduleInterpreter:
         )
         node.add_child(child_node)
 
-        # Recursively interpret the nested schedule into the child node
+        # The branch has its own local extent. An open tail with no parent
+        # bound stays unknown, even when constraint interpretation made a name
+        # for its size.
+        child_axes = deepcopy(axes)
+        child_axes[axis_name] = [inner_size] if z is not None or y is not None else []
         self._interpret_spec_into_node(
             spec=item.body,
             node=child_node,
             root=new_root_name,
-            head=[axis_name],
-            axes=deepcopy(axes),
+            incoming_axis=axis_name,
+            axes=child_axes,
         )
 
     def _interpret_tile(
@@ -360,7 +390,7 @@ class ScheduleInterpreter:
                 raise ScheduleInterpretError(
                     f'`{{"unroll" = {unroll_factor}}}`: unroll parameter should be strictly positive.'
                 )
-            elif isinstance(unroll_factor, str):
+            elif isinstance(unroll_factor, str) and loop_name in sizes:
                 if self.partial_unrolls:
                     node.constraints.append(f"{unroll_factor} <= {sizes[loop_name]}")
                 else:

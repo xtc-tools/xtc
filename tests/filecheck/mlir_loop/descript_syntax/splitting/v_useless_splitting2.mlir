@@ -13,4 +13,5 @@ func.func @matmul(%A: memref<256x512xf64>, %B: memref<512x256xf64>, %C: memref<2
 	outs(%C: memref<256x256xf64>)
 	return
 }
-// CHECK: Axis j is scheduled twice (or more).
+// The explicit j denotes the rebased axis; the unary partition is still invalid.
+// CHECK: Partition on axis j must declare at least two branches.

@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar, Any
+from typing import Any, Generic, TypeVar
 
-from xtc.schedules.loop_nest import LoopNest, LoopNestNode, SplitOrigin
+from xtc.schedules.loop_nest import LoopNest, LoopNestNode
 
 NodeT = TypeVar("NodeT", bound="Node[Any]")
 
@@ -18,7 +18,10 @@ literal = int | str
 
 @dataclass
 class ParameterSplitOrigin:
-    """Describes how a parameterised node was created via a split from its parent.
+    """Symbolic split bounds used while checking parameterised schedules.
+
+    These bounds are not copied into concrete loop nests: concrete branch ranges
+    are derived from the parent's cuts and active range during analysis.
 
     Attributes:
         axis: The axis that was split to create this node.
@@ -30,11 +33,6 @@ class ParameterSplitOrigin:
     start: literal | None
     end: literal | None
 
-    def apply_sample(self, sample: dict[str, int]) -> SplitOrigin:
-        start = sample[self.start] if isinstance(self.start, str) else self.start
-        end = sample[self.end] if isinstance(self.end, str) else self.end
-        return SplitOrigin(self.axis, start, end)
-
 
 @dataclass(kw_only=True)
 class Node(Generic[NodeT]):
@@ -45,8 +43,8 @@ class Node(Generic[NodeT]):
 
     Attributes:
         parent: Reference to the parent node, or None for the root.
-        split_origin: Metadata describing how this node was created from
-            its parent via a split. None for the root node.
+        split_origin: Symbolic partition information used while validating
+            parameter constraints.
         children: List of child nodes.
     """
 
@@ -169,11 +167,6 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
         fuse_consumer_at = self.fuse_consumer_at
 
         children = [child.apply_sample(sample) for child in self.children]
-        split_origin = (
-            self.split_origin.apply_sample(sample)
-            if self.split_origin is not None
-            else None
-        )
         return LoopNestNode(
             root=root,
             tiles=tiles,
@@ -187,7 +180,6 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             fuse_producer_at=fuse_producer_at,
             fuse_consumer_at=fuse_consumer_at,
             children=children,
-            split_origin=split_origin,
         )
 
     def pretty_print(self, indent: int = 0) -> str:
@@ -219,16 +211,12 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
         tiles_info = mapper.tiles_info
         splits_info = mapper.splits_info
 
-        # Map split loop names to their child nodes
+        # Children correspond to parent branch declarations in order. Zip
+        # allows pretty-printing partially assembled trees safely.
         split_to_child: dict[str, ParameterLoopNestNode] = {}
-        for child in self.children:
-            if child.split_origin is not None:
-                axis = child.split_origin.axis
-                if axis in self.splits:
-                    for loop_name, start in self.splits[axis].items():
-                        if start == child.split_origin.start:
-                            split_to_child[loop_name] = child
-                            break
+        for branches in self.splits.values():
+            for loop_name, child in zip(branches, self.children):
+                split_to_child[loop_name] = child
 
         # Group splits by axis for same-level printing
         axis_to_splits: dict[str, list[str]] = {}
@@ -442,10 +430,10 @@ class ParameterLoopNest:
         return node
 
     def check(self):
+        """Check symbolic declarations; check vector placement on the sampled nest."""
         assert self.root_node is not None
         info = ParameterLoopInfo.build_from_node(self.root_node)
         self._check_use_defined_dims(info)
-        self._check_vectorization_consistency()
         self._check_tiling_consistency(info)
         self._check_sizes(info)
 
@@ -468,17 +456,6 @@ class ParameterLoopNest:
         for dim in self.abstract_dims:
             if dim not in info.dims:
                 raise ScheduleValidationError(f"{dim} defined but never used")
-
-    def _check_vectorization_consistency(self):
-        for sched in self.nodes:
-            vect_above = False
-            for loop_name in sched.interchange:
-                if loop_name in sched.vectorize:
-                    vect_above = True
-                elif vect_above:
-                    raise ScheduleValidationError(
-                        f"Inner loop {loop_name} isn't vectorized but an outer one is."
-                    )
 
     def _check_tiling_consistency(self, info: ParameterLoopInfo) -> None:
         seen_axes: dict[str, literal | None] = {}
@@ -524,7 +501,6 @@ class ParameterLoopNest:
                     | current_size_of_split
                     | current_size_of_tile
                 )
-                loop_size = None
                 if loop_name in info.dims:
                     if loop_name not in current_size_of_split:
                         current_size_of_split[loop_name] = None
@@ -549,18 +525,6 @@ class ParameterLoopNest:
                         axis=axis,
                     )
                     current_size_of_split[axis] = loop_size
-
-                if loop_name in sched.unroll:
-                    unroll_factor = sched.unroll[loop_name]
-                    if (
-                        loop_size
-                        and isinstance(loop_size, int)
-                        and isinstance(unroll_factor, int)
-                        and loop_size < unroll_factor
-                    ):
-                        raise ScheduleValidationError(
-                            f'`{{"unroll" = {unroll_factor}}}`: unroll factor should be smaller than {loop_size}.'
-                        )
 
     @staticmethod
     def _must_be_smaller_routine(

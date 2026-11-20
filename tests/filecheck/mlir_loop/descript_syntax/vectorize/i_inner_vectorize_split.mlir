@@ -17,4 +17,4 @@ func.func @matmul(%A: memref<256x512xf64>, %B: memref<512x256xf64>, %C: memref<2
   outs(%C: memref<256x256xf64>)
   return
 }
-// CHECK:  Inner loop k[0] isn't vectorized but an outer one is.
+// CHECK:  Vector annotations are only allowed in leaf nodes; __node0__ declares a partition.

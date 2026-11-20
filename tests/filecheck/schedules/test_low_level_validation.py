@@ -76,8 +76,9 @@ elif "--tile-before-axis" in sys.argv:
 elif "--tile-too-large" in sys.argv:
     sch = make_scheduler()
     sch.set_dims(["I", "J", "K"])
-    sch.tile("I", {"I0": 4})
+    # Valid declaration order, but interchange reverses the nesting below.
     sch.tile("I", {"I00": 8})
+    sch.tile("I", {"I0": 4})
     sch.tile("J", {"J0": 16})
     sch.interchange(["K", "I", "J", "I0", "I00", "J0"])
 

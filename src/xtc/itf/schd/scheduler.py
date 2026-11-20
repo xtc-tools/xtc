@@ -142,8 +142,8 @@ class Scheduler(ABC):
     ) -> None:
         """Apply vectorizations on the given axes names.
 
-        The axes names given must all be inner axes and parallel axes, full
-        unrolling and vectorization of all given axes is implied.
+        The named loops must form a contiguous innermost group on a leaf
+        and must not also have unroll or parallel annotations.
 
         Axes can be passed two ways:
 
@@ -180,7 +180,9 @@ class Scheduler(ABC):
     def parallelize(self, axes: list[str], root: str = DEFAULT_ROOT) -> None:
         """Apply parallelization on the given axes names.
 
-        The axes names must given must all be outer axes and parallel axes.
+        The named loops must permit parallel execution and cannot also be
+        unrolled or vectorized. Backends may limit which parallel loops they
+        lower (for example, to avoid nested parallelism).
 
         Args:
             axes: axes names to parallelize
@@ -192,8 +194,8 @@ class Scheduler(ABC):
     def unroll(self, unrolls: dict[str, int], root: str = DEFAULT_ROOT) -> None:
         """Apply unrolling on the given axes names.
 
-        Each given axes name is unrolled with the specified unroll
-        factor. The unroll factors must be greater or equal to 1.
+        Each named loop is unrolled with the specified positive factor.
+        It must not also have vector or parallel annotations.
 
         Args:
             unrolls: dict of axes names and unroll factor

@@ -5,9 +5,10 @@
 from __future__ import annotations
 
 from typing import Any
-from .loop_names import basename, parent_name, make_loop_name, rooted_name
+
+from .loop_names import basename, make_loop_name, parent_name, rooted_name
+from .loop_nest import LoopNest, LoopNestNode
 from .plain_schedule import PlainNodeSchedule
-from .loop_nest import LoopInfo, LoopNest, LoopNestNode, SplitOrigin
 
 
 class LoopNestBuilder:
@@ -23,8 +24,6 @@ class LoopNestBuilder:
         top_name: str,
         full_name: str,
         node_sched: PlainNodeSchedule,
-        parent: LoopNestNode | None = None,
-        split_origin: SplitOrigin | None = None,
     ) -> LoopNestNode:
         def is_node_axis(axis: str):
             return parent_name(rooted_name(axis, top_name)) == full_name
@@ -48,7 +47,9 @@ class LoopNestBuilder:
             ]
 
         perms = {
-            full_name: v for p, v in node_sched.permutation.items() if is_node_root(p)
+            full_name: v  # noqa: B035
+            for p, v in node_sched.permutation.items()
+            if is_node_root(p)
         }
         interchange = [basename(p) for p in perms[full_name]]
         splits = {
@@ -97,8 +98,6 @@ class LoopNestBuilder:
             fuse_consumer_at=fuse_consumer_at,
             external_at=external_at,
             splits=splits,
-            parent=parent,
-            split_origin=split_origin,
         )
 
     @classmethod
@@ -107,26 +106,12 @@ class LoopNestBuilder:
         top_name: str,
         full_name: str,
         node_sched: PlainNodeSchedule,
-        parent: LoopNestNode | None = None,
-        split_origin: SplitOrigin | None = None,
     ) -> LoopNestNode:
-        node = cls._get_single_node(
-            top_name,
-            full_name,
-            node_sched,
-            parent,
-            split_origin,
-        )
-        mapper = LoopInfo.build_from_node(node)
-        # TODO: sort children by permutation
-        for root, (axis, start, end) in mapper.splits_info.items():
-            split_origin = SplitOrigin(axis, start, end)
-            child = cls._get_loop_node(
-                top_name,
-                make_loop_name(full_name, root),
-                node_sched,
-                node,
-                split_origin,
-            )
-            node.add_child(child)
+        node = cls._get_single_node(top_name, full_name, node_sched)
+        for branches in node.splits.values():
+            for branch in branches:
+                child = cls._get_loop_node(
+                    top_name, make_loop_name(full_name, branch), node_sched
+                )
+                node.add_child(child)
         return node

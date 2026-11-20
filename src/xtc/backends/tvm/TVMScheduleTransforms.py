@@ -4,6 +4,7 @@
 #
 import re
 from typing import Any, cast
+
 from typing_extensions import override
 
 import tvm
@@ -14,7 +15,7 @@ def loop_partition_rebased(
     sch: tvm.s_tir.Schedule,
     loop: Any,
     factors: list[int | None],
-) -> tuple[tvm.s_tir.Schedule, list[Any]]:
+) -> tuple[tvm.s_tir.Schedule, list[str]]:
     """Partition a loop and rebase each resulting loop to start at zero.
 
     TVM's loop_partition preserves the original loop coordinates, while several
@@ -22,14 +23,25 @@ def loop_partition_rebased(
     the partition loops with a zero minimum and add the old minimum to every use
     of their induction variable.
 
-    Rebuilding the IR invalidates schedule RVs, so child blocks are reacquired
-    by name and returned with the new schedule.
+    Rebuilding the IR invalidates schedule RVs, so child block names are
+    returned for reacquisition on the rebuilt schedule.
     """
     working_on = sch.func_working_on
     assert working_on is not None
 
     partitions = sch.loop_partition(loop, cast(Any, factors))
-    children = [sch.get_child_blocks(partition)[0] for partition in partitions]
+
+    def computation_block(parent: Any) -> Any:
+        # Inner-loop partitions introduce an extra scope block. Resolve the
+        # computation, not that wrapper (which has no schedulable loop chain).
+        children = sch.get_child_blocks(parent)
+        if not children:
+            return parent
+        if len(children) != 1:
+            raise ValueError("Partition scope must contain one computation block")
+        return computation_block(children[0])
+
+    children = [computation_block(partition) for partition in partitions]
     child_names = [cast(str, cast(Any, sch.get(child)).name_hint) for child in children]
     partition_vars = [
         cast(Any, sch.get(partition)).loop_var for partition in partitions
@@ -44,7 +56,7 @@ def loop_partition_rebased(
             return node
 
         old_var = node.loop_var
-        new_var = tvm.ir.Var(f"{old_var.name}_zero", old_var.ty)
+        new_var = tvm.ir.Var(old_var.name, old_var.ty)
         body = tvm.tirx.stmt_functor.substitute(
             node.body,
             {old_var: new_var + node.min},
@@ -70,6 +82,81 @@ def loop_partition_rebased(
         ["tirx.For"],
     )
 
+    # loop_partition duplicates the partition body, including SBlock definitions.
+    # The cloned blocks can consequently share the same iter-var Vars, which makes
+    # the resulting TIR invalid SSA. Give every block realization fresh iter vars
+    # and rewrite references local to that block.
+    def uniquify_block_iter_vars(node: Any) -> Any:
+        if not isinstance(node, tvm.tirx.SBlockRealize):
+            return node
+
+        block = node.block
+        if not block.iter_vars:
+            return node
+        substitutions = {
+            iter_var.var: tvm.ir.Var(iter_var.var.name, iter_var.var.ty)
+            for iter_var in block.iter_vars
+        }
+        iter_vars = [
+            tvm.tirx.IterVar(
+                tvm.ir.Range(
+                    tvm.tirx.stmt_functor.substitute(iter_var.dom.min, substitutions),
+                    tvm.tirx.stmt_functor.substitute(
+                        iter_var.dom.extent, substitutions
+                    ),
+                ),
+                substitutions[iter_var.var],
+                iter_var.iter_type,
+                iter_var.thread_tag,
+            )
+            for iter_var in block.iter_vars
+        ]
+
+        def substitute_region(region: Any) -> Any:
+            return tvm.tirx.BufferRegion(
+                region.buffer,
+                [
+                    tvm.ir.Range(
+                        tvm.tirx.stmt_functor.substitute(item.min, substitutions),
+                        tvm.tirx.stmt_functor.substitute(
+                            item.extent,
+                            substitutions,
+                        ),
+                    )
+                    for item in region.region
+                ],
+            )
+
+        new_block = tvm.tirx.SBlock(
+            iter_vars,
+            [substitute_region(region) for region in block.reads],
+            [substitute_region(region) for region in block.writes],
+            block.name_hint,
+            tvm.tirx.stmt_functor.substitute(block.body, substitutions),
+            (
+                tvm.tirx.stmt_functor.substitute(block.init, substitutions)
+                if block.init is not None
+                else None
+            ),
+            block.alloc_buffers,
+            block.match_buffers,
+            block.annotations,
+            block.span,
+        )
+        return tvm.tirx.SBlockRealize(
+            node.iter_values,
+            node.predicate,
+            new_block,
+            node.span,
+        )
+
+    new_body = tvm.tirx.stmt_functor.ir_transform(
+        new_body,
+        None,
+        uniquify_block_iter_vars,
+        ["tirx.SBlockRealize"],
+    )
+
     new_mod = tvm.IRModule(
         old_mod.functions,
         attrs=old_mod.attrs,
@@ -79,8 +166,7 @@ def loop_partition_rebased(
 
     new_sch = tvm.s_tir.Schedule(new_mod)
     new_sch.work_on(working_on.name_hint)
-    new_children = [new_sch.get_sblock(name) for name in child_names]
-    return new_sch, new_children
+    return new_sch, child_names
 
 
 def _depends_on(expr: Any, var: Any, analyzer: Any) -> bool:
@@ -368,6 +454,7 @@ def decompose_reduction_initializers(
 
     analyzer = tvm.arith.Analyzer()
     partitioned_blocks: list[str] = []
+
     for block_name in dict.fromkeys(reduction_blocks):
         block = sch.get_sblock(block_name)
         block_stmt = cast(Any, sch.get(block))
@@ -415,10 +502,52 @@ def decompose_reduction_initializers(
             ),
             None,
         )
-        # Loop partitioning introduces scope blocks that hide an outer
-        # reduction loop from TVM's schedule primitive. Handle those blocks in
-        # a final structural rewrite after all directly schedulable reductions.
-        if reduction_loop is None:
+
+        # Re-read ancestry after each schedule primitive, which may rebuild
+        # the IR and replace loop nodes.
+        class ReductionAncestryCollector(tvm.tirx.stmt_functor.StmtVisitor):
+            def __init__(self, target_name: str) -> None:
+                super().__init__()
+                self.target_name = target_name
+                self.loops: list[Any] = []
+                self.ancestry: list[Any] = []
+
+            @override
+            def visit_for_(self, op: Any) -> None:
+                self.loops.append(op)
+                super().visit_for_(op)
+                self.loops.pop()
+
+            @override
+            def visit_block_realize_(self, op: Any) -> None:
+                if op.block.name_hint == self.target_name:
+                    self.ancestry.extend(self.loops)
+                super().visit_block_realize_(op)
+
+        ancestry_collector = ReductionAncestryCollector(block_name)
+        ancestry_collector.visit_stmt(current_func.body)
+        full_reduction_loops = [
+            loop
+            for loop in ancestry_collector.ancestry
+            if any(
+                _depends_on(value, loop.loop_var, analyzer)
+                for value in reduction_values
+            )
+        ]
+        outer_reduction_loop = full_reduction_loops[0] if full_reduction_loops else None
+
+        # Partition scope blocks can hide an outer reduction loop from
+        # get_loops(). Decomposing at the first visible reduction loop would
+        # then initialize once per outer reduction iteration, so use the
+        # structural fallback whenever the true outermost loop is not visible.
+        if (
+            reduction_loop is None
+            or outer_reduction_loop is None
+            or not any(
+                cast(Any, sch.get(loop)).loop_var.same_as(outer_reduction_loop.loop_var)
+                for loop in loops
+            )
+        ):
             partitioned_blocks.append(block_name)
         else:
             sch.decompose_reduction(block, reduction_loop)
