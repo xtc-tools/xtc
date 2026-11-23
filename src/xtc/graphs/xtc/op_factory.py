@@ -11,6 +11,8 @@ from .expr import (
     XTCTensorExpr,
     XTCMatmulExpr,
     XTCReluExpr,
+    XTCAddExpr,
+    XTCMulExpr,
     XTCConv2DExpr,
     XTCPad2DExpr,
     XTCUnpadExpr,
@@ -26,6 +28,8 @@ __all__ = [
     "unpad",
     "pad",
     "relu",
+    "add",
+    "mul",
     "reshape",
     "transpose",
     "tensor",
@@ -75,6 +79,20 @@ def pad(inp: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
 def relu(inp: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
     return XTCGraphContext.append(
         XTCReluExpr(inp, **attrs),
+        name=name,
+    )
+
+
+def add(a: XTCExpr, b: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
+    return XTCGraphContext.append(
+        XTCAddExpr(a, b, **attrs),
+        name=name,
+    )
+
+
+def mul(a: XTCExpr, b: XTCExpr, name: str | None = None, **attrs: Any) -> XTCExpr:
+    return XTCGraphContext.append(
+        XTCMulExpr(a, b, **attrs),
         name=name,
     )
 

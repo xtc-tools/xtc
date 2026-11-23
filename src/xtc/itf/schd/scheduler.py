@@ -268,7 +268,9 @@ class Scheduler(ABC):
         ...
 
     @abstractmethod
-    def fuse_consumer_at(self, axis: str, root: str = DEFAULT_ROOT) -> None:
+    def fuse_consumer_at(
+        self, axis: str, root: str = DEFAULT_ROOT, chain: bool = False
+    ) -> None:
         """Fuse the consumer computation at the given producer location.
 
         The consumer of output zero is fused at the given scheduled producer
@@ -277,6 +279,8 @@ class Scheduler(ABC):
         Args:
             axis: localisation of the fusion in the producer
             root: the parent split (or the operator's absolute root)
+            chain: also fuse the chain of single-use elementwise ops following
+                the consumer, supported by the mlir and tvm backends.
         """
         ...
 

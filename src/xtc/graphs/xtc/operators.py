@@ -287,6 +287,129 @@ class XTCOperRelu(XTCOperator):
         return [relu]
 
 
+class _OperElementwiseBinaryImpl:
+    @staticmethod
+    def get_operation_variable(
+        inps_types: Sequence[XTCTensorType],
+        outs_types: Sequence[XTCTensorType],
+    ) -> tuple[
+        dict[str, int],
+        tuple[str, ...],
+        tuple[tuple[str, ...], ...],
+        tuple[tuple[str, ...], ...],
+    ]:
+        # One parallel dim per output dim. Inputs are aligned on trailing
+        # dims (numpy broadcasting), broadcast unit dims are accessed at "0".
+        out_shape = outs_types[0].constant_shape
+        dims_names = [f"d{n}" for n in range(len(out_shape))]
+
+        def inp_map(inp_shape: Sequence[int]) -> tuple[str, ...]:
+            offset = len(out_shape) - len(inp_shape)
+            return tuple(
+                "0"
+                if size == 1 and out_shape[offset + pos] != 1
+                else dims_names[offset + pos]
+                for pos, size in enumerate(inp_shape)
+            )
+
+        return (
+            dict(zip(dims_names, out_shape)),
+            tuple("P" for _ in out_shape),
+            tuple(inp_map(inp.constant_shape) for inp in inps_types),
+            (tuple(dims_names),),
+        )
+
+    @staticmethod
+    def forward_types(
+        name: str,
+        inputs_types: Sequence[TensorType],
+        device: AcceleratorDevice | None,
+    ) -> Sequence[XTCTensorType]:
+        assert len(inputs_types) == 2
+        inp0, inp1 = [cast(XTCTensorType, inp_type) for inp_type in inputs_types]
+        assert inp0.dtype == inp1.dtype, (
+            f"incompatible dtypes for {name} inputs: {inp0.dtype} {inp1.dtype}"
+        )
+        try:
+            shape = np.broadcast_shapes(inp0.constant_shape, inp1.constant_shape)
+        except ValueError:
+            raise ValueError(
+                f"incompatible shapes for {name} inputs: "
+                f"{inp0.constant_shape} {inp1.constant_shape}"
+            ) from None
+        return [XTCTensorType(shape=shape, dtype=inp0.dtype, device=device)]
+
+
+class XTCOperAdd(XTCOperator):
+    def __init__(self, **attrs: XTCOperatorAttr) -> None:
+        super().__init__("add", **attrs)
+
+    @override
+    def get_operation(
+        self,
+        inps_types: Sequence[XTCTensorType],
+        outs_types: Sequence[XTCTensorType],
+    ) -> XTCOperation:
+        dims, kinds, inps_maps, outs_maps = (
+            _OperElementwiseBinaryImpl.get_operation_variable(inps_types, outs_types)
+        )
+        return self._get_operation(
+            inps_types,
+            outs_types,
+            dims=dims,
+            kinds=kinds,
+            inps_maps=inps_maps,
+            outs_maps=outs_maps,
+        )
+
+    @override
+    def forward_types(
+        self, inputs_types: Sequence[TensorType]
+    ) -> Sequence[XTCTensorType]:
+        return _OperElementwiseBinaryImpl.forward_types(
+            self.name, inputs_types, self.device
+        )
+
+    @override
+    def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
+        return [XTCTensor(np.add(inputs[0].numpy(), inputs[1].numpy()))]
+
+
+class XTCOperMul(XTCOperator):
+    def __init__(self, **attrs: XTCOperatorAttr) -> None:
+        super().__init__("mul", **attrs)
+
+    @override
+    def get_operation(
+        self,
+        inps_types: Sequence[XTCTensorType],
+        outs_types: Sequence[XTCTensorType],
+    ) -> XTCOperation:
+        dims, kinds, inps_maps, outs_maps = (
+            _OperElementwiseBinaryImpl.get_operation_variable(inps_types, outs_types)
+        )
+        return self._get_operation(
+            inps_types,
+            outs_types,
+            dims=dims,
+            kinds=kinds,
+            inps_maps=inps_maps,
+            outs_maps=outs_maps,
+        )
+
+    @override
+    def forward_types(
+        self, inputs_types: Sequence[TensorType]
+    ) -> Sequence[XTCTensorType]:
+        return _OperElementwiseBinaryImpl.forward_types(
+            self.name, inputs_types, self.device
+        )
+
+    @override
+    def forward(self, inputs: Sequence[Tensor]) -> Sequence[XTCTensor]:
+        return [XTCTensor(np.multiply(inputs[0].numpy(), inputs[1].numpy()))]
+
+
 class XTCOperConv2D(XTCOperator):
     def __init__(self, **attrs: XTCOperatorAttr) -> None:
         super().__init__("conv2d", **attrs)

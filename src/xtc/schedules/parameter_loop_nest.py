@@ -113,7 +113,8 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
         constraints: List of generated constraints.
         fuse_producer_at: Producer fusion configuration per axis. Maps axis
             names to producer indices.
-        fuse_consumer_at: List of axes where the output consumer is fused.
+        fuse_consumer_at: Consumer fusion configuration per axis. Maps axis
+            names to True if the whole consumer chain is fused.
         gpu_lane: Maps loops to lane id
         gpu_warp: Maps loops to warp id
         gpu_block: Maps loops to block id
@@ -134,7 +135,7 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
         default_factory=dict
     )
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
-    fuse_consumer_at: list[str] = field(default_factory=list)
+    fuse_consumer_at: dict[str, bool] = field(default_factory=dict)
     constraints: list[str] = field(default_factory=list)
     gpu_lane: dict[str, int] = field(default_factory=dict)
     gpu_warp: dict[str, int] = field(default_factory=dict)
@@ -349,7 +350,10 @@ class ParameterLoopNestNode(Node["ParameterLoopNestNode"]):
             prod_idx = self.fuse_producer_at[loop_name]
             annotations.append(f"fuse_producer({prod_idx})")
         if loop_name in self.fuse_consumer_at:
-            annotations.append("fuse_consumer")
+            if self.fuse_consumer_at[loop_name]:
+                annotations.append("fuse_consumer_chain")
+            else:
+                annotations.append("fuse_consumer")
         if loop_name in self.gpu_lane:
             annotations.append(f"gpu_lane({self.gpu_lane[loop_name]})")
         if loop_name in self.gpu_warp:

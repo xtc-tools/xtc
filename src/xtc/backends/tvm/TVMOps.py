@@ -52,8 +52,10 @@ class TVMBaseExpr(ABC):
         attrs.update(
             dict(inp_shape=xtc_op.inputs_types[0].shape)
         )  # TODO: work around to pass shape
+        operator = TVMOperators.from_name(xtc_op.name)
+        args = operator.args_from_operation(xtc_op, args)
         return TVMOperation(
-            TVMOperators.from_name(xtc_op.name),
+            operator,
             args,
             dict(attrs),
             name=name,
@@ -245,6 +247,12 @@ class TVMOperator(ABC):
         acc = self.attrs.get("acc_dtype", self.out_dtype)
         return acc != self.out_dtype
 
+    @classmethod
+    def args_from_operation(
+        cls, xtc_op: Operation, args: tuple[Any, ...]
+    ) -> tuple[Any, ...]:
+        return args
+
     @abstractmethod
     def generate_op(
         self, inputs: Sequence[TETensor] | None = None
@@ -389,6 +397,109 @@ class TVMOperatorRelu(TVMOperator):
     @override
     def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
         return (self._input_shape(),)
+
+
+def _broadcast_index(
+    inp_shape: Sequence[int], out_shape: Sequence[int], ivs: Sequence[TEIndexVar]
+) -> tuple[Any, ...]:
+    # Align shapes on trailing dims, broadcast unit dims are indexed by 0
+    offset = len(out_shape) - len(inp_shape)
+    return tuple(
+        0 if size == 1 and out_shape[offset + pos] != 1 else ivs[offset + pos]
+        for pos, size in enumerate(inp_shape)
+    )
+
+
+class TVMOperatorElementwiseBinary(TVMOperator):
+    AXES = "ijklmnopqrstuvwxyz"
+    KINDS = "PPPPPPPPPPPPPPPPPP"
+
+    @staticmethod
+    @abstractmethod
+    def _compute(a: Any, b: Any) -> Any: ...
+
+    @classmethod
+    @override
+    def args_from_operation(
+        cls, xtc_op: Operation, args: tuple[Any, ...]
+    ) -> tuple[Any, ...]:
+        inps_shapes = tuple(
+            tuple(cast(XTCTensorType, typ).constant_shape)
+            for typ in xtc_op.inputs_types
+        )
+        out_shape = tuple(cast(XTCTensorType, xtc_op.outputs_types[0]).constant_shape)
+        return (*args, inps_shapes, out_shape)
+
+    def _rank(self) -> int:
+        rank = len(self.args[-1])
+        assert rank <= len(self.AXES), f"unsupported {self.name} rank: {rank}"
+        return rank
+
+    @override
+    def dims(self, kind: str = "") -> tuple[str, ...]:
+        return self._dims(kind)[: self._rank()]
+
+    @override
+    def dims_sizes(self) -> dict[str, int]:
+        return dict(zip(self.dims(), self.args[-1]))
+
+    @override
+    def generate_op(
+        self, inputs: Sequence[TETensor] | None = None
+    ) -> tuple[TETensor, ...]:
+        dtype, inps_shapes, out_shape = self.args[-3:]
+        shape_a, shape_b = inps_shapes
+        if inputs is None:
+            A = te.placeholder(shape_a, name="A", dtype=dtype)
+            B = te.placeholder(shape_b, name="B", dtype=dtype)
+        else:
+            A, B = cast(Sequence[Any], inputs)
+        O = te.compute(
+            out_shape,
+            lambda *ivs: self._compute(
+                A[_broadcast_index(shape_a, out_shape, ivs)],
+                B[_broadcast_index(shape_b, out_shape, ivs)],
+            ),
+            name=self.name,
+            varargs_names=list(self.dims()),
+        )
+        return cast(tuple[TETensor], (A, B, O))
+
+    @override
+    def inputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        return self.args[-2]
+
+    @override
+    def inputs_types(self) -> tuple[str, ...]:
+        dtype = self.args[-3]
+        return dtype, dtype
+
+    @override
+    def outputs_dims(self) -> tuple[tuple[int, ...], ...]:
+        return (self.args[-1],)
+
+    @override
+    def outputs_types(self) -> tuple[str, ...]:
+        dtype = self.args[-3]
+        return (dtype,)
+
+
+class TVMOperatorAdd(TVMOperatorElementwiseBinary):
+    DEFAULT_NAME = "add"
+
+    @staticmethod
+    @override
+    def _compute(a: Any, b: Any) -> Any:
+        return a + b
+
+
+class TVMOperatorMul(TVMOperatorElementwiseBinary):
+    DEFAULT_NAME = "mul"
+
+    @staticmethod
+    @override
+    def _compute(a: Any, b: Any) -> Any:
+        return a * b
 
 
 class TVMOperatorConv2D(TVMOperator):
@@ -707,6 +818,8 @@ class TVMOperators:
 
     matmul = TVMOperatorMatmul
     relu = TVMOperatorRelu
+    add = TVMOperatorAdd
+    mul = TVMOperatorMul
     conv2d = TVMOperatorConv2D
     pad2d = TVMOperatorPad2D
     unpad = TVMOperatorUnpad

@@ -402,8 +402,8 @@ class ScheduleInterpreter:
         if annotations.fuse_producer is not None:
             node.fuse_producer_at[loop_name] = annotations.fuse_producer
 
-        if annotations.fuse_consumer:
-            node.fuse_consumer_at.append(loop_name)
+        if annotations.fuse_consumer or annotations.fuse_consumer_chain:
+            node.fuse_consumer_at[loop_name] = annotations.fuse_consumer_chain
 
         if annotations.gpu_lane is not None:
             node.gpu_lane[loop_name] = annotations.gpu_lane
@@ -569,8 +569,8 @@ class Descript:
         for axis, input_idx in node.fuse_producer_at.items():
             scheduler.fuse_producer_at(axis, input_idx, root=root)
 
-        for axis in node.fuse_consumer_at:
-            scheduler.fuse_consumer_at(axis, root=root)
+        for axis, chain in node.fuse_consumer_at.items():
+            scheduler.fuse_consumer_at(axis, root=root, chain=chain)
 
         if node.gpu_lane:
             sorted_keys = sorted(

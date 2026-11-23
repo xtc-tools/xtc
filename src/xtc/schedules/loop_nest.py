@@ -107,7 +107,8 @@ class LoopNestNode(Node["LoopNestNode"]):
             chunk (None for no async copy).
         fuse_producer_at: Producer fusion configuration per axis. Maps axis
             names to producer indices.
-        fuse_consumer_at: List of axes where the output consumer is fused.
+        fuse_consumer_at: Consumer fusion configuration per axis. Maps axis
+            names to True if the whole consumer chain is fused.
         gpu_block: List of loops to map to gpu block
         gpu_thread: List of loops to map to gpu thread
         gpu_warp: List of loops to map to gpu warp
@@ -126,7 +127,7 @@ class LoopNestNode(Node["LoopNestNode"]):
         default_factory=dict
     )
     fuse_producer_at: dict[str, int] = field(default_factory=dict)
-    fuse_consumer_at: list[str] = field(default_factory=list)
+    fuse_consumer_at: dict[str, bool] = field(default_factory=dict)
     external_at: dict[str, str] = field(default_factory=dict)
     gpu_block: dict[str, int] = field(default_factory=dict)
     gpu_thread: dict[str, int] = field(default_factory=dict)
@@ -263,7 +264,10 @@ class LoopNestNode(Node["LoopNestNode"]):
             prod_idx = self.fuse_producer_at[loop_name]
             annotations.append(f"fuse_producer({prod_idx})")
         if loop_name in self.fuse_consumer_at:
-            annotations.append("fuse_consumer")
+            if self.fuse_consumer_at[loop_name]:
+                annotations.append("fuse_consumer_chain")
+            else:
+                annotations.append("fuse_consumer")
         if loop_name in self.external_at:
             annotations.append(f"external({self.external_at[loop_name]})")
         if loop_name in self.gpu_block:

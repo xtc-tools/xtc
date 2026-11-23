@@ -33,6 +33,37 @@ def test_relu_inherits_input_rank(shape, dims):
     assert relu.operator.outputs_dims() == (shape,)
 
 
+@requires_tvm
+@pytest.mark.parametrize("op_name", ("add", "mul"))
+@pytest.mark.parametrize(
+    ("shape_a", "shape_b", "out_shape", "dims"),
+    (
+        ((8,), (8,), (8,), ("i",)),
+        ((4, 32), (32,), (4, 32), ("i", "j")),
+        ((4, 32), (4, 1), (4, 32), ("i", "j")),
+        ((1, 1), (1, 1), (1, 1), ("i", "j")),
+        ((2, 1, 16), (4, 16), (2, 4, 16), ("i", "j", "k")),
+    ),
+)
+def test_binary_elementwise_dims(op_name, shape_a, shape_b, out_shape, dims):
+    import xtc.graphs.xtc.op as O
+    from xtc.backends.tvm import TVMBackend
+
+    a = O.tensor(shape_a, "float32", name="A")
+    b = O.tensor(shape_b, "float32", name="B")
+    with O.graph(name=f"{op_name}_graph") as gb:
+        getattr(O, op_name)(a, b, name=op_name)
+
+    impl = TVMBackend(gb.graph)
+    op = impl._ops[op_name]
+    assert op.operator.dims() == dims
+    assert op.operator.dims("P") == dims
+    assert op.operator.dims("R") == ()
+    assert op.operator.dims_sizes() == dict(zip(dims, out_shape))
+    assert op.operator.inputs_dims() == (shape_a, shape_b)
+    assert op.operator.outputs_dims() == (out_shape,)
+
+
 def sched_nop(sch):
     # Expected in TVM schedule
     print(sch)
