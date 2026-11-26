@@ -154,6 +154,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %9 = transform.get_parent_op %new_containing_op {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.apply_patterns to %9 {
 # CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
+# CHECK-NEXT:        transform.apply_patterns.vector.fold_arith_extension
 # CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 # CHECK-NEXT:      } : !transform.any_op
 # CHECK-NEXT:      %10 = transform.structured.match attributes {__xtc_id_relu_} in %arg0 : (!transform.any_op) -> !transform.any_op

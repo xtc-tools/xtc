@@ -806,6 +806,7 @@ class MlirProgramInsertTransformPass:
         )
         with InsertionPoint(transform.ApplyPatternsOp(parent_op).patterns):
             vector.ApplyVectorReductionToContractPatternsOp()
+            vector.ApplyFoldArithExtensionPatternsOp()
             vector.ApplyTransferPermutationPatternsOp()
 
         # the remaining patterns must be applied post-bufferization to work properly

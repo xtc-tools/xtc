@@ -49,6 +49,7 @@ func.func @matmul(%A: memref<256x512xf64>, %B: memref<512x256xf64>, %C: memref<2
 // CHECK-NEXT:      %3 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.apply_patterns to %3 {
 // CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
+// CHECK-NEXT:        transform.apply_patterns.vector.fold_arith_extension
 // CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 // CHECK-NEXT:      } : !transform.any_op
 // CHECK-NEXT:      transform.apply_patterns to %3 {

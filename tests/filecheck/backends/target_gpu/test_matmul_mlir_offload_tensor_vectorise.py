@@ -82,6 +82,7 @@ print(f"CODE: {res}")
 # CHECK-NEXT:      %4 = transform.get_parent_op %forall_op {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 # CHECK-NEXT:      transform.apply_patterns to %4 {
 # CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
+# CHECK-NEXT:        transform.apply_patterns.vector.fold_arith_extension
 # CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 # CHECK-NEXT:      } : !transform.any_op
 # CHECK-NEXT:      %5 = transform.gpu.map_forall_to_blocks %forall_op generate_gpu_launch : (!transform.any_op) -> !transform.any_op
