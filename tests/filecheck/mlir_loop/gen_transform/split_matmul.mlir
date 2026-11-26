@@ -58,6 +58,7 @@ func.func @myfun(
 // CHECK-NEXT:      %7 = transform.get_parent_op %loops {isolated_from_above} : (!transform.any_op) -> !transform.any_op
 // CHECK-NEXT:      transform.apply_patterns to %7 {
 // CHECK-NEXT:        transform.apply_patterns.vector.reduction_to_contract
+// CHECK-NEXT:        transform.apply_patterns.vector.fold_arith_extension
 // CHECK-NEXT:        transform.apply_patterns.vector.transfer_permutation_patterns
 // CHECK-NEXT:      } : !transform.any_op
 // CHECK-NEXT:      transform.apply_patterns to %7 {
